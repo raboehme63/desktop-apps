@@ -1,0 +1,260 @@
+"""Visual theme for a modern Windows desktop look."""
+
+from __future__ import annotations
+
+from PySide6.QtGui import QColor, QFont, QPalette
+from PySide6.QtWidgets import QApplication
+
+STYLESHEET = """
+QWidget {
+    background-color: #12151c;
+    color: #e8edf5;
+    font-family: "Segoe UI Variable", "Segoe UI", sans-serif;
+    font-size: 13px;
+}
+
+QMainWindow, QDialog {
+    background-color: #12151c;
+}
+
+#sidebar {
+    background-color: #181c27;
+    border-right: 1px solid #2a3144;
+}
+
+#brand {
+    font-size: 16px;
+    font-weight: 600;
+    color: #f4f7fb;
+    padding: 8px 4px 16px 4px;
+}
+
+#brandSub {
+    color: #8b95a8;
+    font-size: 11px;
+}
+
+QPushButton {
+    background-color: #243044;
+    border: 1px solid #33415c;
+    border-radius: 8px;
+    padding: 8px 14px;
+    color: #e8edf5;
+}
+
+QPushButton:hover {
+    background-color: #2c3a52;
+}
+
+QPushButton:pressed {
+    background-color: #1c2738;
+}
+
+QPushButton:disabled {
+    color: #6b7385;
+    background-color: #1a2030;
+}
+
+QPushButton#primary {
+    background-color: #2eb8a0;
+    border: 1px solid #2eb8a0;
+    color: #06231e;
+    font-weight: 600;
+}
+
+QPushButton#primary:hover {
+    background-color: #3ccbb2;
+}
+
+QPushButton#sidebarButton {
+    text-align: left;
+    border: none;
+    border-radius: 10px;
+    padding: 10px 14px;
+    background-color: transparent;
+    color: #c5cddb;
+}
+
+QPushButton#sidebarButton:hover {
+    background-color: #23293a;
+}
+
+QPushButton#sidebarButton:checked {
+    background-color: #243b3a;
+    color: #7eebcf;
+    font-weight: 600;
+}
+
+QLineEdit, QPlainTextEdit, QTextEdit {
+    background-color: #1c2230;
+    border: 1px solid #2a3144;
+    border-radius: 8px;
+    padding: 8px 10px;
+    selection-background-color: #2eb8a0;
+    selection-color: #06231e;
+}
+
+QTableWidget {
+    background-color: #171b26;
+    alternate-background-color: #1c2230;
+    gridline-color: #2a3144;
+    border: 1px solid #2a3144;
+    border-radius: 10px;
+}
+
+QHeaderView::section {
+    background-color: #1c2230;
+    color: #8b95a8;
+    border: none;
+    padding: 8px;
+    font-weight: 600;
+}
+
+QProgressBar {
+    background-color: #1c2230;
+    border: 1px solid #2a3144;
+    border-radius: 8px;
+    text-align: center;
+    color: #e8edf5;
+    height: 18px;
+}
+
+QProgressBar::chunk {
+    background-color: #2eb8a0;
+    border-radius: 7px;
+}
+
+QComboBox, QDateEdit, QSpinBox {
+    background-color: #1c2230;
+    border: 1px solid #2a3144;
+    border-radius: 8px;
+    padding: 6px 10px;
+    color: #e8edf5;
+}
+
+QComboBox::drop-down {
+    border: none;
+}
+
+QCheckBox {
+    color: #c5cddb;
+    spacing: 8px;
+}
+
+QListView {
+    background-color: #12151c;
+    border: 1px solid #2a3144;
+    border-radius: 10px;
+    outline: none;
+}
+
+QLabel#pageTitle {
+    font-size: 22px;
+    font-weight: 600;
+    color: #f4f7fb;
+}
+
+QLabel#pageSubtitle {
+    color: #8b95a8;
+}
+
+QFrame#card {
+    background-color: #1a2030;
+    border: 1px solid #2a3144;
+    border-radius: 12px;
+}
+
+QLabel#statValue {
+    font-size: 22px;
+    font-weight: 600;
+    color: #7eebcf;
+}
+
+QLabel#statLabel {
+    color: #8b95a8;
+}
+
+QStatusBar {
+    background-color: #181c27;
+    color: #8b95a8;
+    border-top: 1px solid #2a3144;
+}
+
+QMenuBar {
+    background-color: #181c27;
+    color: #e8edf5;
+    border-bottom: 1px solid #2a3144;
+    padding: 4px 8px;
+}
+
+QMenuBar::item {
+    background: transparent;
+    padding: 4px 10px;
+    border-radius: 6px;
+}
+
+QMenuBar::item:selected {
+    background-color: #243044;
+}
+
+QMenu {
+    background-color: #1a2030;
+    color: #e8edf5;
+    border: 1px solid #2a3144;
+    padding: 6px;
+}
+
+QMenu::item {
+    padding: 6px 18px;
+    border-radius: 6px;
+}
+
+QMenu::item:selected {
+    background-color: #243b3a;
+    color: #7eebcf;
+}
+
+QMenu::separator {
+    height: 1px;
+    background: #2a3144;
+    margin: 4px 8px;
+}
+
+QGroupBox {
+    background-color: #1a2030;
+    border: 1px solid #2a3144;
+    border-radius: 12px;
+    margin-top: 12px;
+    padding: 12px 12px 8px 12px;
+    font-weight: 600;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 12px;
+    padding: 0 6px;
+    color: #f4f7fb;
+}
+
+QScrollArea {
+    border: none;
+}
+"""
+
+
+def apply_theme(app: QApplication) -> None:
+    app.setStyle("Fusion")
+    font = QFont("Segoe UI", 10)
+    app.setFont(font)
+    palette = QPalette()
+    palette.setColor(QPalette.ColorRole.Window, QColor("#12151c"))
+    palette.setColor(QPalette.ColorRole.WindowText, QColor("#e8edf5"))
+    palette.setColor(QPalette.ColorRole.Base, QColor("#1c2230"))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor("#171b26"))
+    palette.setColor(QPalette.ColorRole.Text, QColor("#e8edf5"))
+    palette.setColor(QPalette.ColorRole.Button, QColor("#243044"))
+    palette.setColor(QPalette.ColorRole.ButtonText, QColor("#e8edf5"))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor("#2eb8a0"))
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#06231e"))
+    app.setPalette(palette)
+    app.setStyleSheet(STYLESHEET)

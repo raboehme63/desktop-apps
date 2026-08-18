@@ -1,0 +1,50 @@
+[project]
+name = "travel-journal-workspace"
+version = "0.1.0"
+description = "Monorepo for the Travel Journal desktop app and the reusable travelcore library."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.9",
+]
+
+[tool.uv.workspace]
+members = ["packages/travelcore", "apps/traveljournal"]
+
+[tool.pytest.ini_options]
+testpaths = [
+    "packages/travelcore/tests",
+    "tests",
+]
+pythonpath = [
+    "packages/travelcore/src",
+    "packages/travelcore/tests",
+    "apps/traveljournal/src",
+]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 110
+src = ["packages/travelcore/src", "apps/traveljournal/src"]
+exclude = [
+    "packages/travelcore/src/travelcore/database/migrations/versions",
+    "packages/travelcore/src/travelcore/database/migrations/script.py.mako",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+include = ["packages/travelcore/src", "apps/traveljournal/src"]
+venvPath = "."
+venv = ".venv"

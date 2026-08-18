@@ -1,0 +1,88 @@
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.env
+.envrc
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# Test / type / lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+
+# Travel project runtime data (never commit user travel data)
+**/project.sqlite
+**/project.sqlite-journal
+**/project.sqlite-wal
+**/project.sqlite-shm
+thumbnails/
+cache/
+exports/
+logs/
+
+# Media (do not commit original photos/videos or personal GPS)
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.tif
+*.tiff
+*.heic
+*.heif
+*.cr2
+*.cr3
+*.nef
+*.arw
+*.dng
+*.raf
+*.orf
+*.rw2
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.gpx
+*.kml
+
+# Keep license-friendly synthetic fixtures
+!packages/travelcore/tests/fixtures/**
+!tests/fixtures/**
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# OS / temp
+*.tmp
+*.temp
+*.log
+*.bak
+
+# Packaging / local
+uv.lock
+.python-version
+.pdm-python

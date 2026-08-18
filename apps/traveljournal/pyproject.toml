@@ -1,0 +1,17 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "traveljournal"
+version = "0.1.0"
+description = "Windows desktop app that builds an editable travel journal from photos and GPS tracks."
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "PySide6-Essentials>=6.8",
+    "PySide6-Addons>=6.8",
+]
+
+[project.scripts]
+traveljournal = "traveljournal.main:main"

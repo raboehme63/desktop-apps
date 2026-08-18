@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "travelcore"
+version = "0.1.0"
+description = "GUI-free library for travel reconstruction, media indexing, and photo analysis."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Travel Journal contributors" }]
+dependencies = [
+    "sqlalchemy>=2.0.36",
+    "alembic>=1.14.0",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.7",
+    "pillow>=11.0",
+    "gpxpy>=1.6.0",
+    "folium>=0.19",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/travelcore/database/migrations" = "travelcore/database/migrations"
