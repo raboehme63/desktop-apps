@@ -26,3 +26,11 @@ def test_scan_finds_supported_files_recursively(tmp_path: Path) -> None:
     assert "b.jpeg" in names
     assert "ignore.zip" not in names
     assert len(found) == 4
+
+
+def test_scan_finds_igc_flight_log(tmp_path: Path) -> None:
+    (tmp_path / "flug.IGC").write_text("AXXX\n", encoding="utf-8")
+    found = list(scan_source_directory(tmp_path))
+    assert len(found) == 1
+    assert found[0].kind is FileKind.GPS
+    assert found[0].filename == "flug.IGC"

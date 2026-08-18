@@ -33,7 +33,7 @@ def sync_timeline(
     *,
     thumbs_dir: Path | None = None,
     size: int = 256,
-    suggest_places: bool = True,
+    suggest_places: bool = False,
     settings: AppSettings | None = None,
 ) -> TimelineSnapshot:
     """Create missing trip/days from media dates. Manual titles and notes stay."""

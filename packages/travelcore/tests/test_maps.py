@@ -2,11 +2,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from gpx_fixtures import write_gpx
+from igc_fixtures import bozen_points, write_igc
 from jpeg_fixtures import write_jpeg_with_exif
+from sqlalchemy import select
 
-from travelcore.database.models import OvernightStay, Place, Project, Trip, TripDay
+from travelcore.database.models import OvernightStay, Place, Project, SourceFile, Trip, TripDay
 from travelcore.database.project_store import OpenProject
+from travelcore.gps.ingest import set_track_external_url
 from travelcore.maps import (
+    FLIGHT_LINE_MIN_ZOOM,
     FoliumMapBackend,
     MapBackend,
     MapPolyline,
@@ -57,7 +61,8 @@ def test_map_scene_has_track_and_photo(open_project: OpenProject, tmp_path: Path
     assert scene.polylines[0].points[0] == (46.0, 11.0)
     photos = [item for item in scene.markers if item.kind == "photo"]
     assert len(photos) == 1
-    assert photos[0].label == "platz.jpg"
+    assert photos[0].label == "2025-05-15"
+    assert photos[0].subtitle == "platz.jpg"
     assert photos[0].day_key == "2025-05-15"
 
 
@@ -116,6 +121,36 @@ def test_folium_backend_writes_html(tmp_path: Path) -> None:
     assert "46.0" in text
     assert "leaflet" in text.lower()
     assert isinstance(FoliumMapBackend(), MapBackend)
+
+
+def test_map_scene_includes_igc_flight(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_igc(source / "flug.igc", bozen_points(), pilot="Ralf Muster")
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        FileIndexer().index(session, project, source, generate_thumbnails=False)
+        gps = session.scalar(select(SourceFile))
+        assert gps is not None
+        set_track_external_url(session, gps.id, "https://de.dhv.de/dbnx/nx.php?id=99")
+        session.commit()
+
+    thumbs = open_project.directory / "thumbnails"
+    with open_project.session_factory() as session:
+        scene = build_map_scene(session, open_project.project_id, thumbs)
+
+    assert len(scene.polylines) == 1
+    flight = scene.polylines[0]
+    assert flight.kind == "flight"
+    assert flight.min_zoom == FLIGHT_LINE_MIN_ZOOM
+    assert flight.pilot == "Ralf Muster"
+    assert flight.external_url == "https://de.dhv.de/dbnx/nx.php?id=99"
+    html = FoliumMapBackend().render(scene, tmp_path / "igc.html").read_text(encoding="utf-8")
+    assert "DHV-Leonardo" in html
+    assert "Ralf Muster" in html
+    assert "minZoom" in html
+    assert "Flugtracks" in html
 
 
 def test_offline_backend_omits_osm_tiles(tmp_path: Path) -> None:

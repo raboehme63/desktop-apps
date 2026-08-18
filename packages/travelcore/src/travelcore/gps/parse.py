@@ -25,10 +25,12 @@ class _HasCoordinates(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class ParsedTrack:
-    """One GPX track or route before it is stored."""
+    """One GPS track or route before it is stored."""
 
     name: str | None
     points: tuple[TrackPoint, ...]
+    format: str = "gpx"
+    pilot: str | None = None
 
 
 def parse_gpx(path: Path) -> tuple[ParsedTrack, ...]:

@@ -42,7 +42,7 @@ PHOTO_EXTENSIONS = frozenset(
 )
 
 VIDEO_EXTENSIONS = frozenset({".mp4", ".mov", ".avi", ".mkv"})
-GPS_EXTENSIONS = frozenset({".gpx", ".kml", ".geojson"})
+GPS_EXTENSIONS = frozenset({".gpx", ".kml", ".geojson", ".igc"})
 TEXT_EXTENSIONS = frozenset({".txt", ".md", ".markdown", ".json"})
 
 _KIND_BY_EXTENSION: dict[str, FileKind] = {}
@@ -63,6 +63,7 @@ _EXTRA_MIME = {
     ".orf": "image/x-olympus-orf",
     ".rw2": "image/x-panasonic-rw2",
     ".gpx": "application/gpx+xml",
+    ".igc": "application/x-igc",
     ".kml": "application/vnd.google-earth.kml+xml",
     ".geojson": "application/geo+json",
     ".md": "text/markdown",

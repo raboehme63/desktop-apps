@@ -1,12 +1,15 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from gpx_fixtures import write_gpx
+from igc_fixtures import bozen_points, write_igc
 from jpeg_fixtures import write_jpeg_with_exif, write_plain_jpeg
 from sqlalchemy import func, select
 
 from travelcore.database.models import FileError, GpsPoint, GpsTrack, Photo, Project, SourceFile
-from travelcore.database.project_store import OpenProject
+from travelcore.database.project_store import OpenProject, ProjectStore
+from travelcore.gps.ingest import set_track_external_url
 from travelcore.media.indexer import FileIndexer
 from travelcore.media.types import FileKind
 from travelcore.project_settings import load_project_settings
@@ -161,9 +164,7 @@ def test_indexer_reads_heic_quicktime_gps(open_project: OpenProject, tmp_path: P
         assert photo.position_source == "quicktime"
 
 
-def test_indexer_reads_heic_embedded_exif_camera_and_gps(
-    open_project: OpenProject, tmp_path: Path
-) -> None:
+def test_indexer_reads_heic_embedded_exif_camera_and_gps(open_project: OpenProject, tmp_path: Path) -> None:
     from jpeg_fixtures import jpeg_exif_app1
 
     source = tmp_path / "media"
@@ -492,6 +493,28 @@ def test_indexer_can_defer_thumbnails(open_project: OpenProject, tmp_path: Path)
     assert list(thumbs.glob("*.jpg"))
 
 
+def test_indexer_writes_thumbnails_in_parallel(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    for index in range(4):
+        write_plain_jpeg(source / f"foto_{index}.jpg", size=(16 + index, 12 + index))
+
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        result = FileIndexer(max_workers=2).index(
+            session,
+            project,
+            source,
+            project_dir=open_project.directory,
+        )
+        session.commit()
+
+    assert result.thumbnails_written == 4
+    assert result.errors == 0
+    assert len(list((open_project.directory / "thumbnails").glob("*.jpg"))) == 4
+
+
 def test_indexer_checkpoint_commits_partial_progress(open_project: OpenProject, tmp_path: Path) -> None:
     source = tmp_path / "media"
     source.mkdir()
@@ -507,9 +530,7 @@ def test_indexer_checkpoint_commits_partial_progress(open_project: OpenProject, 
         def checkpoint() -> None:
             session.commit()
             with open_project.session_factory() as other:
-                visible.append(
-                    other.scalar(select(func.count()).select_from(SourceFile)) or 0
-                )
+                visible.append(other.scalar(select(func.count()).select_from(SourceFile)) or 0)
 
         indexer.index(
             session,
@@ -526,3 +547,239 @@ def test_indexer_checkpoint_commits_partial_progress(open_project: OpenProject, 
     assert visible[-1] == 5
     assert any(count < 5 for count in visible[:-1])
 
+
+def test_indexer_parallel_matches_sequential(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    for index in range(4):
+        write_jpeg_with_exif(
+            source / f"foto_{index}.jpg",
+            datetime_original="2025:05:15 15:10:00",
+            make="Canon",
+            model="EOS R6",
+        )
+
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        sequential = FileIndexer(max_workers=1).index(session, project, source, generate_thumbnails=False)
+        session.commit()
+
+    hashes = _source_hashes(open_project)
+
+    other_dir = tmp_path / "projekt_pool"
+    pooled_project = ProjectStore().create(other_dir, "Pool")
+    with pooled_project.session_factory() as session:
+        project = session.get(Project, pooled_project.project_id)
+        assert project is not None
+        pooled = FileIndexer(max_workers=2).index(session, project, source, generate_thumbnails=False)
+        session.commit()
+
+    assert sequential.indexed == pooled.indexed == 4
+    assert sequential.errors == pooled.errors == 0
+    assert hashes == _source_hashes(pooled_project)
+
+
+def _source_hashes(opened: OpenProject) -> dict[str, str | None]:
+    with opened.session_factory() as session:
+        rows = list(session.scalars(select(SourceFile)))
+        return {Path(row.path).name: row.sha256 for row in rows}
+
+
+def test_indexer_reads_igc_pilot_and_track(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_igc(source / "flug.igc", bozen_points(), pilot="Ralf Muster")
+
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        result = FileIndexer().index(session, project, source, generate_thumbnails=False)
+        session.commit()
+
+    assert result.errors == 0
+    assert result.tracks_ingested == 1
+    assert result.track_points == 2
+    with open_project.session_factory() as session:
+        gps = session.scalar(select(SourceFile).where(SourceFile.file_kind == FileKind.GPS.value))
+        assert gps is not None
+        assert gps.camera == "Ralf Muster"
+        assert gps.position_source == "igc_track"
+        assert gps.captured_at_source == "igc_track"
+        track = session.scalar(select(GpsTrack))
+        assert track is not None
+        assert track.track_format == "igc"
+        assert track.pilot == "Ralf Muster"
+        assert track.external_url is None
+
+
+def test_indexer_matches_photo_without_gps_to_igc(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "ohne_gps.jpg",
+        datetime_original="2025:05:15 14:32:00",
+        offset_original="+02:00",
+        make="Canon",
+        model="EOS R6",
+    )
+    write_igc(source / "flug.igc", bozen_points())
+
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        result = FileIndexer().index(session, project, source, generate_thumbnails=False)
+        session.commit()
+
+    assert result.positions_matched == 1
+    with open_project.session_factory() as session:
+        photo = session.scalar(select(SourceFile).where(SourceFile.file_kind == FileKind.PHOTO.value))
+        assert photo is not None
+        assert photo.position_source == "igc_interpolated"
+        assert photo.gps_latitude is not None
+
+
+def test_indexer_preserves_igc_dhv_url_on_reingest(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_igc(source / "flug.igc", bozen_points())
+    indexer = FileIndexer()
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        indexer.index(session, project, source, generate_thumbnails=False)
+        gps = session.scalar(select(SourceFile).where(SourceFile.file_kind == FileKind.GPS.value))
+        assert gps is not None
+        set_track_external_url(session, gps.id, "https://de.dhv.de/dbnx/nx.php?id=42")
+        session.commit()
+
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        indexer.index(session, project, source, generate_thumbnails=False)
+        session.commit()
+
+    with open_project.session_factory() as session:
+        track = session.scalar(select(GpsTrack))
+        assert track is not None
+        assert track.external_url == "https://de.dhv.de/dbnx/nx.php?id=42"
+
+
+def test_set_track_url_rejects_non_http(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_igc(source / "flug.igc", bozen_points())
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        FileIndexer().index(session, project, source, generate_thumbnails=False)
+        gps = session.scalar(select(SourceFile).where(SourceFile.file_kind == FileKind.GPS.value))
+        assert gps is not None
+        with pytest.raises(ValueError, match="http"):
+            set_track_external_url(session, gps.id, "javascript:alert(1)")
+
+
+def test_indexer_matches_photo_without_gps_to_nearby_photo(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "mit_gps.jpg",
+        datetime_original="2025:05:15 15:32:00",
+        offset_original="+02:00",
+        latitude=(46.0, 30.0, 0.0),
+        longitude=(11.0, 21.0, 0.0),
+    )
+    write_jpeg_with_exif(
+        source / "ohne_gps.jpg",
+        datetime_original="2025:05:15 15:32:10",
+        offset_original="+02:00",
+        make="Canon",
+        model="EOS R6",
+    )
+
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        result = FileIndexer().index(session, project, source, generate_thumbnails=False)
+        session.commit()
+
+    assert result.positions_matched == 1
+    with open_project.session_factory() as session:
+        photo = session.scalar(select(SourceFile).where(SourceFile.filename == "ohne_gps.jpg"))
+        assert photo is not None
+        assert photo.position_source == "photo_nearest"
+        assert photo.gps_latitude is not None
+        assert abs(photo.gps_latitude - 46.5) < 1e-6
+        assert abs((photo.gps_longitude or 0) - 11.35) < 1e-6
+
+
+def test_indexer_prefers_photo_gps_over_gpx(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "mit_gps.jpg",
+        datetime_original="2025:05:15 15:32:00",
+        offset_original="+02:00",
+        latitude=(46.0, 30.0, 0.0),
+        longitude=(11.0, 21.0, 0.0),
+    )
+    write_jpeg_with_exif(
+        source / "ohne_gps.jpg",
+        datetime_original="2025:05:15 15:32:10",
+        offset_original="+02:00",
+        make="Canon",
+        model="EOS R6",
+    )
+    write_gpx(
+        source / "spur.gpx",
+        [
+            (46.0, 11.0, 260.0, "2025-05-15T13:31:50Z"),
+            (46.2, 11.2, 280.0, "2025-05-15T13:32:10Z"),
+        ],
+    )
+
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        FileIndexer().index(session, project, source, generate_thumbnails=False)
+        session.commit()
+
+    with open_project.session_factory() as session:
+        photo = session.scalar(select(SourceFile).where(SourceFile.filename == "ohne_gps.jpg"))
+        assert photo is not None
+        assert photo.position_source == "photo_nearest"
+        assert photo.gps_latitude is not None
+        assert abs(photo.gps_latitude - 46.5) < 1e-6
+
+
+def test_indexer_prefers_gpx_over_igc(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "ohne_gps.jpg",
+        datetime_original="2025:05:15 14:32:00",
+        offset_original="+02:00",
+        make="Canon",
+        model="EOS R6",
+    )
+    write_gpx(
+        source / "spur.gpx",
+        [
+            (46.0, 11.0, 260.0, "2025-05-15T12:31:50Z"),
+            (46.2, 11.2, 280.0, "2025-05-15T12:32:10Z"),
+        ],
+    )
+    write_igc(source / "flug.igc", bozen_points())
+
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        FileIndexer().index(session, project, source, generate_thumbnails=False)
+        session.commit()
+
+    with open_project.session_factory() as session:
+        photo = session.scalar(select(SourceFile).where(SourceFile.file_kind == FileKind.PHOTO.value))
+        assert photo is not None
+        assert photo.position_source == "gpx_interpolated"
+        assert photo.gps_latitude is not None
+        assert abs(photo.gps_latitude - 46.1) < 1e-6

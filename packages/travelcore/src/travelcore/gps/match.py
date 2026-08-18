@@ -11,10 +11,31 @@ from travelcore.metadata.time import parse_offset
 
 SOURCE_INTERPOLATED = "gpx_interpolated"
 SOURCE_NEAREST = "gpx_nearest"
+SOURCE_PHOTO_INTERPOLATED = "photo_interpolated"
+SOURCE_PHOTO_NEAREST = "photo_nearest"
+SOURCE_IGC_INTERPOLATED = "igc_interpolated"
+SOURCE_IGC_NEAREST = "igc_nearest"
 PROTECTED_SOURCES = frozenset({"exif", "quicktime", "manual"})
+DERIVED_SOURCES = frozenset(
+    {
+        SOURCE_INTERPOLATED,
+        SOURCE_NEAREST,
+        SOURCE_PHOTO_INTERPOLATED,
+        SOURCE_PHOTO_NEAREST,
+        SOURCE_IGC_INTERPOLATED,
+        SOURCE_IGC_NEAREST,
+    }
+)
 
 
-def interpolate_position(moment: datetime, before: TrackPoint, after: TrackPoint) -> GpsFix:
+def interpolate_position(
+    moment: datetime,
+    before: TrackPoint,
+    after: TrackPoint,
+    *,
+    source_interpolated: str = SOURCE_INTERPOLATED,
+    source_nearest: str = SOURCE_NEAREST,
+) -> GpsFix:
     """Linearly interpolate lat/lon/alt between two timed track points."""
 
     start = _require_time(before)
@@ -26,7 +47,7 @@ def interpolate_position(moment: datetime, before: TrackPoint, after: TrackPoint
             latitude=before.latitude,
             longitude=before.longitude,
             altitude=before.altitude,
-            source=SOURCE_NEAREST,
+            source=source_nearest,
             confidence=_confidence(delta, span or 1.0),
             time_delta_seconds=delta,
             from_exif=False,
@@ -41,7 +62,7 @@ def interpolate_position(moment: datetime, before: TrackPoint, after: TrackPoint
         latitude=before.latitude + fraction * (after.latitude - before.latitude),
         longitude=_lerp_longitude(before.longitude, after.longitude, fraction),
         altitude=altitude,
-        source=SOURCE_INTERPOLATED,
+        source=source_interpolated,
         confidence=_confidence(nearest, span),
         time_delta_seconds=nearest,
         from_exif=False,
@@ -53,6 +74,8 @@ def match_position(
     points: Sequence[TrackPoint],
     *,
     max_delta_seconds: float = 120.0,
+    source_interpolated: str = SOURCE_INTERPOLATED,
+    source_nearest: str = SOURCE_NEAREST,
 ) -> GpsFix | None:
     """Return an interpolated or nearest fix if ``moment`` lies near the track."""
 
@@ -75,20 +98,26 @@ def match_position(
             to_prev = moment - prev_t
             to_next = next_t - moment
             if to_prev <= max_delta and to_next <= max_delta:
-                return interpolate_position(moment, previous, following)
+                return interpolate_position(
+                    moment,
+                    previous,
+                    following,
+                    source_interpolated=source_interpolated,
+                    source_nearest=source_nearest,
+                )
             nearer = previous if to_prev <= to_next else following
             delta = min(to_prev, to_next)
             if delta <= max_delta:
-                return _nearest_fix(moment, nearer)
+                return _nearest_fix(moment, nearer, source=source_nearest)
 
     if previous is not None:
         delta = moment - _require_time(previous)
         if timedelta(0) <= delta <= max_delta:
-            return _nearest_fix(moment, previous)
+            return _nearest_fix(moment, previous, source=source_nearest)
     if following is not None:
         delta = _require_time(following) - moment
         if timedelta(0) <= delta <= max_delta:
-            return _nearest_fix(moment, following)
+            return _nearest_fix(moment, following, source=source_nearest)
     return None
 
 
@@ -115,14 +144,14 @@ def media_time_utc(
     return captured_at.replace(tzinfo=UTC)
 
 
-def _nearest_fix(moment: datetime, point: TrackPoint) -> GpsFix:
+def _nearest_fix(moment: datetime, point: TrackPoint, *, source: str = SOURCE_NEAREST) -> GpsFix:
     recorded = _require_time(point)
     delta = abs((moment - recorded).total_seconds())
     return GpsFix(
         latitude=point.latitude,
         longitude=point.longitude,
         altitude=point.altitude,
-        source=SOURCE_NEAREST,
+        source=source,
         confidence=_confidence(delta, max(delta, 1.0)),
         time_delta_seconds=delta,
         from_exif=False,

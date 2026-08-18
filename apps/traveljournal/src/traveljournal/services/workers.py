@@ -15,7 +15,7 @@ from travelcore.media.thumbnails import generate_project_thumbnails
 
 
 class IndexSignals(QObject):
-    progress = Signal(int, int, str)
+    progress = Signal(int, int, str, str)
     files_ready = Signal()
     finished = Signal(object)
     failed = Signal(str)
@@ -34,7 +34,7 @@ class IndexRunnable(QRunnable):
             indexer = FileIndexer(compute_hash=True)
 
             def on_progress(item: IndexProgress) -> None:
-                self.signals.progress.emit(item.current, item.total, item.path)
+                self.signals.progress.emit(item.current, item.total, item.path, item.message)
 
             with session_scope(self.open_project.session_factory) as session:
                 project = session.get(Project, self.open_project.project_id)
@@ -94,6 +94,7 @@ class ThumbnailRunnable(QRunnable):
                     project,
                     self.open_project.directory / "thumbnails",
                     size=settings.default_thumbnail_size,
+                    max_workers=settings.worker_count,
                 )
             self.signals.finished.emit(result.written)
         except Exception as exc:  # noqa: BLE001 - surface thumbnail failures to the UI

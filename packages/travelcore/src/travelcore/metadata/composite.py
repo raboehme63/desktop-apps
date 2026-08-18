@@ -54,6 +54,11 @@ class DefaultMetadataProvider:
                 result = merge_metadata(result, embedded)
         return result
 
+    def close(self) -> None:
+        closer = getattr(self._exiftool, "close", None)
+        if callable(closer):
+            closer()
+
 
 def _is_complete(metadata: MediaMetadata) -> bool:
     has_time = metadata.captured is not None and metadata.captured.normalized is not None

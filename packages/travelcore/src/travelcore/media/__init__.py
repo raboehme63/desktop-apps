@@ -1,5 +1,6 @@
 """Media discovery, typing, hashing, and source-file indexing."""
 
+from travelcore.media.extract import FileFacts, extract_file_facts, extract_many
 from travelcore.media.hashing import sha256_file
 from travelcore.media.indexer import FileIndexer, IndexProgress, IndexResult
 from travelcore.media.scanner import ScannedFile, scan_source_directory
@@ -12,6 +13,7 @@ from travelcore.media.thumbnails import (
 from travelcore.media.types import FileKind, classify_path, mime_for_path
 
 __all__ = [
+    "FileFacts",
     "FileIndexer",
     "FileKind",
     "IndexProgress",
@@ -21,6 +23,8 @@ __all__ = [
     "cached_thumbnail_path",
     "classify_path",
     "ensure_thumbnail",
+    "extract_file_facts",
+    "extract_many",
     "generate_project_thumbnails",
     "mime_for_path",
     "scan_source_directory",

@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from travelcore.exceptions import ProjectError
-from travelcore.maps import MapScene
+from travelcore.maps import FLIGHT_LINE_MIN_ZOOM, MapScene
 from traveljournal.services.workspace import Workspace
 
 try:
@@ -39,7 +39,8 @@ class MapView(QWidget):
         title = QLabel("Karte")
         title.setObjectName("pageTitle")
         self._subtitle = QLabel(
-            "Tracks als Linie, Fotos als Marker. Kacheln von OpenStreetMap, sofern nicht offline."
+            "Tracks und IGC-Flugspuren als Linie, Fotos als Marker. "
+            "Flugtracks erscheinen ab Zoomstufe 10; Start und Landung sind immer sichtbar."
         )
         self._subtitle.setObjectName("pageSubtitle")
         self._subtitle.setWordWrap(True)
@@ -75,13 +76,11 @@ class MapView(QWidget):
             return
         self._subtitle.setText(_summary(scene))
         if scene.empty or html_path is None:
-            self._show_message("Keine GPS-Daten im Index. Fotos mit Ort oder GPX-Tracks importieren.")
+            self._show_message("Keine GPS-Daten im Index. Fotos mit Ort, GPX- oder IGC-Tracks importieren.")
             self.status_message.emit("Karte: keine GPS-Daten")
             return
         if QWebEngineView is None:
-            self._show_message(
-                f"Qt WebEngine ist nicht installiert. Die Karte liegt unter:\n{html_path}"
-            )
+            self._show_message(f"Qt WebEngine ist nicht installiert. Die Karte liegt unter:\n{html_path}")
             return
         self._ensure_web()
         assert self._web is not None
@@ -110,8 +109,10 @@ def _summary(scene: MapScene) -> str:
     photos = sum(1 for item in scene.markers if item.kind in {"photo", "video"})
     stays = sum(1 for item in scene.markers if item.kind == "overnight")
     places = sum(1 for item in scene.markers if item.kind == "place")
+    flights = sum(1 for item in scene.polylines if item.kind == "flight")
+    tracks = len(scene.polylines) - flights
     return (
-        f"{len(scene.polylines)} Tracks, {photos} Medien mit Ort, "
-        f"{stays} Übernachtungen, {places} Orte. "
+        f"{tracks} Tracks, {flights} Flugtracks (IGC ab Zoom {FLIGHT_LINE_MIN_ZOOM}), "
+        f"{photos} Medien mit Ort, {stays} Übernachtungen, {places} Orte. "
         "Klick auf einen Marker zeigt die Vorschau, sofern vorhanden."
     )

@@ -82,10 +82,12 @@ Stand nach `pytest --collect-only`: **98 Tests** (18. August 2026). Neue Tests s
 | --- | --- | --- |
 | `test_jpeg_is_photo` | `test_file_types.py` | JPG/JPEG → Foto |
 | `test_gpx_is_gps` | `test_file_types.py` | GPX + MIME |
+| `test_igc_is_gps` | `test_file_types.py` | IGC als GPS, MIME `application/x-igc` |
 | `test_markdown_is_text` | `test_file_types.py` | Markdown |
 | `test_unsupported_returns_none` | `test_file_types.py` | z. B. ZIP ignorieren |
 | `test_raw_is_photo_for_metadata_later` | `test_file_types.py` | NEF als Foto klassifiziert |
 | `test_scan_finds_supported_files_recursively` | `test_scanner.py` | Rekursion, JPEG-Groß/Kleinschreibung, GPX, MD, ZIP außen vor |
+| `test_scan_finds_igc_flight_log` | `test_scanner.py` | IGC wird als GPS gefunden |
 
 ### 4.2 Index, Hash, Fehler — FA-020 bis FA-024, FA-095
 
@@ -98,6 +100,9 @@ Stand nach `pytest --collect-only`: **98 Tests** (18. August 2026). Neue Tests s
 | `test_indexer_skips_unchanged_files` | `test_indexer.py` | zweiter Lauf zählt `skipped_unchanged` |
 | `test_corrupt_jpeg_does_not_abort_import` | `test_indexer.py` | kaputtes JPG erzeugt Fehlerzeile, gültiges JPG bleibt indexiert |
 | `test_indexer_checkpoint_commits_partial_progress` | `test_indexer.py` | Zwischenstände sind in einer zweiten Session sichtbar |
+| `test_extract_file_facts_hashes_and_reads_jpeg` | `test_extract.py` | Hash+EXIF ohne SQLite |
+| `test_extract_many_pool_matches_sequential` | `test_extract.py` | ProcessPool liefert dieselben Hashes |
+| `test_indexer_parallel_matches_sequential` | `test_indexer.py` | 1 Worker vs. 2 Worker, gleiche SHA-256 |
 
 ### 4.3 Zeit und Zeitzone — FA-031 bis FA-033
 
@@ -129,6 +134,8 @@ Stand nach `pytest --collect-only`: **98 Tests** (18. August 2026). Neue Tests s
 | `test_exiftool_json_priority_and_signed_gps` | `test_exiftool_json.py` | JSON-Mapping, Vorzeichen |
 | `test_exiftool_json_video_creation_time` | `test_exiftool_json.py` | Video-Zeitfeld |
 | `test_exiftool_json_quicktime_gps_coordinates` | `test_exiftool_json.py` | QuickTime-Koordinaten |
+| `test_exiftool_provider_read_uses_session` | `test_exiftool_json.py` | Stay-Open/Session statt Prozess pro Datei |
+| `test_exiftool_provider_read_many_batches_paths` | `test_exiftool_json.py` | mehrere Pfade in einem Lauf |
 | `test_merge_fills_missing_fields_only` | `test_metadata_merge.py` | Merge überschreibt vorhandene Werte nicht |
 
 ### 4.5 HEIC ohne ExifTool — FA-036
@@ -152,7 +159,7 @@ Stand nach `pytest --collect-only`: **98 Tests** (18. August 2026). Neue Tests s
 | `test_open_existing_project` | `test_database.py` | Öffnen bestehender DB |
 | `test_schema_contains_core_tables` | `test_database.py` | Kern-Tabellen inkl. `source_files`, `trips`, `photo_analyses` |
 | `test_new_project_writes_settings_file` | `test_project_settings.py` | Default-`settings.toml` |
-| `test_settings_roundtrip_preserves_values` | `test_project_settings.py` | Exportformat, Wurzel, Zeitzone |
+| `test_settings_roundtrip_preserves_values` | `test_project_settings.py` | Exportformat, Wurzel, Zeitzone, CPU-Worker |
 | `test_corrupt_settings_raise` | `test_project_settings.py` | unlesbares TOML → `ProjectError` |
 | `test_ensure_fills_source_root_from_database` | `test_project_settings.py` | fehlende Wurzel aus der DB nachziehen |
 | `test_rebase_rewrites_indexed_paths` | `test_project_settings.py` | Pfad-Rebase ohne Original-Move |
@@ -178,12 +185,22 @@ Stand nach `pytest --collect-only`: **98 Tests** (18. August 2026). Neue Tests s
 | `test_media_time_uses_project_offset_for_naive_capture` | `test_gps_matching.py` | Projekt-Offset `+02:00` |
 | `test_aware_capture_is_converted_to_utc` | `test_gps_matching.py` | zeitbehaftete Aufnahme → UTC-Vergleich |
 | `test_indexer_matches_photo_without_gps_to_gpx` | `test_indexer.py` | JPEG ohne GPS → SQLite `gpx_interpolated`; GPX-Zeile selbst `gpx_track` |
+| `test_indexer_matches_photo_without_gps_to_nearby_photo` | `test_indexer.py` | JPEG ohne GPS übernimmt Position vom zeitnahen Foto |
+| `test_indexer_prefers_photo_gps_over_gpx` | `test_indexer.py` | Foto vor GPX |
+| `test_indexer_prefers_gpx_over_igc` | `test_indexer.py` | GPX vor IGC |
 | `test_indexer_fills_gpx_source_file_position_and_time` | `test_indexer.py` | GPX-SourceFile: Mittelwert und Startzeit |
 | `test_indexer_gpx_reingest_updates_source_file_metadata` | `test_indexer.py` | Re-Import aktualisiert Position und Zeit |
 | `test_indexer_untimed_gpx_sets_position_without_date` | `test_indexer.py` | GPX ohne Zeiten: Position, keine Startzeit |
 | `test_indexer_does_not_overwrite_exif_gps_with_gpx` | `test_indexer.py` | EXIF-GPS bleibt |
 | `test_corrupt_gpx_does_not_abort_import` | `test_indexer.py` | defekte GPX als `file_errors.stage=gpx` |
 | `test_empty_gpx_does_not_abort_import` | `test_indexer.py` | leere GPX kein Importabbruch |
+| `test_parse_igc_pilot_and_points` | `test_igc_parse.py` | Pilot, UTC-Zeit, Bozen-Koordinaten |
+| `test_parse_igc_skips_invalid_fix` | `test_igc_parse.py` | B-Record mit `V` wird ignoriert |
+| `test_empty_igc_is_not_an_error` | `test_igc_parse.py` | Header ohne Fixes |
+| `test_indexer_reads_igc_pilot_and_track` | `test_indexer.py` | Pilot in `camera`/`gps_tracks.pilot`, Quelle `igc_track` |
+| `test_indexer_matches_photo_without_gps_to_igc` | `test_indexer.py` | Foto ohne GPS an IGC-Zeit |
+| `test_indexer_preserves_igc_dhv_url_on_reingest` | `test_indexer.py` | DHV-Leonardo-Link überlebt Re-Import |
+| `test_set_track_url_rejects_non_http` | `test_indexer.py` | kein `javascript:`-Link |
 
 ### 4.8 Thumbnails und Galerie — FA-100, FA-101
 
@@ -199,6 +216,7 @@ Stand nach `pytest --collect-only`: **98 Tests** (18. August 2026). Neue Tests s
 | `test_cached_thumbnail_path_uses_hash` | `test_thumbnails.py` | Cache-Dateiname enthält SHA-256 |
 | `test_indexer_writes_thumbnail_and_photo_row` | `test_indexer.py` | Cache + `photos`-Zeile |
 | `test_indexer_can_defer_thumbnails` | `test_indexer.py` | Index ohne Thumbs, danach `build_previews` |
+| `test_indexer_writes_thumbnails_in_parallel` | `test_indexer.py` | vier Vorschaubilder per ProcessPool |
 | `test_gallery_lists_photos_in_capture_order` | `test_gallery.py` | chronologische Reihenfolge |
 
 ### 4.9 Karte — FA-050 bis FA-052
@@ -210,6 +228,7 @@ Stand nach `pytest --collect-only`: **98 Tests** (18. August 2026). Neue Tests s
 | `test_map_scene_includes_overnight_and_place` | `test_maps.py` | Übernachtung und Ort |
 | `test_folium_backend_writes_html` | `test_maps.py` | Leaflet-HTML, `MapBackend` |
 | `test_offline_backend_omits_osm_tiles` | `test_maps.py` | `tiles=None` ohne OSM-URL |
+| `test_map_scene_includes_igc_flight` | `test_maps.py` | IGC-Polylinie, Pilot, DHV-Link, Zoom-Skript |
 
 ### 4.10 Timeline und Tagebuch — FA-060 bis FA-064, FA-080, FA-081
 
@@ -219,7 +238,7 @@ Stand nach `pytest --collect-only`: **98 Tests** (18. August 2026). Neue Tests s
 | `test_cluster_stays_splits_distant_points` | `test_timeline.py` | entfernte Punkte bleiben getrennt |
 | `test_sync_timeline_creates_one_day_per_date` | `test_timeline.py` | zwei Aufnahmedaten → zwei Tage, Auto-Ereignis „1 Medien“ |
 | `test_manual_day_text_survives_resync` | `test_timeline.py` | Titel/Text `origin=manual` bleibt nach Sync |
-| `test_place_suggestion_and_confirm_not_duplicated` | `test_timeline.py` | Ortsvorschlag, Bestätigen, kein zweiter Auto-Ort |
+| `test_place_suggestion_not_auto_assigned_to_gps_media` | `test_timeline.py` | Import vergibt keinen Ortsnamen; opt-in-Vorschlag und Bestätigen |
 | `test_overnight_and_journal_flags` | `test_timeline.py` | Übernachtung, `used_in_journal`, Titelbild |
 
 ---
@@ -376,7 +395,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | Track als Linie, Fotos als Marker; Klick zeigt Dateiname und ggf. Vorschaubild |
+| Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | Track als Linie mit Datum, Fotos als Marker mit Datum; Klick zeigt Datum und Dateiname sowie ggf. Vorschaubild |
 | Nahe Marker | Cluster, aufklappbar; Tagesfarben unterscheidbar |
 | Übernachtung im Tagebuch mit GPS anlegen | schwarzer Home-Marker auf der Karte |
 | Bestätigter Ort | grauer Flag-Marker |
@@ -386,8 +405,8 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Schritt | Erwartung |
 | --- | --- |
 | Nach Import Seite **Timeline** öffnen bzw. **Timeline aktualisieren** | ein Tag je Aufnahmedatum; Fotos am Kalendertag der Aufnahmezeit; Auto-Ereignis mit Medienzähler |
-| GPS-Fotos am selben Ort | unbestätigter Ortsvorschlag; Bestätigen speichert den Namen mit `origin=manual`; erneuter Abgleich legt keinen zweiten Auto-Ort an |
-| Ort löschen, erneut abgleichen | neuer Auto-Vorschlag erlaubt |
+| GPS-Fotos am selben Ort | kein automatischer Ortsname; Tag zeigt das Datum. Orte nur manuell im Tagebuch |
+| Ort löschen, erneut abgleichen | kein neuer Auto-Ortsname |
 | Seite **Tagebuch**: Titel und Text speichern, Projekt schließen und öffnen | Text noch da, `origin=manual`; erneuter Timeline-Abgleich überschreibt den Text nicht |
 | Foto-Häkchen und Titelbild | `used_in_journal` / `is_cover` bleiben nach erneutem Öffnen; Foto bleibt am Aufnahmetag |
 | Alle ins Tagebuch / Alle entfernen | nur das Häkchen ändert sich, nicht der Tag |

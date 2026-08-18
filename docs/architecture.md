@@ -41,7 +41,11 @@ apps/photoinspector ─uses──►  packages/travelcore   (geplant)
 
 Lange Aufgaben (Indexierung, Thumbnails) laufen im GUI-Prozess über
 `QThreadPool`/`QRunnable`. `travelcore` selbst kennt keine Qt-Threads und
-bietet synchrone Funktionen plus optionale Progress-Callbacks.
+bietet synchrone Funktionen plus optionale Progress-Callbacks. CPU-Arbeit
+(Hash, Metadaten, Thumbnails) läuft intern in einem `ProcessPool`
+(`spawn`, ein Kern bleibt für die Oberfläche). Worker liefern nur DTOs;
+SQLite schreibt seriell. ExifTool nutzt Stay-Open oder eine Argfile-Liste,
+nicht einen Prozess pro Datei.
 
 ## Projektordner
 
@@ -90,12 +94,14 @@ aktualisieren Timeline, Tagebuch, Karte und Galerie.
 
 ## Karte
 
-`build_map_scene` sammelt Tracks (ausgedünnt, max. 2500 Punkte, Endpunkte
-bleiben), geotaggte Fotos/Videos, Orte und Übernachtungen. Folium schreibt
-`cache/map.html`. Foto-Marker clustern je Kalendertag; Klick zeigt
-Dateiname und Thumbnail. `map_provider=offline` setzt `tiles=None` (keine
-OSM-Kacheln). Qt WebEngine zeigt die Datei; fehlt das Add-on, bleibt der
-Pfad sichtbar.
+`build_map_scene` sammelt GPX-Tracks (ausgedünnt, max. 2500 Punkte, Endpunkte
+bleiben), IGC-Flugtracks (max. 1200 Punkte, Linie ab Zoom 10, Start- und
+Lande-Marker immer sichtbar, Popup mit Pilot und DHV-Leonardo-Link), geotaggte
+Fotos/Videos, Orte und Übernachtungen. Folium schreibt `cache/map.html`.
+Foto- und Track-Marker zeigen das Datum, keinen Ortsnamen; Klick auf ein Foto
+zeigt Datum, Dateiname und Thumbnail.
+`map_provider=offline` setzt `tiles=None` (keine OSM-Kacheln). Qt WebEngine
+zeigt die Datei; fehlt das Add-on, bleibt der Pfad sichtbar.
 
 ## Austauschbare Schnittstellen
 
@@ -103,16 +109,18 @@ Bereits in Phase 1 angelegt, schrittweise gefüllt:
 
 - `MetadataProvider` – Pillow für JPEG/TIFF/WebP/PNG; HEIC: eingebettetes EXIF-TIFF,
   QuickTime/ISO-6709 und Apple-`data`-Boxen; optional ExifTool für HEIC/RAW
-- GPX-Ingest in `travelcore.gps` – Tracks/Punkte in SQLite, zeitliche Interpolation
-  auf Medien ohne EXIF-GPS (`gpx_interpolated` / `gpx_nearest`);
-  GPX-SourceFile mit Mittelwert der ersten Punkte und Startzeit (`gpx_track`)
+- GPX- und IGC-Ingest in `travelcore.gps` – Tracks/Punkte in SQLite; Medien ohne EXIF-GPS
+  in der Reihenfolge Foto → GPX → IGC (`photo_*`, `gpx_*`, `igc_*`);
+  GPX-SourceFile mit Mittelwert der ersten Punkte und Startzeit (`gpx_track`);
+  IGC mit Pilot (`igc_track`) und optionalem DHV-Leonardo-Link
 - Thumbnails in `travelcore.media.thumbnails` – JPEG-Cache unter `thumbnails/`,
   HEIC über Windows-Shell/WIC oder eingebettetes JPEG, Originale nur gelesen
 - `VideoMetadataProvider` – ffprobe-Adapter (noch nicht aktiv)
 - `Exporter` – HTML, PDF, LaTeX, CEWE (Implementierung ab Phase 8)
-- `MapBackend` – Folium/Leaflet, Tracks als Polylinie, Fotos/Videos als
-  Marker (Cluster je Tag), Übernachtungen und Orte
-- Timeline in `travelcore.timeline` – Tage, Ortsvorschläge, manuelle Texte
+- `MapBackend` – Folium/Leaflet, GPX-Tracks als Polylinie, IGC-Flugtracks ab Zoom 10
+  (Start/Landung immer sichtbar), Fotos/Videos als Marker (Cluster je Tag),
+  Übernachtungen und Orte
+- Timeline in `travelcore.timeline` – Tage aus dem Aufnahmedatum, manuelle Texte; keine Ortsnamen an Foto-/Trackpositionen
 - `RankingStrategy` / `QualityAnalyzer` – Verträge für Phase 9/10
 
 ## Persistenz

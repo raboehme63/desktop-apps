@@ -34,12 +34,14 @@ def test_settings_roundtrip_preserves_values(tmp_path: Path) -> None:
     settings.export.default_format = "pdf"
     settings.matching.gps_match_max_delta_seconds = 45
     settings.matching.default_timezone = "Europe/Berlin"
+    settings.performance.worker_count = 4
     settings.placeholders.journal_language = "it"
     save_project_settings(directory, settings)
     loaded = load_project_settings(directory)
     assert loaded.export.default_format == "pdf"
     assert loaded.matching.gps_match_max_delta_seconds == 45
     assert loaded.matching.default_timezone == "Europe/Berlin"
+    assert loaded.performance.worker_count == 4
     assert loaded.placeholders.journal_language == "it"
     assert loaded.paths.source_root is not None
     assert Path(loaded.paths.source_root) == tmp_path / "fotos"

@@ -9,6 +9,7 @@ from travelcore.geolocation.stays import cluster_stays, haversine_m
 from travelcore.media.indexer import FileIndexer
 from travelcore.timeline import (
     add_overnight_stay,
+    add_place_suggestions,
     confirm_place,
     load_timeline,
     save_day_text,
@@ -89,7 +90,7 @@ def test_manual_day_text_survives_resync(open_project: OpenProject, tmp_path: Pa
     assert snapshot.days[0].origin == "manual"
 
 
-def test_place_suggestion_and_confirm_not_duplicated(open_project: OpenProject, tmp_path: Path) -> None:
+def test_place_suggestion_not_auto_assigned_to_gps_media(open_project: OpenProject, tmp_path: Path) -> None:
     source = tmp_path / "media"
     source.mkdir()
     write_jpeg_with_exif(
@@ -100,22 +101,30 @@ def test_place_suggestion_and_confirm_not_duplicated(open_project: OpenProject, 
         longitude=(11.0, 0.0, 0.0),
     )
     snapshot = _index_and_sync(open_project, source)
-    assert len(snapshot.days[0].places) == 1
-    assert snapshot.days[0].places[0].confirmed is False
-    assert snapshot.days[0].places[0].origin == "auto"
+    assert snapshot.days[0].places == ()
 
-    place_id = snapshot.days[0].places[0].id
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        added = add_place_suggestions(session, project)
+        session.commit()
+        again = load_timeline(session, project)
+
+    assert added == 1
+    assert again is not None
+    assert len(again.days[0].places) == 1
+    place_id = again.days[0].places[0].id
     with open_project.session_factory() as session:
         confirm_place(session, place_id, "Waltherplatz")
         project = session.get(Project, open_project.project_id)
         assert project is not None
-        again = sync_timeline(session, project)
+        synced = sync_timeline(session, project)
         session.commit()
 
-    assert len(again.days[0].places) == 1
-    assert again.days[0].places[0].name == "Waltherplatz"
-    assert again.days[0].places[0].confirmed is True
-    assert again.days[0].places[0].origin == "manual"
+    assert len(synced.days[0].places) == 1
+    assert synced.days[0].places[0].name == "Waltherplatz"
+    assert synced.days[0].places[0].confirmed is True
+    assert synced.days[0].places[0].origin == "manual"
 
 
 def test_overnight_and_journal_flags(open_project: OpenProject, tmp_path: Path) -> None:

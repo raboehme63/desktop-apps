@@ -17,6 +17,7 @@ from travelcore.config import AppSettings
 from travelcore.database.models import FileError, Project, SourceFile
 from travelcore.exceptions import MetadataError, ProjectError
 from travelcore.gps.ingest import ingest_gps_tracks
+from travelcore.media.extract import ExtractRequest, FileFacts, extract_many
 from travelcore.media.hashing import sha256_file
 from travelcore.media.scanner import ScannedFile, scan_source_directory
 from travelcore.media.thumbnails import ensure_photo_and_video_rows, generate_project_thumbnails
@@ -25,7 +26,8 @@ from travelcore.metadata.apply import apply_metadata
 from travelcore.metadata.composite import DefaultMetadataProvider
 from travelcore.metadata.provider import MetadataProvider
 from travelcore.metadata.time import filesystem_captured_time
-from travelcore.project_settings import update_source_root
+from travelcore.parallel import resolve_worker_count
+from travelcore.project_settings import ProjectSettings, load_project_settings, update_source_root
 
 logger = logging.getLogger(__name__)
 
@@ -71,10 +73,13 @@ class FileIndexer:
         compute_hash: bool = True,
         metadata_provider: MetadataProvider | None = None,
         settings: AppSettings | None = None,
+        max_workers: int | None = None,
     ) -> None:
         self.compute_hash = compute_hash
+        self._owns_provider = metadata_provider is None
         self.metadata_provider = metadata_provider or DefaultMetadataProvider.from_environment()
         self.settings = settings or AppSettings()
+        self.max_workers = max_workers
 
     def index(
         self,
@@ -93,6 +98,7 @@ class FileIndexer:
         project.updated_at = datetime.now(tz=UTC)
         gps_delta = self.settings.gps_match_max_delta_seconds
         settings_dir = project_dir or _project_dir_from_session(session)
+        stored: ProjectSettings | None = None
         if settings_dir is not None:
             try:
                 stored = update_source_root(settings_dir, source_root)
@@ -102,10 +108,30 @@ class FileIndexer:
             except (OSError, ProjectError) as exc:
                 logger.warning("Project settings not updated: %s", exc)
 
+        if progress is not None:
+            progress(
+                IndexProgress(
+                    current=0,
+                    total=0,
+                    path=str(source_root),
+                    message="Verzeichnis wird durchsucht…",
+                )
+            )
         scanned_files = list(scan_source_directory(source_root))
         total = len(scanned_files)
         result = IndexResult(scanned=total)
         counts: Counter[str] = Counter()
+        workers = self._resolve_workers(stored)
+        if progress is not None:
+            found = f"{total} Dateien gefunden" if total else "Keine unterstützten Dateien gefunden"
+            progress(
+                IndexProgress(
+                    current=0,
+                    total=total,
+                    path=str(source_root),
+                    message=found,
+                )
+            )
 
         existing = {
             row.path: row
@@ -128,49 +154,120 @@ class FileIndexer:
             checkpoint()
             last_checkpoint = now
 
-        for index, scanned in enumerate(scanned_files, start=1):
-            path_str = str(scanned.path)
-            if progress is not None:
-                progress(
-                    IndexProgress(
-                        current=index,
-                        total=total,
-                        path=path_str,
-                        message=f"Indexiere {scanned.filename}",
-                    )
-                )
-            try:
-                action, metadata_error = self._upsert_file(session, project, scanned, existing.get(path_str))
-                if action == "indexed":
-                    result.indexed += 1
-                elif action == "updated":
-                    result.updated += 1
-                else:
-                    result.skipped_unchanged += 1
-                if metadata_error:
-                    result.errors += 1
-                counts[scanned.kind.value] += 1
-            except OSError as exc:
-                result.errors += 1
-                logger.exception("Failed to index %s", path_str)
-                session.add(
-                    FileError(
-                        project_id=project.id,
-                        path=path_str,
-                        stage="index",
-                        message=str(exc),
-                    )
-                )
-            maybe_checkpoint(index)
+        try:
+            facts_by_path = self._extract_facts(scanned_files, existing, workers, progress)
 
-        result.by_kind = dict(counts)
-        session.flush()
-        self._ingest_gps(session, project, result, progress, gps_delta)
-        if checkpoint is not None:
-            checkpoint()
-        if generate_thumbnails:
-            self.build_previews(session, project, result, progress, project_dir)
-        return result
+            for index, scanned in enumerate(scanned_files, start=1):
+                path_str = str(scanned.path)
+                if progress is not None:
+                    progress(
+                        IndexProgress(
+                            current=index,
+                            total=total,
+                            path=path_str,
+                            message=f"Indexiere {scanned.filename}",
+                        )
+                    )
+                try:
+                    action, metadata_error = self._upsert_file(
+                        session,
+                        project,
+                        scanned,
+                        existing.get(path_str),
+                        facts_by_path.get(path_str),
+                    )
+                    if action == "indexed":
+                        result.indexed += 1
+                    elif action == "updated":
+                        result.updated += 1
+                    else:
+                        result.skipped_unchanged += 1
+                    if metadata_error:
+                        result.errors += 1
+                    counts[scanned.kind.value] += 1
+                except OSError as exc:
+                    result.errors += 1
+                    logger.exception("Failed to index %s", path_str)
+                    session.add(
+                        FileError(
+                            project_id=project.id,
+                            path=path_str,
+                            stage="index",
+                            message=str(exc),
+                        )
+                    )
+                maybe_checkpoint(index)
+
+            result.by_kind = dict(counts)
+            session.flush()
+            self._ingest_gps(session, project, result, progress, gps_delta)
+            if checkpoint is not None:
+                checkpoint()
+            if generate_thumbnails:
+                self.build_previews(session, project, result, progress, project_dir)
+            return result
+        finally:
+            if self._owns_provider:
+                closer = getattr(self.metadata_provider, "close", None)
+                if callable(closer):
+                    closer()
+
+    def _extract_facts(
+        self,
+        scanned_files: list[ScannedFile],
+        existing: dict[str, SourceFile],
+        workers: int,
+        progress: ProgressCallback | None,
+    ) -> dict[str, FileFacts]:
+        requests: list[ExtractRequest] = []
+        chunk = self.settings.hash_chunk_size
+        for scanned in scanned_files:
+            path_str = str(scanned.path)
+            row = existing.get(path_str)
+            unchanged = row is not None and _unchanged(row, scanned)
+            need_hash = self.compute_hash and not unchanged
+            need_meta = _needs_metadata(row, scanned)
+            if not need_hash and not need_meta:
+                continue
+            requests.append(
+                ExtractRequest(
+                    path=path_str,
+                    compute_hash=need_hash,
+                    read_metadata=need_meta,
+                    hash_chunk_size=chunk,
+                )
+            )
+        if not requests:
+            return {}
+
+        def on_progress(current: int, total: int, path: str) -> None:
+            if progress is None:
+                return
+            name = Path(path).name
+            progress(
+                IndexProgress(
+                    current=current,
+                    total=max(total, 1),
+                    path=path,
+                    message=f"Analysiere {name}" if name else "Analysiere Dateien",
+                )
+            )
+
+        return extract_many(
+            requests,
+            provider=self.metadata_provider,
+            max_workers=workers,
+            progress=on_progress,
+        )
+
+    def _resolve_workers(self, stored: ProjectSettings | None) -> int:
+        if self.max_workers is not None:
+            requested = self.max_workers
+        elif stored is not None and stored.performance.worker_count:
+            requested = stored.performance.worker_count
+        else:
+            requested = self.settings.worker_count
+        return resolve_worker_count(requested)
 
     def _ingest_gps(
         self,
@@ -183,12 +280,19 @@ class FileIndexer:
         def on_gps_progress(current: int, total: int, path: str) -> None:
             if progress is None:
                 return
+            name = Path(path).name
+            suffix = Path(path).suffix.lower()
+            phase = (
+                f"Track einlesen: {name}"
+                if suffix in {".gpx", ".igc"}
+                else f"GPS-Abgleich: {name}"
+            )
             progress(
                 IndexProgress(
                     current=current,
                     total=max(total, 1),
                     path=path,
-                    message="GPS-Tracks und Positionen",
+                    message=phase,
                 )
             )
 
@@ -217,16 +321,24 @@ class FileIndexer:
         ensure_photo_and_video_rows(session, project)
         thumbs_dir = folder / "thumbnails"
         thumbs_dir.mkdir(parents=True, exist_ok=True)
+        stored: ProjectSettings | None = None
+        try:
+            stored = load_project_settings(folder)
+        except (OSError, ProjectError):
+            stored = None
+        workers = self._resolve_workers(stored)
 
         def on_thumb_progress(current: int, total: int, path: str) -> None:
             if progress is None:
                 return
+            name = Path(path).name
+            phase = f"Vorschaubild: {name}" if name else "Vorschaubilder"
             progress(
                 IndexProgress(
                     current=current,
                     total=max(total, 1),
                     path=path,
-                    message="Vorschaubilder",
+                    message=phase,
                 )
             )
 
@@ -236,6 +348,7 @@ class FileIndexer:
             thumbs_dir,
             size=self.settings.default_thumbnail_size,
             progress=on_thumb_progress,
+            max_workers=workers,
         )
         result.thumbnails_written = thumbs.written
         result.thumbnails_skipped = thumbs.skipped
@@ -246,14 +359,18 @@ class FileIndexer:
         project: Project,
         scanned: ScannedFile,
         existing: SourceFile | None,
+        facts: FileFacts | None,
     ) -> tuple[str, bool]:
+        if facts is not None and facts.io_error:
+            raise OSError(facts.io_error)
+
         if existing is not None and _unchanged(existing, scanned):
             existing.status = "ok"
             existing.error_message = None
-            metadata_error = self._fill_metadata(session, project, existing, scanned)
+            metadata_error = self._apply_facts(session, project, existing, scanned, facts)
             return "skipped", metadata_error
 
-        digest = sha256_file(scanned.path) if self.compute_hash else None
+        digest = _digest_from_facts(facts, scanned, self.compute_hash)
         now = datetime.now(tz=UTC)
 
         if existing is None:
@@ -274,7 +391,7 @@ class FileIndexer:
                 position_source=None,
             )
             session.add(row)
-            metadata_error = self._fill_metadata(session, project, row, scanned)
+            metadata_error = self._apply_facts(session, project, row, scanned, facts)
             return "indexed", metadata_error
 
         existing.filename = scanned.filename
@@ -288,25 +405,47 @@ class FileIndexer:
         existing.imported_at = now
         existing.status = "ok"
         existing.error_message = None
-        metadata_error = self._fill_metadata(session, project, existing, scanned)
+        metadata_error = self._apply_facts(session, project, existing, scanned, facts)
         return "updated", metadata_error
 
-    def _fill_metadata(
+    def _apply_facts(
         self,
         session: Session,
         project: Project,
         row: SourceFile,
         scanned: ScannedFile,
+        facts: FileFacts | None,
     ) -> bool:
         if scanned.kind not in {FileKind.PHOTO, FileKind.VIDEO}:
             return False
-        has_real_time = row.captured_at is not None and row.captured_at_source != "filesystem_mtime"
-        has_gps = row.gps_latitude is not None
-        has_camera = bool(row.camera)
-        if has_real_time and has_gps and has_camera:
+        if not _needs_metadata(row, scanned) and (facts is None or facts.metadata is None):
             return False
+        if facts is not None and facts.metadata_error:
+            logger.warning("Metadata failed for %s: %s", scanned.path, facts.metadata_error)
+            session.add(
+                FileError(
+                    project_id=project.id,
+                    path=str(scanned.path),
+                    stage="metadata",
+                    message=facts.metadata_error,
+                )
+            )
+            fallback = facts.filesystem_captured or filesystem_captured_time(scanned.path)
+            if row.captured_at is None and fallback is not None and fallback.normalized is not None:
+                row.captured_at_raw = fallback.raw_value
+                row.captured_at = fallback.normalized
+                row.captured_at_source = fallback.source
+                row.timezone_name = None
+                row.timezone_unknown = True
+            return True
         try:
-            apply_metadata(row, scanned.path, self.metadata_provider)
+            apply_metadata(
+                row,
+                scanned.path,
+                None if facts is not None and facts.metadata is not None else self.metadata_provider,
+                metadata=facts.metadata if facts is not None else None,
+                filesystem_fallback=facts.filesystem_captured if facts is not None else None,
+            )
             return False
         except (MetadataError, OSError, ValueError) as exc:
             logger.warning("Metadata failed for %s: %s", scanned.path, exc)
@@ -326,6 +465,25 @@ class FileIndexer:
                 row.timezone_name = None
                 row.timezone_unknown = True
             return True
+
+
+def _digest_from_facts(facts: FileFacts | None, scanned: ScannedFile, compute_hash: bool) -> str | None:
+    if not compute_hash:
+        return None
+    if facts is not None and facts.sha256:
+        return facts.sha256
+    return sha256_file(scanned.path)
+
+
+def _needs_metadata(existing: SourceFile | None, scanned: ScannedFile) -> bool:
+    if scanned.kind not in {FileKind.PHOTO, FileKind.VIDEO}:
+        return False
+    if existing is None:
+        return True
+    has_real_time = existing.captured_at is not None and existing.captured_at_source != "filesystem_mtime"
+    has_gps = existing.gps_latitude is not None
+    has_camera = bool(existing.camera)
+    return not (has_real_time and has_gps and has_camera)
 
 
 def _unchanged(existing: SourceFile, scanned: ScannedFile) -> bool:

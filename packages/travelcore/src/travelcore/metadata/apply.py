@@ -5,26 +5,37 @@ from __future__ import annotations
 from pathlib import Path
 
 from travelcore.database.models import SourceFile
-from travelcore.metadata.provider import MediaMetadata, MetadataProvider
+from travelcore.metadata.provider import CapturedTime, MediaMetadata, MetadataProvider
 from travelcore.metadata.time import filesystem_captured_time
 
 
 def apply_metadata(
     row: SourceFile,
     path: Path,
-    provider: MetadataProvider,
+    provider: MetadataProvider | None = None,
     *,
+    metadata: MediaMetadata | None = None,
     allow_filesystem_fallback: bool = True,
+    filesystem_fallback: CapturedTime | None = None,
 ) -> None:
-    """Fill capture time, GPS and camera fields from a provider.
+    """Fill capture time, GPS and camera fields from a provider or DTO.
 
     Missing EXIF does not raise. The caller should catch provider failures so a
     single defective file cannot abort an import.
     """
 
-    metadata = provider.read(path)
+    if metadata is None:
+        if provider is None:
+            raise TypeError("apply_metadata requires metadata or a provider.")
+        metadata = provider.read(path)
     if row.captured_at is None:
-        _apply_captured(row, path, metadata, allow_filesystem_fallback)
+        _apply_captured(
+            row,
+            path,
+            metadata,
+            allow_filesystem_fallback,
+            filesystem_fallback=filesystem_fallback,
+        )
     elif row.captured_at_source == "filesystem_mtime" and metadata.captured is not None:
         _apply_captured(row, path, metadata, allow_filesystem_fallback=False)
     if row.gps_latitude is None:
@@ -37,10 +48,11 @@ def _apply_captured(
     path: Path,
     metadata: MediaMetadata,
     allow_filesystem_fallback: bool,
+    filesystem_fallback: CapturedTime | None = None,
 ) -> None:
     captured = metadata.captured
     if (captured is None or captured.normalized is None) and allow_filesystem_fallback:
-        captured = filesystem_captured_time(path)
+        captured = filesystem_fallback or filesystem_captured_time(path)
     if captured is None or captured.normalized is None:
         return
     row.captured_at_raw = captured.raw_value

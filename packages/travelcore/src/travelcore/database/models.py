@@ -142,6 +142,9 @@ class GpsTrack(Base):
     source_file_id: Mapped[int | None] = mapped_column(ForeignKey("source_files.id"), nullable=True)
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     origin: Mapped[str] = mapped_column(String(16), nullable=False, default="auto")
+    track_format: Mapped[str] = mapped_column(String(16), nullable=False, default="gpx")
+    pilot: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    external_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     points: Mapped[list[GpsPoint]] = relationship(back_populates="track")
 

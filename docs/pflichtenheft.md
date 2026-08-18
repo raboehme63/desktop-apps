@@ -130,7 +130,7 @@ Die Datenbank speichert nur **Referenzen** auf Originaldateien. Originale werden
 | FA-010 | Muss | Der Benutzer wählt ein Quellverzeichnis. Der Scan ist rekursiv. | umgesetzt |
 | FA-011 | Muss | Fotos: JPG, JPEG, PNG, WebP, TIFF, HEIC/HEIF sofern technisch möglich; RAW zunächst nur Metadaten/Vorschau. | teilweise (Index ja; RAW-Metadaten nur mit ExifTool) |
 | FA-012 | Muss | Videos: MP4, MOV, AVI, MKV. Erste Version: Metadaten und Vorschaubilder, keine Inhaltsanalyse. | teilweise (Index ja; Video-Metadaten geplant) |
-| FA-013 | Muss | GPS: GPX vollständig in der ersten Version; KML und GeoJSON erkannt. | teilweise (GPX vollständig; KML/GeoJSON nur Index) |
+| FA-013 | Muss | GPS: GPX vollständig in der ersten Version; IGC (Gleitschirm-Fluglogs) mit Pilot und DHV-Leonardo-Link; KML und GeoJSON erkannt. | teilweise (GPX und IGC vollständig; KML/GeoJSON nur Index) |
 | FA-014 | Soll | Texte: TXT, Markdown; optional JSON mit Reiseinformationen. | teilweise (Index ja; Auswertung geplant) |
 | FA-015 | Muss | Versteckte Dateien und nicht unterstützte Typen werden übersprungen. | umgesetzt |
 | FA-016 | Muss | Spätere Formate müssen über die Typklassifikation ergänzbar sein. | umgesetzt (Extension-Map) |
@@ -165,14 +165,15 @@ Die Datenbank speichert nur **Referenzen** auf Originaldateien. Originale werden
 | ID | Prio | Anforderung | Stand |
 | --- | --- | --- | --- |
 | FA-040 | Muss | GPX einlesen; Trackpunkte mit Lat, Lon, Höhe, Zeit, Track-ID, Segment-ID. Die Trackdatei selbst erhält eine repräsentative Position (Mittelwert der ersten Punkte) und die Startzeit des ersten zeitbehafteten Punkts. | umgesetzt |
-| FA-041 | Muss | Fotos ohne GPS anhand der Aufnahmezeit dem Track zuordnen; Interpolation zwischen benachbarten Punkten. | umgesetzt |
+| FA-040a | Soll | IGC-Fluglogs einlesen (B-Records); Pilot aus dem Header; optionaler DHV-Leonardo-Link am Track, der beim Re-Import erhalten bleibt. | umgesetzt |
+| FA-041 | Muss | Fotos ohne GPS: zuerst zeitnahe Fotos mit GPS, sonst GPX, sonst IGC; Interpolation zwischen benachbarten Punkten. | umgesetzt |
 | FA-042 | Muss | Abgeleitete Position speichert Quelle, Vertrauenswert, Zeitdifferenz und ob EXIF oder Track. | umgesetzt |
 
 ### 4.5 Karte
 
 | ID | Prio | Anforderung | Stand |
 | --- | --- | --- | --- |
-| FA-050 | Muss | Interaktive Karte: Track als Linie, Fotos als Marker, Übernachtungen, Abschnitte, Tagesgruppen. | teilweise (Track, Fotos/Videos, Orte, Übernachtungen, Cluster je Tag; keine Reiseabschnitte) |
+| FA-050 | Muss | Interaktive Karte: Track als Linie, Fotos als Marker, Übernachtungen, Abschnitte, Tagesgruppen. | teilweise (Track, IGC-Flugtracks ab Zoom 10 mit Start/Landung, Fotos/Videos, Orte, Übernachtungen, Cluster je Tag; keine Reiseabschnitte) |
 | FA-051 | Soll | Klick auf Fotomarker zeigt Vorschau; nahe Marker können clustern. | umgesetzt |
 | FA-052 | Muss | Kartenbackend hinter `MapBackend` austauschbar; erste Version Folium/Leaflet. | umgesetzt |
 
@@ -182,7 +183,7 @@ Die Datenbank speichert nur **Referenzen** auf Originaldateien. Originale werden
 | --- | --- | --- | --- |
 | FA-060 | Muss | Automatische chronologische Timeline (Tag → Ereignisse). | umgesetzt |
 | FA-061 | Muss | Ebenen: Reise, Reisetag, Abschnitt, Ort/Aufenthalt, Ereignis, Medienobjekt, Textnotiz. | teilweise (Reise/Tag/Ort/Ereignis/Medien/Text; Abschnitte später) |
-| FA-062 | Soll | Aufenthalte aus GPS: konfigurierbarer Radius und Mindestdauer; nur als Vorschlag. | teilweise (greedy Fotocluster je Tag, Radius 150 m; unbestätigt; Mindestdauer nicht angewendet; keine automatischen Übernachtungen) |
+| FA-062 | Soll | Aufenthalte aus GPS: konfigurierbarer Radius und Mindestdauer; nur als Vorschlag. | teilweise (Funktion vorhanden, Import erzeugt keine Ortsnamen an Foto-/Video-/Trackpositionen; Datum reicht) |
 | FA-063 | Muss | Benutzer bestätigt, ändert oder löscht vorgeschlagene Orte. | umgesetzt |
 | FA-064 | Muss | Übernachtungen manuell markierbar (Datum, Ort, GPS, Name, Beschreibung, Fotos). | teilweise (Datum, Ort, GPS, Name, Beschreibung; Fotos an der Übernachtung später) |
 
@@ -208,7 +209,7 @@ Die Datenbank speichert nur **Referenzen** auf Originaldateien. Originale werden
 | --- | --- | --- | --- |
 | FA-090 | Muss | Moderne Windows-UI mit PySide6, Navigation links. | umgesetzt (Rahmen) |
 | FA-091 | Muss | Bereich Projekt: neu, öffnen, speichern; Menü **Projekt → Einstellungen**. | teilweise (neu/öffnen/speichern/Einstellungen; zuletzt verwendete Projekte intern in `recent.json`, noch ohne UI-Liste) |
-| FA-092 | Muss | Bereich Import: Ordner, Analyse, Fortschritt, Dateiliste mit Zeit/GPS/Kamera. Die Liste wird während des Einlesens periodisch aktualisiert, erneut nach GPS-Abgleich, und vor den Vorschaubildern. | umgesetzt |
+| FA-092 | Muss | Bereich Import: Ordner, Analyse, Fortschritt, Dateiliste mit Zeit/GPS/Kamera. Die Liste wird während des Einlesens periodisch aktualisiert, erneut nach GPS-Abgleich, und vor den Vorschaubildern. | umgesetzt (Kamera/Pilot, DHV-Leonardo-Spalte für IGC) |
 | FA-093 | Muss | Bereiche Timeline, Karte, Fotos, Tagebuch, Export. | teilweise (Timeline, Karte, Fotos, Tagebuch umgesetzt; Export Platzhalter bis Phase 8) |
 | FA-094 | Muss | Lange Aufgaben laufen über `QThreadPool`/`QRunnable`; die GUI bleibt bedienbar. | umgesetzt (Import) |
 | FA-095 | Muss | Eine defekte Datei bricht den Import nicht ab; Fehler sind geloggt, in der DB und in der UI sichtbar. | umgesetzt |
@@ -305,7 +306,7 @@ Das MVP ist erfüllt, wenn alle folgenden Punkte demonstrabel sind:
 5. EXIF-Aufnahmezeit wird gelesen.
 6. EXIF-GPS wird gelesen, sofern vorhanden.
 7. GPX-Dateien werden erkannt und eingelesen.
-8. Bilder ohne GPS können über die Aufnahmezeit einem GPX-Track zugeordnet werden.
+8. Bilder ohne GPS: zuerst zeitnahes Foto mit GPS, sonst GPX, sonst IGC.
 9. Die Importliste wird aktualisiert; anschließend werden Thumbnails erzeugt.
 10. Fotos erscheinen chronologisch in einer Galerie.
 11. Fotos mit GPS erscheinen auf einer Karte.

@@ -16,6 +16,7 @@ from travelcore.database.models import Photo, Project, SourceFile, Video
 from travelcore.media.heic_win import decode_heic_preview
 from travelcore.media.heif_items import extract_heif_jpeg_item
 from travelcore.media.types import FileKind
+from travelcore.parallel import map_in_processes
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,13 @@ _JPEG_SOI = b"\xff\xd8\xff"
 _THUMB_FILL = (18, 21, 28)
 
 ProgressFn = Callable[[int, int, str], None]
+
+
+@dataclass(frozen=True, slots=True)
+class ThumbnailJob:
+    source: str
+    destination: str
+    size: int
 
 
 @dataclass(slots=True)
@@ -77,6 +85,16 @@ def ensure_thumbnail(
     return destination if destination.is_file() else None
 
 
+def render_thumbnail_batch(jobs: tuple[ThumbnailJob, ...]) -> list[tuple[str, str, bool]]:
+    """Module-level pool entry: write thumbnails for a chunk of jobs."""
+
+    results: list[tuple[str, str, bool]] = []
+    for job in jobs:
+        written = ensure_thumbnail(Path(job.source), Path(job.destination), size=job.size)
+        results.append((job.source, job.destination, written is not None))
+    return results
+
+
 def generate_project_thumbnails(
     session: Session,
     project: Project,
@@ -84,6 +102,7 @@ def generate_project_thumbnails(
     *,
     size: int = 256,
     progress: ProgressFn | None = None,
+    max_workers: int | None = None,
 ) -> ThumbnailResult:
     """Create missing thumbnails for photo source files. Originals are read-only."""
 
@@ -97,28 +116,51 @@ def generate_project_thumbnails(
         )
     )
     result = ThumbnailResult()
-    total = max(len(rows), 1)
-    for index, row in enumerate(rows, start=1):
-        if progress is not None:
-            progress(index, total, row.path)
+    jobs: list[ThumbnailJob] = []
+    queued_dests: set[str] = set()
+    for row in rows:
         dest = cached_thumbnail_path(
             thumbs_dir,
             source_file_id=row.id,
             sha256=row.sha256,
             size=size,
         )
+        dest_key = str(dest)
         if dest.is_file() and dest.stat().st_size > 0:
             result.skipped += 1
             continue
-        written = ensure_thumbnail(
-            Path(row.path),
-            dest,
-            size=size,
-        )
-        if written is None:
-            result.failed += 1
-        else:
+        if dest_key in queued_dests:
+            result.skipped += 1
+            continue
+        queued_dests.add(dest_key)
+        jobs.append(ThumbnailJob(source=row.path, destination=dest_key, size=size))
+
+    total = max(len(rows), 1)
+    done = result.skipped
+
+    def on_progress(completed: int, _job_total: int) -> None:
+        if progress is None:
+            return
+        current = min(done + completed, total)
+        path = jobs[min(completed, len(jobs)) - 1].source if jobs and completed else ""
+        progress(current, total, path)
+
+    if not jobs:
+        if progress is not None:
+            progress(total, total, "")
+        return result
+
+    outcomes = map_in_processes(
+        render_thumbnail_batch,
+        jobs,
+        max_workers=max_workers,
+        progress=on_progress,
+    )
+    for _source, _destination, ok in outcomes:
+        if ok:
             result.written += 1
+        else:
+            result.failed += 1
     return result
 
 

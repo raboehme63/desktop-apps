@@ -16,6 +16,8 @@ from travelcore.media.thumbnails import cached_thumbnail_path
 from travelcore.media.types import FileKind
 
 MAX_TRACK_DISPLAY_POINTS = 2500
+MAX_FLIGHT_DISPLAY_POINTS = 1200
+FLIGHT_LINE_MIN_ZOOM = 10
 _DAY_COLORS = (
     "blue",
     "green",
@@ -37,6 +39,7 @@ class MapMarker:
     preview_path: Path | None = None
     day_key: str | None = None
     color: str = "blue"
+    subtitle: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +47,10 @@ class MapPolyline:
     name: str
     points: tuple[tuple[float, float], ...]
     kind: str = "track"
+    color: str = "#2eb8a0"
+    min_zoom: int = 0
+    pilot: str | None = None
+    external_url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,19 +107,38 @@ def _track_polylines(session: Session, project_id: int) -> list[MapPolyline]:
         .order_by(GpsTrack.id.asc(), GpsPoint.segment_id.asc(), GpsPoint.sequence_index.asc())
     )
     grouped: dict[tuple[int, int], list[tuple[float, float]]] = defaultdict(list)
-    names: dict[tuple[int, int], str] = {}
+    meta: dict[int, GpsTrack] = {}
+    started: dict[int, datetime] = {}
     for point, track in rows:
         key = (track.id, point.segment_id)
         grouped[key].append((point.latitude, point.longitude))
-        names[key] = track.name or f"Track {track.id}"
+        meta[track.id] = track
+        if point.recorded_at is not None:
+            current = started.get(track.id)
+            if current is None or point.recorded_at < current:
+                started[track.id] = point.recorded_at
     lines: list[MapPolyline] = []
     for key, coords in grouped.items():
-        sampled = downsample_points(coords)
+        track = meta[key[0]]
+        is_flight = track.track_format == "igc"
+        sampled = downsample_points(
+            coords,
+            max_points=MAX_FLIGHT_DISPLAY_POINTS if is_flight else MAX_TRACK_DISPLAY_POINTS,
+        )
         if len(sampled) < 2:
             continue
-        segment = key[1]
-        label = names[key] if segment == 0 else f"{names[key]} ({segment + 1})"
-        lines.append(MapPolyline(name=label, points=tuple(sampled)))
+        label = _day_key(started.get(track.id))
+        lines.append(
+            MapPolyline(
+                name=label,
+                points=tuple(sampled),
+                kind="flight" if is_flight else "track",
+                color="#e07a3d" if is_flight else "#2eb8a0",
+                min_zoom=FLIGHT_LINE_MIN_ZOOM if is_flight else 0,
+                pilot=track.pilot,
+                external_url=track.external_url,
+            )
+        )
     return lines
 
 
@@ -147,7 +173,7 @@ def _photo_markers(
             MapMarker(
                 latitude=row.gps_latitude,
                 longitude=row.gps_longitude,
-                label=row.filename,
+                label=_day_key(row.captured_at),
                 kind=kind,
                 preview_path=cached_thumbnail_path(
                     thumbs_dir,
@@ -157,6 +183,7 @@ def _photo_markers(
                 ),
                 day_key=day_key,
                 color=color,
+                subtitle=row.filename,
             )
         )
     return markers

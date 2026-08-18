@@ -32,7 +32,7 @@ class SettingsDialog(QDialog):
     def __init__(self, settings: ProjectSettings, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Projekteinstellungen")
-        self.resize(560, 480)
+        self.resize(560, 620)
         self._settings = settings.model_copy(deep=True)
 
         root = QVBoxLayout(self)
@@ -106,6 +106,22 @@ class SettingsDialog(QDialog):
         extra_form.addRow("", note)
         root.addWidget(extra)
 
+        performance = QGroupBox("Leistung")
+        performance_form = QFormLayout(performance)
+        self.workers_spin = QSpinBox()
+        self.workers_spin.setRange(0, 64)
+        self.workers_spin.setSpecialValueText("Automatisch (Kerne − 1)")
+        self.workers_spin.setValue(self._settings.performance.worker_count)
+        performance_form.addRow("CPU-Worker", self.workers_spin)
+        workers_hint = QLabel(
+            "Hash, Metadaten und Vorschaubilder laufen in mehreren Prozessen. "
+            "0 nutzt alle Kerne minus einen für die Oberfläche. SQLite schreibt weiter nur in einem Prozess."
+        )
+        workers_hint.setObjectName("pageSubtitle")
+        workers_hint.setWordWrap(True)
+        performance_form.addRow("", workers_hint)
+        root.addWidget(performance)
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
@@ -133,4 +149,5 @@ class SettingsDialog(QDialog):
         settings.placeholders.map_provider = self.map_combo.currentText().strip() or "leaflet"
         language = self.language_edit.text().strip() or "de"
         settings.placeholders.journal_language = language
+        settings.performance.worker_count = int(self.workers_spin.value())
         return settings

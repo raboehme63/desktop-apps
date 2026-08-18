@@ -39,8 +39,9 @@ class TimelineView(QWidget):
         title = QLabel("Timeline")
         title.setObjectName("pageTitle")
         self._subtitle = QLabel(
-            "Tage entstehen automatisch aus der Aufnahmezeit. Ortsvorschläge bleiben unbestätigt, "
-            "bis sie bestätigt, umbenannt oder gelöscht werden. "
+            "Tage entstehen automatisch aus der Aufnahmezeit. "
+            "Orte und Übernachtungen setzt du im Tagebuch; "
+            "Foto-, Video- und Trackpositionen bekommen keinen Ortsnamen. "
             "Manuelle Texte überschreibt die Automatik nicht."
         )
         self._subtitle.setObjectName("pageSubtitle")
@@ -120,8 +121,7 @@ class TimelineView(QWidget):
             return
         self._snapshot = snapshot
         self._subtitle.setText(
-            f"{snapshot.title}: {snapshot.day_count} Tage. "
-            "Ortsvorschläge sind nur Hinweise, Übernachtungen setzt du im Tagebuch."
+            f"{snapshot.title}: {snapshot.day_count} Tage. Übernachtungen und Orte setzt du im Tagebuch."
         )
         self._fill_days()
         self.status_message.emit(f"Timeline: {snapshot.day_count} Tage")

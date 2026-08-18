@@ -12,6 +12,7 @@ from travelcore.config import AppSettings
 from travelcore.database.models import Photo, Project, SourceFile
 from travelcore.database.project_store import OpenProject, ProjectStore
 from travelcore.exceptions import ProjectError
+from travelcore.gps.ingest import set_track_external_url, track_urls_by_source
 from travelcore.maps import FoliumMapBackend, MapScene, build_map_scene
 from travelcore.media.gallery import GalleryItem, list_gallery_items
 from travelcore.media.indexer import count_by_kind
@@ -121,6 +122,15 @@ class Workspace:
             for row in rows:
                 session.expunge(row)
             return rows
+
+    def gps_track_urls(self) -> dict[int, str]:
+        if self.current is None:
+            return {}
+        with self.current.session_factory() as session:
+            return track_urls_by_source(session, self.current.project_id)
+
+    def set_gps_track_url(self, source_file_id: int, url: str | None) -> None:
+        self._mutate(lambda session: set_track_external_url(session, source_file_id, url))
 
     def gallery_items(self) -> list[GalleryItem]:
         if self.current is None:

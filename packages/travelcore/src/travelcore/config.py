@@ -20,6 +20,12 @@ class AppSettings(BaseSettings):
         default=False,
         description="Cloud/AI services stay disabled until explicitly enabled.",
     )
+    worker_count: int = Field(
+        default=0,
+        ge=0,
+        le=64,
+        description="Process-pool size. 0 means CPU count minus one.",
+    )
 
     @property
     def user_config_dir(self) -> Path:

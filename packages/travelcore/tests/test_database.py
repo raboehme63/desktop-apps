@@ -34,6 +34,7 @@ def test_schema_contains_core_tables(tmp_path: Path) -> None:
     with opened.session_factory() as session:
         inspector = inspect(session.get_bind())
         tables = set(inspector.get_table_names())
+        columns = {column["name"] for column in inspector.get_columns("gps_tracks")}
     assert "source_files" in tables
     assert "gps_points" in tables
     assert "trips" in tables
@@ -41,3 +42,6 @@ def test_schema_contains_core_tables(tmp_path: Path) -> None:
     assert "similarity_groups" in tables
     assert "export_configs" in tables
     assert "alembic_version" in tables
+    assert "track_format" in columns
+    assert "pilot" in columns
+    assert "external_url" in columns

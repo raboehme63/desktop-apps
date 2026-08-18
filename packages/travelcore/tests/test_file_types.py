@@ -13,6 +13,11 @@ def test_gpx_is_gps() -> None:
     assert mime_for_path(Path("track.gpx")) == "application/gpx+xml"
 
 
+def test_igc_is_gps() -> None:
+    assert classify_path(Path("flight.IGC")) is FileKind.GPS
+    assert mime_for_path(Path("flight.igc")) == "application/x-igc"
+
+
 def test_markdown_is_text() -> None:
     assert classify_path(Path("notes.md")) is FileKind.TEXT
 

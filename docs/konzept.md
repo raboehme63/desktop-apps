@@ -101,7 +101,7 @@ Linke Navigation, rechts der Arbeitsbereich. Sieben Seiten von Anfang an, auch w
 | **Tagebuch** | Narrative Fassung: Titel, Text, Fotos ins Buch, Titelbild, Übernachtungen. |
 | **Export** | Ausgabe, keine Analyse. Phase 8: HTML. |
 
-Lange Arbeit (Index, Thumbnails, Qualität) läuft im GUI-Prozess über Worker, die **nur** synchrone `travelcore`-Funktionen aufrufen. Die Bibliothek kennt keine Qt-Threads.
+Lange Arbeit (Index, Thumbnails, Qualität) läuft im GUI-Prozess über Worker, die **nur** synchrone `travelcore`-Funktionen aufrufen. Die Bibliothek kennt keine Qt-Threads. CPU-Arbeit (Hash, Metadaten, Vorschaubilder) parallelisiert `travelcore` intern per Prozess-Pool; SQLite bleibt ein Schreiber.
 
 ---
 
@@ -126,7 +126,7 @@ Ortsnamen müssen in Version 1 nicht „perfekt“ sein. Die Struktur muss sie a
 
 Eine Position ist nie nur ein Koordinatenpaar. Sie hat:
 
-- Quelle (`exif`, `quicktime`, später `gpx_interpolated`, `manual`)
+- Quelle (`exif`, `quicktime`, `photo_nearest`/`photo_interpolated`, `gpx_interpolated`/`gpx_nearest`, `igc_interpolated`/`igc_nearest`, `manual`)
 - Konfidenz (1.0 bei direktem EXIF/ISO-6709; geringer bei Interpolation)
 - optional Zeitdifferenz zum Track
 
@@ -164,9 +164,9 @@ Metadatenboxen in HEIC können **hinter** dem Bilddatenblock stehen. Ein Scan nu
 
 RAW bleibt im Index ein Foto; tiefe Metadaten hängen an ExifTool. Videozeit hängt an einem späteren ffprobe-Adapter.
 
-GPX-Tracks werden nach dem Dateiindex gelesen (gpxpy) und als Punkte mit Segment und Zeit gespeichert. Die GPX-Datei selbst bekommt eine repräsentative Position (arithmetisches Mittel der ersten Trackpunkte) und die Zeit des ersten Punkts mit `recorded_at` (`position_source` / `captured_at_source` = `gpx_track`), damit die Importliste Ort und Startzeit anzeigt. Originale GPX-Dateien bleiben unverändert. Fotos und Videos ohne geschützte EXIF-/QuickTime-Position erhalten eine interpolierte oder nächste Trackposition, wenn die Aufnahmezeit höchstens `gps_match_max_delta_seconds` (Standard 120) von den Nachbarpunkten entfernt ist. Quelle ist `gpx_interpolated` bzw. `gpx_nearest`, nie `exif`.
+GPX-Tracks werden nach dem Dateiindex gelesen (gpxpy) und als Punkte mit Segment und Zeit gespeichert. IGC-Fluglogs (Gleitschirm) werden ebenfalls gelesen: B-Records als Trackpunkte, Pilot aus dem Header, optionaler DHV-Leonardo-Link am Track (beim Re-Import erhalten). Die Trackdatei selbst bekommt eine repräsentative Position (arithmetisches Mittel der ersten Trackpunkte) und die Zeit des ersten Punkts mit `recorded_at` (`gpx_track` / `igc_track`). Originale bleiben unverändert. Fotos und Videos ohne geschützte EXIF-/QuickTime-Position erhalten eine Position in dieser Reihenfolge: (1) zeitnahes anderes Foto mit GPS, (2) GPX, (3) IGC, jeweils interpoliert oder nächster Punkt innerhalb `gps_match_max_delta_seconds` (Standard 120). Quellen: `photo_interpolated`/`photo_nearest`, `gpx_interpolated`/`gpx_nearest`, `igc_interpolated`/`igc_nearest`, nie `exif`. Foto-, Video-, GPX- und IGC-Positionen bekommen keinen Ortsnamen; auf der Karte steht das Datum.
 
-Naive Aufnahmezeiten ohne Offset werden nur für diesen Vergleich mit `default_timezone` des Projekts oder andernfalls UTC in Einklang mit GPX gebracht. Das Flag `timezone_unknown` an der Datei bleibt. KML und GeoJSON werden indexiert, aber noch nicht geparst.
+Naive Aufnahmezeiten ohne Offset werden nur für diesen Vergleich mit `default_timezone` des Projekts oder andernfalls UTC in Einklang mit GPX/IGC gebracht. Das Flag `timezone_unknown` an der Datei bleibt. KML und GeoJSON werden indexiert, aber noch nicht geparst.
 
 Vorschaubilder entstehen beim Import in `thumbnails/` als quadratische JPEGs (Standard 256 px). Die Importliste wird während des Einlesens periodisch geschrieben und angezeigt, nach dem GPX-Abgleich noch einmal, erst danach laufen die Thumbnails. JPEG/PNG/WebP/TIFF liest Pillow. HEIC nutzt unter Windows dieselbe Vorschau wie der Explorer (`IShellItemImageFactory` / WIC, HEIF Image Extensions), sonst ein JPEG-Item oder ein eingebettetes JPEG im Container — ohne libheif und ohne GPL-Codecs. Die Galerie zeigt diese Caches, nicht die Originale. Ein zweiter Lauf überspringt vorhandene Dateien.
 
@@ -196,7 +196,7 @@ Wichtige Verträge (bereits angelegt, schrittweise gefüllt):
 
 Persistenz: SQLAlchemy 2, Alembic, eine SQLite-Datei je Projekt. Migrationen sind Teil des Produkts, nicht nur der Entwicklung.
 
-Nebenläufigkeit: Progress-Callbacks in `travelcore`, Threads nur in der App.
+Nebenläufigkeit: Progress-Callbacks in `travelcore`, Qt-Threads nur in der App. CPU-Pools in der Bibliothek, SQLite seriell.
 
 ---
 

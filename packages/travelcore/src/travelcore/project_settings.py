@@ -64,6 +64,12 @@ class MatchingSettings(BaseModel):
         return text or None
 
 
+class PerformanceSettings(BaseModel):
+    """CPU workers for hash, metadata and thumbnail extraction."""
+
+    worker_count: int = Field(default=0, ge=0, le=64)
+
+
 class PlaceholderSettings(BaseModel):
     """Keys reserved for later phases. Unknown extras are kept on round-trip."""
 
@@ -82,6 +88,7 @@ class ProjectSettings(BaseModel):
     paths: PathSettings = Field(default_factory=PathSettings)
     export: ExportSettings = Field(default_factory=ExportSettings)
     matching: MatchingSettings = Field(default_factory=MatchingSettings)
+    performance: PerformanceSettings = Field(default_factory=PerformanceSettings)
     placeholders: PlaceholderSettings = Field(default_factory=PlaceholderSettings)
 
     @property
