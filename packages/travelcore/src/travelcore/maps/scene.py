@@ -41,6 +41,8 @@ class MapMarker:
     day_key: str | None = None
     color: str = "blue"
     subtitle: str | None = None
+    group_key: str | None = None
+    source_file_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,25 +90,30 @@ def build_map_scene(
     *,
     size: int = 256,
 ) -> MapScene:
-    """Collect tracks, geotagged media, stays, and places for a map backend."""
+    """Overview: one cover per section or leftover day."""
 
-    polylines = tuple(_track_polylines(session, project_id))
-    markers = (
-        *_photo_markers(session, project_id, thumbs_dir, size=size),
-        *_overnight_markers(session, project_id),
-        *_place_markers(session, project_id),
-    )
-    center = _center(markers, polylines)
-    return MapScene(markers=markers, polylines=polylines, center=center)
+    from travelcore.maps.groups import build_map_overview
+
+    return build_map_overview(session, project_id, thumbs_dir, size=size)
 
 
-def _track_polylines(session: Session, project_id: int) -> list[MapPolyline]:
-    rows = session.execute(
+def track_polylines(
+    session: Session,
+    project_id: int,
+    *,
+    source_file_ids: set[int] | None = None,
+) -> list[MapPolyline]:
+    query = (
         select(GpsPoint, GpsTrack)
         .join(GpsTrack, GpsPoint.track_id == GpsTrack.id)
         .where(GpsTrack.project_id == project_id)
         .order_by(GpsTrack.id.asc(), GpsPoint.segment_id.asc(), GpsPoint.sequence_index.asc())
     )
+    if source_file_ids is not None:
+        if not source_file_ids:
+            return []
+        query = query.where(GpsTrack.source_file_id.in_(source_file_ids))
+    rows = session.execute(query)
     grouped: dict[tuple[int, int], list[tuple[float, float]]] = defaultdict(list)
     meta: dict[int, GpsTrack] = {}
     started: dict[int, datetime] = {}
@@ -154,7 +161,9 @@ def _photo_markers(
         select(SourceFile)
         .where(
             SourceFile.project_id == project_id,
-            SourceFile.file_kind.in_((FileKind.PHOTO.value, FileKind.VIDEO.value)),
+            SourceFile.file_kind.in_(
+                (FileKind.PHOTO.value, FileKind.VIDEO.value, FileKind.GPS.value)
+            ),
             SourceFile.gps_latitude.is_not(None),
             SourceFile.gps_longitude.is_not(None),
         )
@@ -169,7 +178,12 @@ def _photo_markers(
         if day_key not in day_index:
             day_index[day_key] = len(day_index)
         color = _DAY_COLORS[day_index[day_key] % len(_DAY_COLORS)]
-        kind = "photo" if row.file_kind == FileKind.PHOTO.value else "video"
+        if row.file_kind == FileKind.PHOTO.value:
+            kind = "photo"
+        elif row.file_kind == FileKind.VIDEO.value:
+            kind = "video"
+        else:
+            kind = "track"
         markers.append(
             MapMarker(
                 latitude=row.gps_latitude,
@@ -186,6 +200,7 @@ def _photo_markers(
                 day_key=day_key,
                 color=color,
                 subtitle=row.filename,
+                source_file_id=row.id,
             )
         )
     return markers

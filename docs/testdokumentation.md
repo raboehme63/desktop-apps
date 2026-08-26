@@ -251,11 +251,13 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 | Test | Datei | Prüft |
 | --- | --- | --- |
 | `test_downsample_keeps_endpoints` | `test_maps.py` | Trackpunkte werden ausgedünnt, Start/Ende bleiben |
-| `test_map_scene_has_track_and_photo` | `test_maps.py` | Polylinie + Fotomarker mit Tagesgruppe |
-| `test_map_scene_includes_overnight_and_place` | `test_maps.py` | Übernachtung und Ort |
+| `test_map_scene_has_track_and_photo` | `test_maps.py` | Übersicht ein Cover, Detail: Polylinie + Fotomarker |
+| `test_map_scene_includes_overnight_and_place` | `test_maps.py` | Übernachtung und Ort im Detail des Resttags |
+| `test_folium_overview_cover_uses_expand_url` | `test_maps.py` | rundes Cover, Expand-Bridge |
 | `test_folium_backend_writes_html` | `test_maps.py` | Leaflet-HTML, `MapBackend` |
 | `test_offline_backend_omits_osm_tiles` | `test_maps.py` | `tiles=None` ohne OSM-URL |
 | `test_map_scene_includes_igc_flight` | `test_maps.py` | IGC-Polylinie, Pilot, DHV-Link, Zoom-Skript |
+| `test_pick_cover_item_uses_first_list_item_with_gps` | `test_maps.py` | ohne Titelbild erstes Listenelement mit GPS |
 
 ### 4.10 Timeline und Tagebuch — FA-014, FA-060 bis FA-064, FA-080 bis FA-082
 
@@ -318,7 +320,7 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 | `test_latlon_to_world_px_origin_at_zoom_zero` | `test_maps_static.py` | Weltpixel bei Zoom 0 |
 | `test_leaflet_excerpt_paints_red_track_on_stub_tiles` | `test_maps_static.py` | rote Spur auf Stub-Kacheln |
 | `test_leaflet_excerpt_falls_back_to_black_without_tiles` | `test_maps_static.py` | Fallback schwarz |
-| `test_leaflet_provider_creates_tile_cache_dir` | `test_maps_static.py` | `cache/map_tiles` |
+| `test_leaflet_provider_creates_tile_cache_dir` | `test_maps_static.py` | `cache/map_tiles/osmde` |
 | `test_offline_provider_skips_osm_tiles` | `test_maps_static.py` | `offline` lädt keine Kacheln |
 
 ### 4.14 Anzeigedrehung — FA-022, FA-102
@@ -372,7 +374,7 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 - Sortierstatus Favorit/Reserve/Aussortiert inkl. Fallback auf Favoriten-Flag
 - Import bricht bei einer defekten Datei (JPEG oder GPX) nicht ab
 - Projekt anlegen, Schema (Abschnitte, URLs, Cover, Drehung), Wiederöffnen, `settings.toml` und Pfad-Rebase
-- Karte: Tracklinie, Fotomarker, Cluster je Tag, Übernachtung/Ort, offline ohne OSM
+- Karte: Titelbilder je Abschnitt/Resttag, Detail mit Tracklinie und Fotomarkern, offline ohne OSM
 - Timeline: Tage aus Aufnahmezeit, manuelle Texte bleiben, Ortsvorschläge, Übernachtungen, Tagebuch-Flags
 - Reiseabschnitte, Resttage, Pending-Vorschau, Eintrags-Titelbild (Foto und Track)
 - YouTube- und DHV-Leonardo-URL-Normalisierung
@@ -397,7 +399,6 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 | Video-Metadaten live mit ffprobe | FA-038 | Adapter + optionales Binary |
 | pytest-qt Bedienung Import-Button | FA-092 | geplant |
 | KML/GeoJSON auf der interaktiven Karte | FA-013, FA-043 | bewusst nicht; Parser + Thumbs automatisiert |
-| Reiseabschnitte auf der Folium-Karte | FA-050 | Timeline ja; Karte OP-09 |
 
 Qualität und perceptual hashing entstehen mit den Phasen 9–10; die Verträge `QualityAnalyzer` und `RankingStrategy` sind importierbar.
 
@@ -516,10 +517,11 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | Track als Linie mit Datum, Fotos als Marker mit Datum; Klick zeigt Datum und Dateiname sowie ggf. Vorschaubild |
-| Nahe Marker | Cluster, aufklappbar; Tagesfarben unterscheidbar |
-| Übernachtung im Tagebuch mit GPS anlegen | schwarzer Home-Marker auf der Karte |
-| Bestätigter Ort | grauer Flag-Marker |
+| Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | ein Titelbild je Abschnitt oder Resttag; ohne gesetztes Titelbild das erste Listenelement mit GPS |
+| Klick auf ein Titelbild | Fotos, Videos und Tracks dieses Eintrags; **Reiseabschnitt schließen** stellt Zoom und Ausschnitt wieder her |
+| Klick auf ein viereckiges Thumbnail | Medieninspektor wie in der Timeline (Blättern, Zoom, Drehen) |
+| Übernachtung im Tagebuch mit GPS anlegen | erscheint nach Klick auf den Resttag; ohne Medien als Fallback-Titelbild |
+| Bestätigter Ort | erscheint im Detail des Resttags |
 
 ### MT-13 Timeline und Tagebuch
 

@@ -98,7 +98,8 @@ class SettingsDialog(QDialog):
         self.language_edit = QLineEdit(self._settings.placeholders.journal_language)
         extra_form.addRow("Tagebuchsprache", self.language_edit)
         note = QLabel(
-            "leaflet: OpenStreetMap-Kacheln (Netzwerk). offline: nur Track und Marker. "
+            "leaflet: OpenStreetMap-Kacheln mit lateinischen bzw. deutschen Namen "
+            "(Netzwerk, openstreetmap.de). offline: nur Track und Marker. "
             "Tagebuchsprache folgt in einer späteren Phase."
         )
         note.setObjectName("pageSubtitle")

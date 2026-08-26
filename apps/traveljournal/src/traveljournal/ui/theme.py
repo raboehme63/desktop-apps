@@ -170,6 +170,33 @@ QLabel#entryCover {
     border-radius: 8px;
 }
 
+QWidget#mapTimelineOverlay {
+    background-color: transparent;
+}
+
+QWidget#mapTimelineOverlay > QWidget,
+QScrollArea#mapTimelineStrip,
+QScrollArea#mapTimelineStrip QWidget {
+    background-color: transparent;
+    border: none;
+}
+
+QFrame#mapTimelineCard {
+    background: transparent;
+    border: none;
+}
+
+QFrame#mapTimelineCard[focused="true"] {
+    border: none;
+}
+
+QFrame#mapTimelineLine {
+    background-color: #d8dee8;
+    border: none;
+    max-height: 2px;
+    min-height: 2px;
+}
+
 QFrame#card {
     background-color: #1a2030;
     border: 1px solid #2a3144;

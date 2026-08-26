@@ -19,7 +19,8 @@ TILE_SIZE = 256
 MIN_ZOOM = 3
 MAX_ZOOM = 16
 MAX_TILES = 25
-_OSM_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+# Same latin-label tiles as Folium (openstreetmap.de, not osm.org).
+_OSM_URL = "https://tile.openstreetmap.de/{z}/{x}/{y}.png"
 _USER_AGENT = "TravelJournal/0.1 (desktop; Leaflet map thumbnails)"
 _FETCH_LOCK = threading.Lock()
 _TRACK_LINE = (220, 24, 24)

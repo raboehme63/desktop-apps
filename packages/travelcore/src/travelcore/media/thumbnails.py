@@ -315,7 +315,7 @@ def _track_tile_cache(thumbs_dir: Path) -> tuple[str, bool]:
         provider = "leaflet"
     if provider.strip().lower() == "offline":
         return "", False
-    cache = project_dir / "cache" / "map_tiles"
+    cache = project_dir / "cache" / "map_tiles" / "osmde"
     try:
         cache.mkdir(parents=True, exist_ok=True)
     except OSError:

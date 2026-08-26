@@ -60,7 +60,7 @@ def test_leaflet_provider_creates_tile_cache_dir(tmp_path: Path) -> None:
     save_project_settings(thumbs.parent, ProjectSettings())
     cache, use_tiles = _track_tile_cache(thumbs)
     assert use_tiles is True
-    assert Path(cache) == thumbs.parent / "cache" / "map_tiles"
+    assert Path(cache) == thumbs.parent / "cache" / "map_tiles" / "osmde"
     assert Path(cache).is_dir()
 
 

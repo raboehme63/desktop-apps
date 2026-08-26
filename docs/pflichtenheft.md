@@ -43,7 +43,7 @@ Konkret muss das System:
 
 Die Geschäftslogik muss in der GUI-freien Bibliothek `travelcore` liegen, damit dieselbe Analyse später von **PhotoInspector** wiederverwendet werden kann.
 
-Punkt 5 ist für **manuelle Reiseabschnitte** (Aufenthalt / Transfer) in der Timeline umgesetzt. Automatische Abschnittsvorschläge und Abschnitte auf der Karte fehlen noch. Punkte 8 und 10 bleiben Phase 9–10 bzw. 8.
+Punkt 5 ist für **manuelle Reiseabschnitte** (Aufenthalt / Transfer) in der Timeline und als Titelbilder auf der Karte umgesetzt. Automatische Abschnittsvorschläge fehlen noch. Punkte 8 und 10 bleiben Phase 9–10 bzw. 8.
 
 ### 1.2 Wunschkriterien
 
@@ -180,7 +180,7 @@ Oberflächen-Einstellungen (zuletzt verwendeter Projekte-Ordner, Timeline-Medien
 
 | ID | Prio | Anforderung | Stand |
 | --- | --- | --- | --- |
-| FA-050 | Muss | Interaktive Karte: Track als Linie, Fotos als Marker, Übernachtungen, Abschnitte, Tagesgruppen. | teilweise (Track, IGC-Flugtracks ab Zoom 10 mit Start/Landung, Fotos/Videos, Orte, Übernachtungen, Cluster je Tag; **keine Reiseabschnitte**) |
+| FA-050 | Muss | Interaktive Karte: Track als Linie, Fotos als Marker, Übernachtungen, Abschnitte, Tagesgruppen. | umgesetzt (Übersicht: ein Titelbild je Abschnitt/Resttag; ohne Eintrags-Titelbild das erste Listenelement mit GPS. Klick zeigt Fotos, Videos, Tracks, Übernachtungen und Orte dieses Eintrags. IGC-Flugtracks im Detail ab Zoom 10 mit Start/Landung) |
 | FA-051 | Soll | Klick auf Fotomarker zeigt Vorschau; nahe Marker können clustern. | umgesetzt |
 | FA-052 | Muss | Kartenbackend hinter `MapBackend` austauschbar; erste Version Folium/Leaflet. | umgesetzt |
 
@@ -314,7 +314,7 @@ Mindestens zu speichernde Informationen — Details im Datenbankschema:
 | Projekt | Name, Ordnerpfad, Anlegen, Öffnen, Speichern, Einstellungen (`settings.toml`); Fenstertitel mit Version R1.0.0 | plus zuletzt verwendete Projekte in der UI |
 | Import | Pfadwahl, Analyse, Fortschritt, Zähler, vollständige Dateitabelle, Vorschau aller Galerie-Typen außer Text | unverändert |
 | Timeline | Resttage und Abschnitte gemischt, Mehrfachauswahl, Anlegen/Auflösen, Medien vs. Tracks, Register nur per Klick, Bewertungen, T-Titelbild (Foto und Track), ⋯-Menü YouTube/DHV-Leonardo, Medieninspektor (Blättern, Zoom, Drehen) | plus kompakte Karten, Ereignis-Reihenfolge |
-| Karte | Track, Fotos/Videos, Orte, Übernachtungen, Cluster je Tag, offline ohne OSM | plus Reiseabschnitte |
+| Karte | Titelbilder je Abschnitt/Resttag, Klick öffnet Fotos/Tracks, offline ohne OSM | unverändert |
 | Fotos | Galerie, Filter (Jahr/Ort/Typ inkl. Video/Tracks/Favorit/nicht im Tagebuch), Bewertungen, Inspektor | plus Qualität, Dubletten |
 | Tagebuch | Titel, Text, Fotos zu/ab, Reise-Titelbild, Übernachtungen, Tracks getrennt, YouTube/DHV-Leonardo | plus Abschnitte, Bildunterschriften |
 | Export | Platzhalter | HTML, PDF, LaTeX, CEWE (CEWE zunächst inaktiv) |
@@ -378,6 +378,6 @@ Nach jeder Phase: Anwendung startbar, bestehende Tests grün, keine ungenutzten 
 | OP-06 | Zuletzt verwendete Projekte | `recent.json` existiert; UI-Liste offen |
 | OP-07 | Foto einem anderen Tag zuordnen | Aufnahmezeit bleibt maßgeblich; explizite Korrektur nicht spezifiziert |
 | OP-08 | KML/GeoJSON-Ingest | Parser und Thumbnails da; Zuordnung und Kartenlinie bewusst nicht |
-| OP-09 | Reiseabschnitte auf der Karte | Timeline ja, Folium-Szene nein |
+| OP-09 | Reiseabschnitte auf der Karte | umgesetzt (Titelbild-Übersicht, Detail per Klick) |
 | OP-10 | Kompakte Timeline-Karten | Cover + Titel + Zeit als verdichtete Ansicht später |
 | OP-11 | Abschnitte im Tagebuch | Redaktion der Abschnitte liegt in der Timeline |

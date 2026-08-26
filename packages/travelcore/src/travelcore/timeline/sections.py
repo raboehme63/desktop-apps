@@ -83,6 +83,43 @@ def format_section_span(started_at: datetime | None, ended_at: datetime | None) 
     return f"von {start_day.strftime('%d.%m.%Y')} bis {end_day.strftime('%d.%m.%Y')}"
 
 
+def format_section_duration(started_at: datetime | None, ended_at: datetime | None) -> str | None:
+    """Elapsed time between first and last object, or None if shorter than a minute."""
+
+    if started_at is None:
+        return None
+    end = ended_at or started_at
+    seconds = int((end - started_at).total_seconds())
+    if seconds < 60:
+        return None
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes} Min."
+    hours, rem = divmod(minutes, 60)
+    days, hour_part = divmod(hours, 24)
+    if days == 0:
+        if rem == 0:
+            return f"{hours} Std."
+        return f"{hours} Std. {rem} Min."
+    if days == 1 and hour_part == 0 and rem == 0:
+        return "1 Tag"
+    if hour_part == 0 and rem == 0:
+        return f"{days} Tage"
+    if hour_part == 0:
+        return f"{days} Tage"
+    return f"{days} Tage {hour_part} Std."
+
+
+def format_section_when(started_at: datetime | None, ended_at: datetime | None) -> str:
+    """Date range plus duration when the span is longer than a minute."""
+
+    span = format_section_span(started_at, ended_at)
+    duration = format_section_duration(started_at, ended_at)
+    if duration:
+        return f"{span} · {duration}"
+    return span
+
+
 def create_section(
     session: Session,
     trip_id: int,

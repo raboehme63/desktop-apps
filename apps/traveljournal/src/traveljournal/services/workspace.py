@@ -14,7 +14,14 @@ from travelcore.database.models import Project, SourceFile, Trip
 from travelcore.database.project_store import OpenProject, ProjectStore
 from travelcore.exceptions import ProjectError
 from travelcore.gps.ingest import set_track_external_url, track_urls_by_source
-from travelcore.maps import FoliumMapBackend, MapScene, build_map_scene
+from travelcore.maps import (
+    MapRenderResult,
+    MapTimelineCard,
+    build_map_timeline,
+    ensure_map_cache,
+    map_cache_identity,
+    read_cached_map,
+)
 from travelcore.media.gallery import GalleryItem, list_gallery_items
 from travelcore.media.indexer import count_by_kind
 from travelcore.media.orientation import can_rotate_media
@@ -176,27 +183,99 @@ class Workspace:
         with self.current.session_factory() as session:
             return list_gallery_items(session, self.current.project_id, thumbs, size=size)
 
-    def render_map(self) -> tuple[MapScene, Path | None]:
-        """Build a map scene and write ``cache/map.html``. Returns (scene, html or None)."""
+    def map_provider(self) -> str:
+        opened = self._require_open()
+        try:
+            return load_project_settings(opened.directory).placeholders.map_provider
+        except ProjectError:
+            return "leaflet"
+
+    def map_cache_identity(self) -> dict[str, object]:
+        opened = self._require_open()
+        _thumbs, size = self._thumbs_and_size()
+        return map_cache_identity(
+            db_path=opened.db_path,
+            map_provider=self.map_provider(),
+            thumbnail_size=size,
+        )
+
+    def load_cached_map(self) -> MapRenderResult | None:
+        if self.current is None:
+            return None
+        return read_cached_map(self.current.directory, self.map_cache_identity())
+
+    def render_map(self, *, force: bool = False) -> MapRenderResult:
+        """Reuse ``cache/map.html`` when the stamp matches, otherwise rebuild."""
+
+        opened = self._require_open()
+        thumbs, size = self._thumbs_and_size()
+        provider = self.map_provider()
+        return ensure_map_cache(
+            opened.session_factory,
+            opened.project_id,
+            opened.directory,
+            thumbs,
+            db_path=opened.db_path,
+            size=size,
+            map_provider=provider,
+            force=force,
+        )
+
+    def map_group_detail(self, group_key: str) -> dict[str, object]:
+        """Leaflet payload for one section or leftover day."""
+
+        opened = self._require_open()
+        thumbs, size = self._thumbs_and_size()
+        from travelcore.maps.backend import leaflet_payload
+        from travelcore.maps.groups import build_map_group_detail, resolve_map_group
+
+        html_path = opened.directory / "cache" / "map.html"
+        with opened.session_factory() as session:
+            resolved = resolve_map_group(
+                session, opened.project_id, group_key, thumbs, size=size
+            )
+            scene = build_map_group_detail(
+                session, opened.project_id, group_key, thumbs, size=size
+            )
+        payload = leaflet_payload(scene, html_path)
+        payload["youtube_urls"] = list(resolved.youtube_urls) if resolved is not None else []
+        return payload
+
+    def map_group_gallery_items(self, group_key: str) -> list[GalleryItem]:
+        """Timeline-order media of one map entry, for the media inspector."""
+
+        opened = self._require_open()
+        thumbs, size = self._thumbs_and_size()
+        from travelcore.maps.groups import resolve_map_group
+
+        with opened.session_factory() as session:
+            resolved = resolve_map_group(
+                session, opened.project_id, group_key, thumbs, size=size
+            )
+        if resolved is None:
+            return []
+        return self.gallery_items_for_ids(resolved.source_ids)
+
+    def map_timeline_cards(self) -> tuple[MapTimelineCard, ...]:
+        """Compact section cards for the horizontal strip under the map."""
 
         if self.current is None:
-            raise ProjectError("Kein Projekt geöffnet.")
-        thumbs = self.current.directory / "thumbnails"
-        size = AppSettings().default_thumbnail_size
-        tiles: str | None = "OpenStreetMap"
-        try:
-            provider = load_project_settings(self.current.directory).placeholders.map_provider
-        except ProjectError:
-            provider = "leaflet"
-        if provider.strip().lower() == "offline":
-            tiles = None
-        with self.current.session_factory() as session:
-            scene = build_map_scene(session, self.current.project_id, thumbs, size=size)
-        if scene.empty:
-            return scene, None
-        html_path = self.current.directory / "cache" / "map.html"
-        FoliumMapBackend(tiles=tiles).render(scene, html_path)
-        return scene, html_path
+            return ()
+        opened = self.current
+        thumbs, size = self._thumbs_and_size()
+        with opened.session_factory() as session:
+            return build_map_timeline(session, opened.project_id, thumbs, size=size)
+
+    def gallery_items_for_ids(self, source_ids: list[int]) -> list[GalleryItem]:
+        wanted = {item_id for item_id in source_ids if item_id}
+        if not wanted:
+            return []
+        by_id = {
+            item.source_file_id: item
+            for item in self.gallery_items()
+            if item.source_file_id in wanted
+        }
+        return [by_id[item_id] for item_id in source_ids if item_id in by_id]
 
     def sync_timeline(self) -> TimelineSnapshot:
         opened = self._require_open()

@@ -154,11 +154,16 @@ class MainWindow(QMainWindow):
             )
         else:
             self._set_status("Einstellungen gespeichert.")
+        self.map_view.prepare_in_background()
 
     def _on_import_finished(self) -> None:
         self.project_view.refresh()
         self._set_status("Timeline und Karte werden aktualisiert…")
-        QTimer.singleShot(0, self.timeline_view.rebuild)
+        QTimer.singleShot(0, self._after_import)
+
+    def _after_import(self) -> None:
+        self.timeline_view.rebuild()
+        self.map_view.prepare_in_background()
 
     def _on_index_progress(self, current: int, total: int, message: str) -> None:
         self._load_progress.show()
@@ -179,6 +184,7 @@ class MainWindow(QMainWindow):
             return
         self.project_view.clear_load_progress("Index geladen")
         self._set_status("Projekt geladen")
+        self.map_view.prepare_in_background()
         key = self.sidebar.current_key()
         if key == "photos":
             self.photos_view.refresh()

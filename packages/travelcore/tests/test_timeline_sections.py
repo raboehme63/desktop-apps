@@ -16,7 +16,9 @@ from travelcore.timeline import (
     create_section,
     dissolve_section,
     expand_range_selection,
+    format_section_duration,
     format_section_span,
+    format_section_when,
     load_timeline,
     parse_modes,
     serialize_modes,
@@ -53,6 +55,19 @@ def test_format_section_span_uses_object_dates() -> None:
     assert format_section_span(start, same_day) == "am 14.05.2025"
     assert format_section_span(start, later) == "von 14.05.2025 bis 16.05.2025"
     assert format_section_span(None, None) == "ohne Zeit"
+
+
+def test_format_section_duration_and_when() -> None:
+    start = datetime(2025, 5, 14, 8, 0, tzinfo=UTC)
+    same_day = datetime(2025, 5, 14, 18, 30, tzinfo=UTC)
+    later = datetime(2025, 5, 16, 9, 0, tzinfo=UTC)
+    assert format_section_duration(None, None) is None
+    assert format_section_duration(start, start) is None
+    assert format_section_duration(start, datetime(2025, 5, 14, 8, 20, tzinfo=UTC)) == "20 Min."
+    assert format_section_duration(start, same_day) == "10 Std. 30 Min."
+    assert format_section_duration(start, later) == "2 Tage 1 Std."
+    assert format_section_when(start, same_day) == "am 14.05.2025 · 10 Std. 30 Min."
+    assert format_section_when(None, None) == "ohne Zeit"
 
 
 def test_create_section_same_day_is_am(open_project: OpenProject, tmp_path: Path) -> None:

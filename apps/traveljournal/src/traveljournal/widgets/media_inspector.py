@@ -67,6 +67,7 @@ class PhotoCanvas(QWidget):
     """Fitted photo with hover arrows, wheel-zoom, and double-click to reset."""
 
     side_clicked = Signal(int)
+    double_activated = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -189,7 +190,7 @@ class PhotoCanvas(QWidget):
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton and self.nav_side_at(event.position().x()) == 0:
-            self.reset_view()
+            self.double_activated.emit()
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
@@ -312,6 +313,7 @@ class MediaInspectorWindow(QWidget):
         items: list[GalleryItem] | None = None,
         workspace: Workspace | None = None,
         parent: QWidget | None = None,
+        thumbnail_first: bool = False,
     ) -> None:
         super().__init__(parent)
         self.setWindowFlags(
@@ -326,6 +328,8 @@ class MediaInspectorWindow(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMinimumSize(520, 400)
         self.workspace = workspace
+        self._thumbnail_first = thumbnail_first
+        self._showing_original = not thumbnail_first
         self._items = _sequence_for(item, items)
         self._index = next(
             (index for index, entry in enumerate(self._items) if entry.source_file_id == item.source_file_id),
@@ -340,6 +344,7 @@ class MediaInspectorWindow(QWidget):
         split = QSplitter(Qt.Orientation.Horizontal, self)
         self._image = PhotoCanvas(self)
         self._image.side_clicked.connect(self.step)
+        self._image.double_activated.connect(self._on_photo_double_click)
         split.addWidget(self._image)
         self.extra_host = QWidget(self)
         self.extra_host.setObjectName("inspectorExtra")
@@ -392,10 +397,22 @@ class MediaInspectorWindow(QWidget):
     def item(self) -> GalleryItem:
         return self._items[self._index]
 
+    def showing_original(self) -> bool:
+        return self._showing_original
+
+    def _on_photo_double_click(self) -> None:
+        if self._thumbnail_first and not self._showing_original:
+            self._showing_original = True
+            self._show_current()
+            return
+        self._image.reset_view()
+
     def step(self, delta: int) -> None:
         if len(self._items) < 2 or delta == 0:
             return
         self._index = (self._index + delta) % len(self._items)
+        if self._thumbnail_first:
+            self._showing_original = False
         self._show_current()
 
     def resize_to_aspect(self, wanted: QSize, *, old: QSize | None = None) -> None:
@@ -498,10 +515,21 @@ class MediaInspectorWindow(QWidget):
 
     def _show_current(self) -> None:
         item = self.item()
-        self.setWindowTitle(_window_title(item, self._index, len(self._items)))
+        title = _window_title(item, self._index, len(self._items))
+        if self._thumbnail_first and not self._showing_original:
+            title = f"{title} · Vorschau"
+        self.setWindowTitle(title)
         self._image.set_browse_enabled(len(self._items) >= 2)
-        self._image.set_source(load_media_pixmap(item, max_edge=_INSPECTOR_EDGE))
-        self._meta.setText(media_meta_text(item))
+        if self._thumbnail_first and not self._showing_original:
+            pixmap = load_thumbnail_pixmap(item)
+        else:
+            pixmap = load_media_pixmap(item, max_edge=_INSPECTOR_EDGE)
+        self._image.set_source(pixmap)
+        meta = media_meta_text(item)
+        if self._thumbnail_first and not self._showing_original:
+            hint = "Vorschau · Doppelklick für Original"
+            meta = f"{meta} · {hint}" if meta else hint
+        self._meta.setText(meta)
         can_rate = _can_rate(item)
         can_rotate = can_rotate_media(item.extension)
         self._rotate_left.setVisible(can_rotate)
@@ -607,6 +635,17 @@ def _window_title(item: GalleryItem, index: int, total: int) -> str:
     if total <= 1:
         return item.filename
     return f"{item.filename} · {index + 1} von {total}"
+
+
+def load_thumbnail_pixmap(item: GalleryItem) -> QPixmap:
+    """Cached thumbnail only; never opens the original file."""
+
+    path = item.thumbnail_path
+    if path.is_file():
+        pixmap = QPixmap(str(path))
+        if not pixmap.isNull():
+            return pixmap
+    return load_media_pixmap(item, max_edge=_MAX_EDGE)
 
 
 def load_media_pixmap(item: GalleryItem, *, max_edge: int = _MAX_EDGE) -> QPixmap:

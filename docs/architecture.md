@@ -113,14 +113,15 @@ nur per Klick, nicht durch Mausrad.
 
 ## Karte
 
-`build_map_scene` sammelt GPX-Tracks (ausgedünnt, max. 2500 Punkte, Endpunkte
-bleiben), IGC-Flugtracks (max. 1200 Punkte, Linie ab Zoom 10, Start- und
-Lande-Marker immer sichtbar, Popup mit Pilot und DHV-Leonardo-Link), geotaggte
-Fotos/Videos, Orte und Übernachtungen. Folium schreibt `cache/map.html`.
-Foto- und Track-Marker zeigen das Datum, keinen Ortsnamen; Klick auf ein Foto
-zeigt Datum, Dateiname und Thumbnail.
-`map_provider=offline` setzt `tiles=None` (keine OSM-Kacheln). Qt WebEngine
-zeigt die Datei; fehlt das Add-on, bleibt der Pfad sichtbar.
+`build_map_scene` baut die Übersicht: ein Titelbild je Reiseabschnitt oder Resttag
+(gespeichertes `cover_source_file_id`, sonst das erste Listenelement mit GPS).
+Position ist die Cover-GPS, sonst der Schwerpunkt der geotaggten Mitglieder.
+Folium schreibt `cache/map.html`; ein Klick auf das runde Titelbild zeigt
+Fotos, Videos, Tracks, Übernachtungen und Orte dieses Eintrags.
+Online-Kacheln kommen von `tile.openstreetmap.de` (deutsche Namen, sonst
+lateinische Umschrift statt Landesschrift). `map_provider=offline` setzt
+`tiles=None` (keine OSM-Kacheln). Qt WebEngine zeigt die Datei; fehlt das
+Add-on, bleibt der Pfad sichtbar.
 
 ## Austauschbare Schnittstellen
 
@@ -139,9 +140,9 @@ Bereits in Phase 1 angelegt, schrittweise gefüllt:
   Cachepfad enthält `_r90` bei nicht-null `rotation_degrees`
 - `VideoMetadataProvider` – ffprobe-Adapter (noch nicht aktiv)
 - `Exporter` – HTML, PDF, LaTeX, CEWE (Implementierung ab Phase 8)
-- `MapBackend` – Folium/Leaflet, GPX-Tracks als Polylinie, IGC-Flugtracks ab Zoom 10
-  (Start/Landung immer sichtbar), Fotos/Videos als Marker (Cluster je Tag),
-  Übernachtungen und Orte; keine Reiseabschnitte auf der Karte
+- `MapBackend` – Folium/Leaflet, Übersicht als Titelbilder je Abschnitt/Resttag,
+  Detail mit GPX-Polylinien, IGC-Flugtracks ab Zoom 10 (Start/Landung immer sichtbar),
+  Fotos/Videos, Übernachtungen und Orte
 - Timeline in `travelcore.timeline` – Tage, Abschnitte, Resttage, Cover, Links;
   keine Ortsnamen an Foto-/Trackpositionen
 - KML/GeoJSON in `travelcore.gps` – Parser für Vorschauen, kein Ingest in `gps_tracks`

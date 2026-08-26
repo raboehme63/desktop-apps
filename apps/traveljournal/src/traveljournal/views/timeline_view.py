@@ -405,7 +405,7 @@ class TimelineView(QWidget):
             if isinstance(block, EntryWidget):
                 if sender is block.gallery:
                     sequence = block.inspectable_media()
-                else:
+        else:
                     sequence = block.track_gallery.items()
         window = MediaInspectorWindow(
             item, items=sequence, workspace=self.workspace, parent=self.window()

@@ -706,3 +706,199 @@ def test_media_inspector_zoom_arrows_and_fit(tmp_path: Path) -> None:
     )
     assert canvas.zoom == 1.0
     _ = app
+
+
+def test_inspector_map_opens_thumbnail_then_original_on_double_click(tmp_path: Path) -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from jpeg_fixtures import write_plain_jpeg
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.widgets.media_inspector import MediaInspectorWindow
+
+    app = QApplication.instance() or QApplication([])
+    original = write_plain_jpeg(tmp_path / "foto.jpg", size=(200, 150))
+    thumb = write_plain_jpeg(tmp_path / "thumb.jpg", size=(40, 30))
+    item = GalleryItem(
+        source_file_id=1,
+        path=str(original),
+        filename="foto.jpg",
+        extension=".jpg",
+        captured_at=None,
+        timezone_unknown=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        camera=None,
+        is_favorite=False,
+        used_in_journal=False,
+        thumbnail_path=thumb,
+        sort_status=None,
+    )
+    window = MediaInspectorWindow(item, thumbnail_first=True)
+    assert "Vorschau" in window.windowTitle()
+    assert not window.showing_original()
+    assert window._image.source().width() == 40
+    window._on_photo_double_click()
+    assert window.showing_original()
+    assert "Vorschau" not in window.windowTitle()
+    assert window._image.source().width() == 200
+    _ = app
+
+
+def test_parse_map_bridge_url_reads_group_key() -> None:
+    from traveljournal.views.map_view import (
+        MAP_PAGE_SETUP_JS,
+        parse_map_bridge_url,
+        parse_map_expand_console,
+        parse_map_media_console,
+        parse_map_media_url,
+    )
+
+    assert parse_map_bridge_url("traveljournal://expand?key=section%3A12") == "section:12"
+    assert parse_map_bridge_url("https://traveljournal.local/expand?key=section%3A12") == "section:12"
+    assert parse_map_bridge_url("https://example.com") is None
+    assert parse_map_expand_console("traveljournal:expand:day:4") == "day:4"
+    assert parse_map_expand_console("JS: traveljournal:expand:section:1") == "section:1"
+    assert parse_map_expand_console("leaflet ready") is None
+    assert parse_map_media_url("https://traveljournal.local/media?id=9") == 9
+    assert parse_map_media_console("traveljournal:media:9") == 9
+    assert parse_map_media_console("traveljournal:expand:day:4") is None
+    assert "pointerup" in MAP_PAGE_SETUP_JS
+    assert "zoom: {animate: false}" in MAP_PAGE_SETUP_JS
+
+
+def test_map_view_refresh_uses_disk_cache_without_rebuild(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from gpx_fixtures import write_gpx
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.database.models import Project
+    from travelcore.database.project_store import ProjectStore
+    from travelcore.maps.cache import FoliumMapBackend
+    from travelcore.media.indexer import FileIndexer
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.map_view import MapView
+
+    app = QApplication.instance() or QApplication([])
+    store = ProjectStore()
+    opened = store.create(tmp_path / "reise_karte", "Karte")
+    source = tmp_path / "media"
+    source.mkdir()
+    write_gpx(
+        source / "spur.gpx",
+        [
+            (46.0, 11.0, 260.0, "2025-05-15T13:31:50Z"),
+            (46.2, 11.2, 280.0, "2025-05-15T13:32:10Z"),
+        ],
+    )
+    with opened.session_factory() as session:
+        project = session.get(Project, opened.project_id)
+        assert project is not None
+        FileIndexer().index(session, project, source, generate_thumbnails=False)
+        session.commit()
+
+    workspace = Workspace()
+    workspace.current = opened
+    calls = {"n": 0}
+    original = FoliumMapBackend.render
+
+    def wrapped(self, scene, output_html):  # noqa: ANN001
+        calls["n"] += 1
+        return original(self, scene, output_html)
+
+    monkeypatch.setattr("travelcore.maps.cache.FoliumMapBackend.render", wrapped)
+    first = workspace.render_map()
+    assert not first.from_cache
+    assert calls["n"] == 1
+    view = MapView(workspace)
+    view.refresh()
+    view.refresh()
+    assert calls["n"] == 1
+    assert "1 Titelbilder" in view._subtitle.text()
+    assert len(view._timeline.cards()) == 1
+    assert view._timeline.cards()[0].group_key.startswith("loose:")
+    view.resize(900, 640)
+    view.show()
+    app.processEvents()
+    assert view._timeline.isVisible()
+    assert view._timeline.parent() is view._web_host
+    _ = app
+
+
+def test_map_timeline_strip_centers_first_card() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.maps.groups import MapTimelineCard
+    from traveljournal.widgets.map_timeline import (
+        CARD_HEIGHT,
+        CARD_WIDTH,
+        MapTimelineStrip,
+        nearest_card_index,
+    )
+
+    assert nearest_card_index([], 0) is None
+    assert nearest_card_index([10, 100, 220], 90) == 1
+
+    app = QApplication.instance() or QApplication([])
+    strip = MapTimelineStrip()
+    strip.resize(640, 180)
+    strip.show()
+    app.processEvents()
+    focused: list[str] = []
+    strip.focus_changed.connect(focused.append)
+    strip.set_cards(
+        (
+            MapTimelineCard(
+                group_key="section:1",
+                title="Eins",
+                time_label="am 01.05.2025",
+                latitude=46.0,
+                longitude=11.0,
+            ),
+            MapTimelineCard(
+                group_key="section:2",
+                title="Zwei",
+                time_label="am 02.05.2025",
+                latitude=47.0,
+                longitude=12.0,
+            ),
+        )
+    )
+    strip.show()
+    app.processEvents()
+    assert focused == ["section:1"]
+    assert strip.focused_key() == "section:1"
+    assert strip._widgets[0].property("focused") is True
+    assert strip._widgets[1].property("focused") is False
+    titles = [widget.card.title for widget in strip._widgets]
+    assert titles == ["Eins", "Zwei"]
+    assert strip._widgets[0].width() == CARD_WIDTH
+    assert strip._widgets[0].height() == CARD_HEIGHT
+    strip.center_on("section:2")
+    app.processEvents()
+    assert focused[-1] == "section:2"
+    assert strip.focused_key() == "section:2"
+    lines = [child for child in strip._inner.children() if child.objectName() == "mapTimelineLine"]
+    assert len(lines) == 1
+    again = len(focused)
+    strip.center_on("section:2")
+    app.processEvents()
+    assert focused[-1] == "section:2"
+    assert len(focused) == again + 1
+    fits: list[str] = []
+    strip.fit_all_requested.connect(lambda: fits.append("all"))
+    strip._widgets[0].mouseDoubleClickEvent(
+        QMouseEvent(
+            QEvent.Type.MouseButtonDblClick,
+            QPointF(20, 20),
+            QPointF(20, 20),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    assert fits == ["all"]
+    _ = app

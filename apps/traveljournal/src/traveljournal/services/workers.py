@@ -11,8 +11,11 @@ from travelcore.config import AppSettings
 from travelcore.database.models import Project
 from travelcore.database.project_store import OpenProject
 from travelcore.database.session import session_scope
+from travelcore.exceptions import ProjectError
+from travelcore.maps import ensure_map_cache
 from travelcore.media.indexer import FileIndexer, IndexProgress, IndexResult
 from travelcore.media.thumbnails import generate_project_thumbnails
+from travelcore.project_settings import load_project_settings
 
 if TYPE_CHECKING:
     from traveljournal.services.workspace import Workspace
@@ -133,4 +136,43 @@ class IndexLoadRunnable(QRunnable):
             urls = self.workspace.gps_track_urls() if rows else {}
             self.signals.ready.emit(rows, urls)
         except Exception as exc:  # noqa: BLE001 - surface load failures to the UI
+            self.signals.failed.emit(str(exc))
+
+
+class MapRenderSignals(QObject):
+    finished = Signal(object)
+    failed = Signal(str)
+
+
+class MapRenderRunnable(QRunnable):
+    """Build or reuse ``cache/map.html`` off the GUI thread."""
+
+    def __init__(self, open_project: OpenProject, *, force: bool = False) -> None:
+        super().__init__()
+        self.open_project = open_project
+        self.force = force
+        self.signals = MapRenderSignals()
+        self.setAutoDelete(True)
+
+    def run(self) -> None:
+        try:
+            settings = AppSettings()
+            try:
+                provider = load_project_settings(self.open_project.directory).placeholders.map_provider
+            except ProjectError:
+                provider = "leaflet"
+            thumbs = self.open_project.directory / "thumbnails"
+            thumbs.mkdir(parents=True, exist_ok=True)
+            result = ensure_map_cache(
+                self.open_project.session_factory,
+                self.open_project.project_id,
+                self.open_project.directory,
+                thumbs,
+                db_path=self.open_project.db_path,
+                size=settings.default_thumbnail_size,
+                map_provider=provider,
+                force=self.force,
+            )
+            self.signals.finished.emit(result)
+        except Exception as exc:  # noqa: BLE001 - surface map build failures to the UI
             self.signals.failed.emit(str(exc))
