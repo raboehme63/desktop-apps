@@ -41,6 +41,24 @@ from traveljournal.services.workspace import Workspace
 _TABLE_FILL_CHUNK = 80
 
 
+def import_browse_start(
+    current_path: str,
+    *,
+    source_root: str | None,
+    projects_root: Path | None,
+) -> str:
+    """Start folder for the import picker: current path, then source root, then projects root."""
+
+    for candidate in (current_path, source_root, str(projects_root) if projects_root is not None else ""):
+        text = (candidate or "").strip()
+        if not text:
+            continue
+        path = Path(text)
+        if path.is_dir():
+            return str(path)
+    return ""
+
+
 class ImportView(QWidget):
     status_message = Signal(str)
     import_finished = Signal()
@@ -352,7 +370,18 @@ class ImportView(QWidget):
             self.import_finished.emit()
 
     def _browse(self) -> None:
-        directory = QFileDialog.getExistingDirectory(self, "Quellverzeichnis wählen")
+        source_root = None
+        if self.workspace.current is not None:
+            try:
+                source_root = self.workspace.project_settings().source_root
+            except ProjectError:
+                source_root = None
+        start = import_browse_start(
+            self.path_edit.text().strip(),
+            source_root=source_root,
+            projects_root=self.workspace.projects_root(),
+        )
+        directory = QFileDialog.getExistingDirectory(self, "Quellverzeichnis wählen", start)
         if directory:
             self.path_edit.setText(directory)
 
@@ -494,11 +523,17 @@ class ImportView(QWidget):
         if thumbs is None:
             return _placeholder_pixmap()
         size = AppSettings().default_thumbnail_size
-        path = cached_thumbnail_path(thumbs, source_file_id=item.id, sha256=item.sha256, size=size)
+        path = cached_thumbnail_path(
+            thumbs,
+            source_file_id=item.id,
+            sha256=item.sha256,
+            size=size,
+            rotation_degrees=item.rotation_degrees,
+        )
         key = str(path)
         if self._thumb_cache is not None and self._thumb_cache[0] == key:
             return self._thumb_cache[1]
-        if item.file_kind != FileKind.PHOTO.value or not path.is_file():
+        if item.file_kind == FileKind.TEXT.value or not path.is_file():
             pixmap = _placeholder_pixmap()
         else:
             loaded = QPixmap(str(path))
@@ -618,6 +653,8 @@ def file_preview_text(item: SourceFile, *, dhv_url: str = "") -> str:
         lines.append(f"Bildgröße: {item.width} × {item.height}")
     if item.orientation is not None:
         lines.append(f"Orientierung: {item.orientation}")
+    if item.rotation_degrees:
+        lines.append(f"Drehung: {item.rotation_degrees}°")
     if dhv_url:
         lines.append(f"DHV-Leonardo: {dhv_url}")
     return "\n".join(lines)

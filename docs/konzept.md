@@ -2,9 +2,9 @@
 
 | Feld | Inhalt |
 | --- | --- |
-| Version | 0.4 |
-| Stand | 18. August 2026 |
-| Status | Leitkonzept; Phase 7 (Timeline und Tagebuch) umgesetzt |
+| Version | 0.5 |
+| Stand | 26. August 2026 |
+| Status | Leitkonzept; Phase 7 erweitert, Software **R1.0.0** |
 | Bezug | [pflichtenheft.md](pflichtenheft.md), [architecture.md](architecture.md) |
 
 Dieses Dokument beschreibt die **Idee, den Ablauf und die technische Leitlinie**. Verbindliche Soll-Aussagen stehen im Pflichtenheft.
@@ -70,16 +70,18 @@ Dieselbe Quelle erneut analysieren:
 - neue Dateien ergänzen
 - defekte Dateien als Fehler zählen, Rest fortsetzen
 
-### 3.3 Bearbeitung (Phase 7)
+### 3.3 Bearbeitung (Phase 7, Software R1.0.0)
 
 Das Grundgerüst entsteht **automatisch nach dem Import**, nicht als zweite Wahrheit in der Oberfläche.
 
 - **Ein Reisetag je Kalendertag** der Aufnahmezeit (`captured_at.date()`). Medien ohne Zeit landen unter „Ohne Datum“.
+- **Reiseabschnitte** legt der Benutzer in der Timeline an: Aufenthalt oder Transfer, aus einer Mehrfachauswahl von Fotos, Videos und Tracks. Dateien ohne Abschnitt bleiben **Resttage**. Neu angelegte Abschnitte existieren nur im Speicher, bis **Speichern**.
 - **Fotos werden nicht umgehängt.** Die Aufnahmezeit bleibt der Tag. Das Häkchen im Tagebuch setzt nur `used_in_journal` — wer ein Foto einem anderen Tag zuordnen will, ändert die Zeit nicht still, sondern wartet auf eine spätere, explizite Korrektur.
 - **Ortsvorschläge** entstehen aus GPS-Fotos desselben Tages: greedy Cluster mit Haversine, Radius 150 m (`stay_radius_meters`). Sie bleiben unbestätigt (`origin=auto`), bis der Benutzer sie benennt, bestätigt oder löscht. Hat ein Tag bereits Orte, legt der Abgleich keine zweiten Auto-Orte an.
 - **Übernachtungen** sind bewusst manuell (Tagebuch: Name, Ort, optional GPS, Beschreibung). Es gibt keine automatische Hotelerkennung.
-- **Manuelle Daten überleben den Re-Sync:** Titel, Tagesetext, bestätigte Orte, Favoriten, Titelbild und Tagebuch-Häkchen tragen `origin=manual`. Die Automatik überschreibt sie nicht.
-- **Timeline und Tagebuch** zeigen denselben Snapshot. Die Timeline bestätigt Orte; das Tagebuch schreibt Texte, setzt Fotos ins Buch und legt Übernachtungen an. Die Karte liest dieselben Orte und Übernachtungen.
+- **Manuelle Daten überleben den Re-Sync:** Titel, Tagesetext, bestätigte Orte, Favoriten, Sortierstatus, Titelbild und Tagebuch-Häkchen tragen `origin=manual`. Die Automatik überschreibt sie nicht. Anzeigedrehung (`rotation_degrees`) überlebt den Re-Import.
+- **Timeline und Tagebuch** zeigen denselben Snapshot. Die Timeline mischt Abschnitte und Resttage, setzt Bewertungen und Eintrags-Titelbilder (Foto oder Track), speichert YouTube erst mit Speichern und DHV-Leonardo-Links an gespeicherten Einträgen sofort. Das Tagebuch schreibt Texte, setzt Fotos ins Buch und legt Übernachtungen an. Die Karte liest dieselben Orte und Übernachtungen.
+- **Medieninspektor:** Doppelklick öffnet ein eigenes Fenster. Blättern in der Sequenz des Tags/Abschnitts, Zoom, freie Fenstergröße, Vollbild mit schwarzen Rändern, Anzeigedrehung ohne Originalschreiben.
 
 ### 3.4 PhotoInspector (später)
 
@@ -95,10 +97,10 @@ Linke Navigation, rechts der Arbeitsbereich. Sieben Seiten von Anfang an, auch w
 | --- | --- |
 | **Projekt** | Behälter: Name, Ordner, Öffnen/Anlegen. Keine Medienbearbeitung. |
 | **Import** | Brücke zur Außenwelt. Einzige Stelle, die das Quellverzeichnis scannt. |
-| **Timeline** | Chronologische Wahrheit: Tage, Ereignisse, Ortsvorschläge bestätigen oder löschen. |
-| **Karte** | Geografische Wahrheit: Track, Fotos, Orte, Übernachtungen. Backend austauschbar. |
-| **Fotos** | Medienarbeit: Galerie, Filter, Favoriten. Qualität und Dubletten folgen später. |
-| **Tagebuch** | Narrative Fassung: Titel, Text, Fotos ins Buch, Titelbild, Übernachtungen. |
+| **Timeline** | Chronologische Wahrheit: Resttage und Reiseabschnitte, Bewertungen, Eintrags-Titelbild, YouTube/DHV-Leonardo, Medieninspektor. |
+| **Karte** | Geografische Wahrheit: Track, Fotos, Orte, Übernachtungen. Backend austauschbar. Abschnitte folgen später. |
+| **Fotos** | Medienarbeit: Galerie, Filter, Bewertungen, Inspektor. Qualität und Dubletten folgen später. |
+| **Tagebuch** | Narrative Fassung: Titel, Text, Fotos ins Buch, Reise-Titelbild, Übernachtungen, Links. Abschnitte bleiben in der Timeline. |
 | **Export** | Ausgabe, keine Analyse. Phase 8: HTML. |
 
 Lange Arbeit (Index, Thumbnails, Qualität) läuft im GUI-Prozess über Worker, die **nur** synchrone `travelcore`-Funktionen aufrufen. Die Bibliothek kennt keine Qt-Threads. CPU-Arbeit (Hash, Metadaten, Vorschaubilder) parallelisiert `travelcore` intern per Prozess-Pool; SQLite bleibt ein Schreiber.
@@ -120,7 +122,7 @@ Reise
 Übernachtung bezieht sich auf Tag + Ort (+ optionale Fotos)
 ```
 
-Ortsnamen müssen in Version 1 nicht „perfekt“ sein. Die Struktur muss sie aber schon tragen, damit Automatik und Handarbeit dieselbe Hierarchie nutzen. **Reiseabschnitte** liegen im Datenmodell, werden in Phase 7 aber noch nicht erzeugt oder in der UI bearbeitet.
+Ortsnamen müssen in Version 1 nicht „perfekt“ sein. Die Struktur muss sie aber schon tragen, damit Automatik und Handarbeit dieselbe Hierarchie nutzen. **Reiseabschnitte** legt der Benutzer in der Timeline an (Aufenthalt / Transfer). Sie gehören zur Chronologie, nicht zur automatischen Import-Gruppierung. Das Tagebuch bleibt tageszentriert.
 
 ### 5.2 Position als eigener Fakt
 
@@ -145,7 +147,7 @@ Dateisystemzeit ist letzter Fallback, nie stillschweigend als Aufnahmezeit ausge
 
 ### 5.4 Projektordner
 
-SQLite ist die Arbeitsdatei, nicht das Archiv der Bilder. Thumbnails und Analyseergebnisse liegen neben der Datenbank, damit das Projekt kopierbar bleibt. Die Quellwurzel der Originale steht in `settings.toml` (Projekt → Einstellungen), zusammen mit GPS-Zeitfenster, Standardzeitzone und Kartenanbieter (`leaflet` / `offline`). Wird der Ordner verschoben, setzt man den neuen Pfad; der Index wird umgeschrieben, die Originaldateien nicht. Zuletzt geöffnete Projekte merkt die App unter `%LOCALAPPDATA%\TravelJournal\recent.json`; die Liste erscheint in Phase 7 noch nicht in der Oberfläche.
+SQLite ist die Arbeitsdatei, nicht das Archiv der Bilder. Thumbnails und Analyseergebnisse liegen neben der Datenbank, damit das Projekt kopierbar bleibt. Die Quellwurzel der Originale steht in `settings.toml` (Projekt → Einstellungen), zusammen mit GPS-Zeitfenster, Standardzeitzone und Kartenanbieter (`leaflet` / `offline`). Wird der Ordner verschoben, setzt man den neuen Pfad; der Index wird umgeschrieben, die Originaldateien nicht. Zuletzt geöffnete Projekte merkt die App unter `%LOCALAPPDATA%\TravelJournal\recent.json`; die Liste erscheint noch nicht in der Oberfläche. Das Timeline-Medienregister (`timeline_media_tab`) und der Projekte-Stammordner liegen in `config.json`. Der Fenstertitel zeigt die Softwareversion (`Reisetagebuch R1.0.0` bzw. mit Projekttitel).
 
 ---
 
@@ -166,9 +168,11 @@ RAW bleibt im Index ein Foto; tiefe Metadaten hängen an ExifTool. Videozeit hä
 
 GPX-Tracks werden nach dem Dateiindex gelesen (gpxpy) und als Punkte mit Segment und Zeit gespeichert. Unveränderte GPX/IGC (Größe, mtime, Hash) werden nicht erneut geparst und nicht neu in SQLite geschrieben, sofern bereits Trackpunkte existieren. IGC-Fluglogs (Gleitschirm) werden ebenfalls gelesen: B-Records als Trackpunkte, Pilot aus dem Header, optionaler DHV-Leonardo-Link am Track (beim Re-Import erhalten). Die Trackdatei selbst bekommt eine repräsentative Position (arithmetisches Mittel der ersten Trackpunkte) und die Zeit des ersten Punkts mit `recorded_at` (`gpx_track` / `igc_track`). Originale bleiben unverändert. Fotos und Videos ohne geschützte EXIF-/QuickTime-Position erhalten eine Position in dieser Reihenfolge: (1) zeitnahes anderes Foto mit GPS, (2) GPX, (3) IGC, jeweils interpoliert oder nächster Punkt innerhalb `gps_match_max_delta_seconds` (Standard 120). Quellen: `photo_interpolated`/`photo_nearest`, `gpx_interpolated`/`gpx_nearest`, `igc_interpolated`/`igc_nearest`, nie `exif`. Foto-, Video-, GPX- und IGC-Positionen bekommen keinen Ortsnamen; auf der Karte steht das Datum.
 
-Naive Aufnahmezeiten ohne Offset werden nur für diesen Vergleich mit `default_timezone` des Projekts oder andernfalls UTC in Einklang mit GPX/IGC gebracht. Das Flag `timezone_unknown` an der Datei bleibt. KML und GeoJSON werden indexiert, aber noch nicht geparst.
+Naive Aufnahmezeiten ohne Offset werden nur für diesen Vergleich mit `default_timezone` des Projekts oder andernfalls UTC in Einklang mit GPX/IGC gebracht. Das Flag `timezone_unknown` an der Datei bleibt. KML (LineString / gx:Track) und GeoJSON (LineString) werden für Track-Vorschauen geparst; sie fließen nicht in die GPS-Zuordnung und nicht in die interaktive Karte.
 
-Vorschaubilder entstehen beim Import in `thumbnails/` als quadratische JPEGs (Standard 256 px). Die Importliste wird während des Einlesens periodisch geschrieben und angezeigt, nach dem GPX-Abgleich noch einmal, erst danach laufen die Thumbnails. JPEG/PNG/WebP/TIFF liest Pillow. HEIC nutzt unter Windows dieselbe Vorschau wie der Explorer (`IShellItemImageFactory` / WIC, HEIF Image Extensions), sonst ein JPEG-Item oder ein eingebettetes JPEG im Container — ohne libheif und ohne GPL-Codecs. Die Galerie zeigt diese Caches, nicht die Originale. Ein zweiter Lauf überspringt vorhandene Dateien.
+Vorschaubilder entstehen beim Import in `thumbnails/` als quadratische JPEGs (Standard 256 px). Die Importliste wird während des Einlesens periodisch geschrieben und angezeigt, nach dem GPX-Abgleich noch einmal, erst danach laufen die Thumbnails. JPEG/PNG/WebP/TIFF liest Pillow. HEIC nutzt unter Windows dieselbe Vorschau wie der Explorer (`IShellItemImageFactory` / WIC, HEIF Image Extensions), sonst ein JPEG-Item oder ein eingebettetes JPEG im Container — ohne libheif und ohne GPL-Codecs. GPS-Tracks (GPX/IGC/KML/GeoJSON) zeichnen die Spur rot auf einem OSM-Kartenausschnitt (`cache/map_tiles`); ohne Kacheln bleibt der Hintergrund schwarz. Die Galerie zeigt diese Caches, nicht die Originale. Ein zweiter Lauf überspringt vorhandene Dateien.
+
+Anzeigedrehung ist ein Index-Fakt (`source_files.rotation_degrees`, 0/90/180/270). Sie greift nach der EXIF-Orientierung, nur auf Vorschau und Inspektor. Originale werden nicht geschrieben. Der Thumbnail-Cachepfad enthält die Drehung (`_r90`), damit ein Re-Import die Nutzerdrehung nicht überschreibt.
 
 ---
 
@@ -243,8 +247,8 @@ Nicht das ganze Polarsteps-Abbild auf einmal. Jede Phase bleibt startbar und tes
 | 4 | Fotos ohne EXIF-GPS stehen trotzdem auf der Spur. |
 | 5 | Die Menge wird betrachtbar. |
 | 6 | Die Reise wird räumlich erzählbar. |
-| 7 | Der Mensch übernimmt die Redaktion. |
+| 7 | Der Mensch übernimmt die Redaktion (Abschnitte, Bewertungen, Inspektor). |
 | 8 | Die Reise verlässt die App. |
 | 9–10 | Die Auswahl wird begründet (Qualität, Dubletten). |
 
-Aktueller Konzeptstand: **Phase 7** (Timeline und Tagebuch). HTML-Export folgt in Phase 8.
+Aktueller Konzeptstand: **Phase 7 erweitert**, Software **R1.0.0** (Timeline mit Abschnitten, Bewertungen, Inspektor, Track-Vorschauen). HTML-Export folgt in Phase 8.

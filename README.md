@@ -8,11 +8,13 @@ PySide6-Oberfläche `traveljournal` orchestriert nur Import, Bearbeitung und
 Export. Dieselbe Bibliothek ist für eine spätere Anwendung `PhotoInspector`
 vorgesehen (Dublettensuche, Qualitätsbewertung).
 
-Aktueller Stand: **Phase 7** (Timeline und Tagebuch).
+Aktueller Stand: **Phase 7 erweitert**, Software **R1.0.0**
+(`Reisetagebuch R1.0.0` in der Titelleiste).
 
-Die Anwendung importiert Medien, liest Metadaten und GPX, erzeugt Vorschaubilder,
-zeigt eine Karte und baut eine bearbeitbare Tages-Timeline. HTML-Export folgt
-in Phase 8.
+Die Anwendung importiert Medien, liest Metadaten und GPS-Tracks, erzeugt
+Vorschaubilder, zeigt eine Karte und baut eine bearbeitbare Timeline aus
+Resttagen und Reiseabschnitten. Medieninspektor, Bewertungen, Anzeigedrehung
+und Track-Vorschauen gehören dazu. HTML-Export folgt in Phase 8.
 
 ## Voraussetzungen
 

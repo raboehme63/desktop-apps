@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import replace
 from datetime import UTC, date, datetime, time
 from pathlib import Path
 
@@ -10,10 +11,32 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from travelcore.config import AppSettings
-from travelcore.database.models import Event, OvernightStay, Photo, Place, Project, SourceFile, Trip, TripDay
+from travelcore.database.models import (
+    Event,
+    OvernightStay,
+    Photo,
+    Place,
+    Project,
+    SectionMember,
+    SourceFile,
+    Trip,
+    TripDay,
+    TripSection,
+)
+from travelcore.exceptions import ProjectError
 from travelcore.geolocation.stays import cluster_stays
+from travelcore.gps.ingest import track_urls_by_source
+from travelcore.media.gallery import SORT_FAVORITE, SORT_STATUSES, effective_sort_status
+from travelcore.media.orientation import normalize_rotation_degrees
 from travelcore.media.thumbnails import cached_thumbnail_path, ensure_photo_and_video_rows
 from travelcore.media.types import FileKind
+from travelcore.timeline.links import (
+    parse_leonardo_urls,
+    parse_youtube_urls,
+    serialize_leonardo_urls,
+    serialize_youtube_urls,
+)
+from travelcore.timeline.sections import claimed_source_ids
 from travelcore.timeline.texts import (
     JOURNAL_TEXT_SUFFIXES,
     combine_imported_texts,
@@ -21,10 +44,13 @@ from travelcore.timeline.texts import (
     read_imported_text,
 )
 from travelcore.timeline.types import (
+    PendingSectionSpec,
     TimelineDay,
+    TimelineEntry,
     TimelineEvent,
     TimelinePhoto,
     TimelinePlace,
+    TimelineSection,
     TimelineSnapshot,
     TimelineStay,
 )
@@ -104,6 +130,7 @@ def load_timeline(
     )
     media = _media_rows(session, project.id)
     by_date = _group_by_date(media)
+    track_urls = track_urls_by_source(session, project.id)
     snapshot_days: list[TimelineDay] = []
     for day in days:
         key = day.date.date() if day.date is not None else None
@@ -116,13 +143,29 @@ def load_timeline(
                 title=day.title,
                 notes=day.notes,
                 origin=day.origin,
-                photos=tuple(_photo_view(row, photo, thumbs_dir, size) for row, photo in day_media),
+                youtube_urls=parse_youtube_urls(day.youtube_urls),
+                leonardo_urls=parse_leonardo_urls(day.leonardo_urls),
+                cover_source_file_id=day.cover_source_file_id,
+                photos=tuple(
+                    _photo_view(row, photo, thumbs_dir, size, track_urls.get(row.id))
+                    for row, photo in day_media
+                ),
                 places=tuple(_place_view(item) for item in _places_for_day(session, day.id)),
                 stays=tuple(_stay_view(item) for item in _stays_for_day(session, day.id)),
                 events=tuple(_event_view(item) for item in _events_for_day(session, day.id)),
             )
         )
-    return TimelineSnapshot(trip_id=trip.id, title=trip.title, origin=trip.origin, days=tuple(snapshot_days))
+    claimed = claimed_source_ids(session, trip.id)
+    sections = _section_views(session, trip.id, thumbs_dir, size, track_urls)
+    entries = _build_entries(snapshot_days, sections, claimed)
+    return TimelineSnapshot(
+        trip_id=trip.id,
+        title=trip.title,
+        origin=trip.origin,
+        days=tuple(snapshot_days),
+        sections=tuple(sections),
+        entries=tuple(entries),
+    )
 
 
 def add_place_suggestions(
@@ -180,6 +223,22 @@ def save_day_text(session: Session, day_id: int, *, title: str, notes: str) -> N
     day.origin = ORIGIN_MANUAL
 
 
+def save_day_youtube_urls(session: Session, day_id: int, urls: list[str]) -> None:
+    day = session.get(TripDay, day_id)
+    if day is None:
+        return
+    day.youtube_urls = serialize_youtube_urls(urls)
+    day.origin = ORIGIN_MANUAL
+
+
+def save_day_leonardo_urls(session: Session, day_id: int, urls: list[str]) -> None:
+    day = session.get(TripDay, day_id)
+    if day is None:
+        return
+    day.leonardo_urls = serialize_leonardo_urls(urls)
+    day.origin = ORIGIN_MANUAL
+
+
 def set_photo_journal_flag(session: Session, source_file_id: int, used: bool) -> None:
     photo = session.scalar(select(Photo).where(Photo.source_file_id == source_file_id))
     if photo is None:
@@ -195,6 +254,39 @@ def set_photo_journal_flag(session: Session, source_file_id: int, used: bool) ->
         return
     photo.used_in_journal = used
     photo.origin = ORIGIN_MANUAL
+
+
+def set_photo_sort_status(session: Session, source_file_id: int, status: str | None) -> None:
+    normalized = status if status in SORT_STATUSES else None
+    favorite = normalized == SORT_FAVORITE
+    photo = session.scalar(select(Photo).where(Photo.source_file_id == source_file_id))
+    if photo is None:
+        session.add(
+            Photo(
+                source_file_id=source_file_id,
+                is_favorite=favorite,
+                used_in_journal=False,
+                is_cover=False,
+                sort_status=normalized,
+                origin=ORIGIN_MANUAL,
+            )
+        )
+        return
+    photo.sort_status = normalized
+    photo.is_favorite = favorite
+    photo.origin = ORIGIN_MANUAL
+
+
+def add_source_rotation(session: Session, source_file_id: int, delta_degrees: int) -> int:
+    """Store a clockwise display rotation. Originals are not written."""
+
+    row = session.get(SourceFile, source_file_id)
+    if row is None:
+        raise ProjectError("Datei nicht gefunden.")
+    row.rotation_degrees = normalize_rotation_degrees(
+        normalize_rotation_degrees(row.rotation_degrees) + delta_degrees
+    )
+    return row.rotation_degrees
 
 
 def set_cover_photo(session: Session, project_id: int, source_file_id: int) -> None:
@@ -222,6 +314,55 @@ def set_cover_photo(session: Session, project_id: int, source_file_id: int) -> N
                 origin=ORIGIN_MANUAL,
             )
         )
+
+
+def set_entry_cover(
+    session: Session, kind: str, entity_id: int, source_file_id: int | None
+) -> None:
+    """Store one title image per leftover day or section. Compact views come later."""
+
+    if kind == "section":
+        section = session.get(TripSection, entity_id)
+        if section is None:
+            return
+        if source_file_id is not None and not _cover_in_section(session, entity_id, source_file_id):
+            raise ProjectError("Titelbild muss ein Foto oder Track dieses Abschnitts sein.")
+        section.cover_source_file_id = source_file_id
+        section.origin = ORIGIN_MANUAL
+        return
+    day = session.get(TripDay, entity_id)
+    if day is None:
+        return
+    if source_file_id is not None and not _cover_in_day(session, day, source_file_id):
+        raise ProjectError("Titelbild muss ein Foto oder Track dieses Tages sein.")
+    day.cover_source_file_id = source_file_id
+    day.origin = ORIGIN_MANUAL
+
+
+def _cover_in_section(session: Session, section_id: int, source_file_id: int) -> bool:
+    row = session.get(SourceFile, source_file_id)
+    if row is None or not _can_be_entry_cover(row):
+        return False
+    member = session.scalar(
+        select(SectionMember.id).where(
+            SectionMember.section_id == section_id,
+            SectionMember.source_file_id == source_file_id,
+        )
+    )
+    return member is not None
+
+
+def _cover_in_day(session: Session, day: TripDay, source_file_id: int) -> bool:
+    row = session.get(SourceFile, source_file_id)
+    if row is None or not _can_be_entry_cover(row):
+        return False
+    day_key = day.date.date() if day.date is not None else None
+    file_key = row.captured_at.date() if row.captured_at is not None else None
+    return day_key == file_key
+
+
+def _can_be_entry_cover(row: SourceFile) -> bool:
+    return row.file_kind in (FileKind.PHOTO.value, FileKind.GPS.value)
 
 
 def confirm_place(session: Session, place_id: int, name: str) -> None:
@@ -310,7 +451,7 @@ def _media_rows(session: Session, project_id: int) -> list[tuple[SourceFile, Pho
         .outerjoin(Photo, Photo.source_file_id == SourceFile.id)
         .where(
             SourceFile.project_id == project_id,
-            SourceFile.file_kind.in_((FileKind.PHOTO.value, FileKind.VIDEO.value)),
+            SourceFile.file_kind.in_((FileKind.PHOTO.value, FileKind.VIDEO.value, FileKind.GPS.value)),
         )
         .order_by(SourceFile.captured_at.asc().nulls_last(), SourceFile.filename.asc())
     )
@@ -422,13 +563,16 @@ def _photo_view(
     photo: Photo | None,
     thumbs_dir: Path | None,
     size: int,
+    external_url: str | None = None,
 ) -> TimelinePhoto:
     folder = thumbs_dir if thumbs_dir is not None else Path(".")
+    rotation = normalize_rotation_degrees(row.rotation_degrees)
     thumb = cached_thumbnail_path(
         folder,
         source_file_id=row.id,
         sha256=row.sha256,
         size=size,
+        rotation_degrees=rotation,
     )
     return TimelinePhoto(
         source_file_id=row.id,
@@ -441,7 +585,149 @@ def _photo_view(
         is_favorite=bool(photo.is_favorite) if photo is not None else False,
         gps_latitude=row.gps_latitude,
         gps_longitude=row.gps_longitude,
+        file_kind=row.file_kind,
+        external_url=external_url,
+        sort_status=effective_sort_status(
+            photo.sort_status if photo is not None else None,
+            bool(photo.is_favorite) if photo is not None else False,
+        ),
+        rotation_degrees=rotation,
     )
+
+
+def _section_views(
+    session: Session,
+    trip_id: int,
+    thumbs_dir: Path | None,
+    size: int,
+    track_urls: dict[int, str],
+) -> list[TimelineSection]:
+    sections = list(
+        session.scalars(
+            select(TripSection)
+            .where(TripSection.trip_id == trip_id)
+            .order_by(TripSection.started_at.asc().nulls_last(), TripSection.id.asc())
+        )
+    )
+    views: list[TimelineSection] = []
+    for section in sections:
+        members = list(
+            session.execute(
+                select(SourceFile, Photo, SectionMember)
+                .join(SectionMember, SectionMember.source_file_id == SourceFile.id)
+                .outerjoin(Photo, Photo.source_file_id == SourceFile.id)
+                .where(SectionMember.section_id == section.id)
+                .order_by(SectionMember.sort_index.asc(), SourceFile.filename.asc())
+            )
+        )
+        views.append(
+            TimelineSection(
+                id=section.id,
+                kind=section.kind,
+                mode=section.mode,
+                title=section.title,
+                notes=section.notes,
+                started_at=section.started_at,
+                ended_at=section.ended_at,
+                location_name=section.location_name,
+                location_from=section.location_from,
+                location_to=section.location_to,
+                origin=section.origin,
+                youtube_urls=parse_youtube_urls(section.youtube_urls),
+                leonardo_urls=parse_leonardo_urls(section.leonardo_urls),
+                cover_source_file_id=section.cover_source_file_id,
+                items=tuple(
+                    _photo_view(row, photo, thumbs_dir, size, track_urls.get(row.id))
+                    for row, photo, _member in members
+                ),
+            )
+        )
+    return views
+
+
+def apply_pending_sections(
+    snapshot: TimelineSnapshot,
+    pending: list[PendingSectionSpec],
+) -> TimelineSnapshot:
+    """Preview unsaved sections on a loaded snapshot without writing the database."""
+
+    if not pending:
+        return snapshot
+    photos: dict[int, TimelinePhoto] = {}
+    for day in snapshot.days:
+        for photo in day.photos:
+            photos[photo.source_file_id] = photo
+    for section in snapshot.sections:
+        for item in section.items:
+            photos[item.source_file_id] = item
+    extra: list[TimelineSection] = []
+    claimed = {item.source_file_id for section in snapshot.sections for item in section.items}
+    for spec in pending:
+        items = tuple(photos[item_id] for item_id in spec.source_file_ids if item_id in photos)
+        if not items:
+            continue
+        times = [item.captured_at for item in items if item.captured_at is not None]
+        extra.append(
+            TimelineSection(
+                id=spec.local_id,
+                kind=spec.kind,
+                mode=spec.mode,
+                title=spec.title,
+                notes=spec.notes,
+                started_at=min(times) if times else None,
+                ended_at=max(times) if times else None,
+                location_name=spec.location_name,
+                location_from=spec.location_from,
+                location_to=spec.location_to,
+                origin="manual",
+                youtube_urls=spec.youtube_urls,
+                leonardo_urls=spec.leonardo_urls,
+                cover_source_file_id=spec.cover_source_file_id,
+                items=items,
+            )
+        )
+        claimed.update(item.source_file_id for item in items)
+    sections = snapshot.sections + tuple(extra)
+    entries = _build_entries(list(snapshot.days), list(sections), claimed)
+    return replace(snapshot, sections=sections, entries=tuple(entries))
+
+
+def _build_entries(
+    days: list[TimelineDay],
+    sections: list[TimelineSection],
+    claimed: set[int],
+) -> list[TimelineEntry]:
+    entries: list[TimelineEntry] = [
+        TimelineEntry(started_at=section.started_at, section=section) for section in sections
+    ]
+    for day in days:
+        leftover = tuple(item for item in day.photos if item.source_file_id not in claimed)
+        notes_only = not day.photos and bool((day.notes or "").strip() or day.origin == ORIGIN_MANUAL)
+        if not leftover and not notes_only:
+            continue
+        shown = replace(day, photos=leftover)
+        entries.append(TimelineEntry(started_at=_leftover_started_at(shown), leftover_day=shown))
+    entries.sort(key=_entry_sort_key)
+    return entries
+
+
+def _leftover_started_at(day: TimelineDay) -> datetime | None:
+    times = [item.captured_at for item in day.photos if item.captured_at is not None]
+    if times:
+        return min(times)
+    if day.date is None:
+        return None
+    return datetime.combine(day.date, time.min, tzinfo=UTC)
+
+
+def _entry_sort_key(entry: TimelineEntry) -> tuple[int, datetime, int]:
+    moment = entry.started_at
+    if moment is None:
+        return (1, datetime.min.replace(tzinfo=UTC), 0)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    kind_order = 0 if entry.leftover_day is not None else 1
+    return (0, moment, kind_order)
 
 
 def _place_view(item: Place) -> TimelinePlace:

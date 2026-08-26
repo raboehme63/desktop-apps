@@ -2,6 +2,8 @@ from io import BytesIO
 from pathlib import Path
 
 import pytest
+from gpx_fixtures import write_gpx
+from igc_fixtures import bozen_points, write_igc
 from jpeg_fixtures import write_jpeg_with_exif, write_plain_jpeg
 from PIL import Image
 
@@ -89,6 +91,178 @@ def test_extract_largest_embedded_jpeg(tmp_path: Path) -> None:
 def test_cached_thumbnail_path_uses_hash() -> None:
     path = cached_thumbnail_path(Path("thumbs"), source_file_id=9, sha256="abc123", size=256)
     assert path.name == "abc123_256.jpg"
+
+
+def test_cached_thumbnail_path_includes_rotation() -> None:
+    path = cached_thumbnail_path(
+        Path("thumbs"), source_file_id=9, sha256="abc123", size=256, rotation_degrees=90
+    )
+    assert path.name == "abc123_256_r90.jpg"
+    unchanged = cached_thumbnail_path(
+        Path("thumbs"), source_file_id=9, sha256="abc123", size=256, rotation_degrees=0
+    )
+    assert unchanged.name == "abc123_256.jpg"
+
+
+def test_ensure_thumbnail_applies_display_rotation(tmp_path: Path) -> None:
+    source = write_plain_jpeg(tmp_path / "foto.jpg", size=(40, 20))
+    dest = tmp_path / "r90.jpg"
+    written = ensure_thumbnail(source, dest, size=32, rotation_degrees=90)
+    assert written == dest
+    assert dest.is_file()
+    with Image.open(dest) as image:
+        assert image.size == (32, 32)
+
+
+def test_gpx_thumbnail_is_red_track_on_map(tmp_path: Path) -> None:
+    source = write_gpx(
+        tmp_path / "spur.gpx",
+        [
+            (46.0, 11.0, None, None),
+            (46.2, 11.0, None, None),
+            (46.2, 11.3, None, None),
+            (46.0, 11.3, None, None),
+        ],
+    )
+    dest = tmp_path / "spur.jpg"
+    written = ensure_thumbnail(source, dest, size=64)
+    assert written == dest
+    _assert_red_on_map(dest, size=64)
+
+
+def test_igc_thumbnail_is_red_track_on_map(tmp_path: Path) -> None:
+    source = write_igc(tmp_path / "flug.igc", bozen_points())
+    dest = tmp_path / "flug.jpg"
+    written = ensure_thumbnail(source, dest, size=64)
+    assert written == dest
+    _assert_red_on_map(dest, size=64)
+
+
+def test_empty_gpx_does_not_write_thumbnail(tmp_path: Path) -> None:
+    source = tmp_path / "leer.gpx"
+    source.write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1"></gpx>',
+        encoding="utf-8",
+    )
+    dest = tmp_path / "leer.jpg"
+    assert ensure_thumbnail(source, dest, size=32) is None
+    assert not dest.is_file()
+
+
+def test_kml_thumbnail_is_red_track_on_map(tmp_path: Path) -> None:
+    source = tmp_path / "route.kml"
+    source.write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark>'
+        "<LineString><coordinates>11.0,46.0,0 11.3,46.0,0 11.3,46.2,0</coordinates>"
+        "</LineString></Placemark></Document></kml>",
+        encoding="utf-8",
+    )
+    dest = tmp_path / "route.jpg"
+    written = ensure_thumbnail(source, dest, size=64)
+    assert written == dest
+    _assert_red_on_map(dest, size=64)
+
+
+def test_geojson_thumbnail_is_red_track_on_map(tmp_path: Path) -> None:
+    source = tmp_path / "route.geojson"
+    source.write_text(
+        '{"type":"LineString","coordinates":[[11.0,46.0],[11.3,46.0],[11.3,46.2]]}',
+        encoding="utf-8",
+    )
+    dest = tmp_path / "route.jpg"
+    written = ensure_thumbnail(source, dest, size=64)
+    assert written == dest
+    _assert_red_on_map(dest, size=64)
+
+
+def test_gpx_thumbnail_falls_back_to_black_without_map_tiles(tmp_path: Path) -> None:
+    source = write_gpx(
+        tmp_path / "spur.gpx",
+        [
+            (46.0, 11.0, None, None),
+            (46.2, 11.3, None, None),
+        ],
+    )
+    dest = tmp_path / "spur.jpg"
+    written = ensure_thumbnail(source, dest, size=64, use_map_tiles=False)
+    assert written == dest
+    _assert_red_on_black(dest, size=64)
+
+
+def test_raw_uses_embedded_jpeg_preview(tmp_path: Path) -> None:
+    jpeg = write_plain_jpeg(tmp_path / "inner.jpg", size=(40, 30))
+    source = tmp_path / "shot.cr2"
+    source.write_bytes(b"CRAW\x00" + jpeg.read_bytes())
+    dest = tmp_path / "shot.jpg"
+    written = ensure_thumbnail(source, dest, size=32)
+    assert written == dest
+    with Image.open(dest) as image:
+        assert image.size == (32, 32)
+        assert image.format == "JPEG"
+
+
+def test_video_uses_embedded_jpeg_preview(tmp_path: Path) -> None:
+    jpeg = write_plain_jpeg(tmp_path / "inner.jpg", size=(40, 30))
+    source = tmp_path / "clip.mp4"
+    source.write_bytes(b"ftypisom" + jpeg.read_bytes())
+    dest = tmp_path / "clip.jpg"
+    written = ensure_thumbnail(source, dest, size=32)
+    assert written == dest
+    with Image.open(dest) as image:
+        assert image.size == (32, 32)
+        assert image.format == "JPEG"
+
+
+def test_video_without_preview_writes_placeholder(tmp_path: Path) -> None:
+    source = tmp_path / "leer.avi"
+    source.write_bytes(b"RIFF....AVI ")
+    dest = tmp_path / "leer.jpg"
+    written = ensure_thumbnail(source, dest, size=32)
+    assert written == dest
+    with Image.open(dest) as image:
+        assert image.size == (32, 32)
+        assert image.format == "JPEG"
+
+
+def _assert_red_on_map(path: Path, *, size: int) -> None:
+    map_color = (186, 200, 168)
+    with Image.open(path) as image:
+        assert image.size == (size, size)
+        assert image.format == "JPEG"
+        pixels = [
+            image.getpixel((column, row))
+            for row in range(image.height)
+            for column in range(image.width)
+        ]
+    mapped = sum(1 for pixel in pixels if _near_color(pixel, map_color, delta=40))
+    red = sum(
+        1 for pixel in pixels if pixel[0] > 90 and pixel[0] > pixel[1] + 40 and pixel[0] > pixel[2] + 40
+    )
+    assert mapped > len(pixels) * 0.45
+    assert red > 8
+
+
+def _assert_red_on_black(path: Path, *, size: int) -> None:
+    with Image.open(path) as image:
+        assert image.size == (size, size)
+        assert image.format == "JPEG"
+        pixels = [
+            image.getpixel((column, row))
+            for row in range(image.height)
+            for column in range(image.width)
+        ]
+    black = sum(1 for pixel in pixels if pixel[0] < 40 and pixel[1] < 40 and pixel[2] < 40)
+    red = sum(
+        1 for pixel in pixels if pixel[0] > 90 and pixel[0] > pixel[1] + 40 and pixel[0] > pixel[2] + 40
+    )
+    assert black > len(pixels) * 0.45
+    assert red > 8
+
+
+def _near_color(pixel: tuple[int, ...], color: tuple[int, int, int], *, delta: int) -> bool:
+    return all(abs(pixel[index] - color[index]) <= delta for index in range(3))
 
 
 def _box(kind: bytes, payload: bytes) -> bytes:

@@ -12,12 +12,14 @@ from travelcore.database.models import (
     PhotoAnalysis,
     Place,
     Project,
+    SectionMember,
     SimilarityGroup,
     SimilarityGroupMember,
     SourceFile,
     TextNote,
     Trip,
     TripDay,
+    TripSection,
     Video,
 )
 from travelcore.database.project_store import ProjectStore
@@ -42,6 +44,8 @@ __all__ = [
     "TextNote",
     "Trip",
     "TripDay",
+    "TripSection",
+    "SectionMember",
     "Video",
     "create_session_factory",
     "sqlite_url",

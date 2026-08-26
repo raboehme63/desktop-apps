@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from PySide6.QtCore import QSize, Qt, QThreadPool, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import QThreadPool, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -19,14 +15,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from travelcore.media.gallery import GalleryItem
+from travelcore.media.gallery import GalleryItem, effective_sort_status
 from traveljournal.services.workers import ThumbnailRunnable
 from traveljournal.services.workspace import Workspace
 from traveljournal.widgets.gallery import GalleryView
+from traveljournal.widgets.media_inspector import MediaInspectorWindow
 
 _JPEG = {".jpg", ".jpeg"}
 _HEIC = {".heic", ".heif"}
 _RAW = {".cr2", ".cr3", ".nef", ".arw", ".dng", ".raf", ".orf", ".rw2"}
+_VIDEO = {".mp4", ".mov", ".avi", ".mkv"}
+_TRACK = {".gpx", ".igc", ".kml", ".geojson"}
 
 
 class PhotosView(QWidget):
@@ -62,7 +61,7 @@ class PhotosView(QWidget):
         self.place.addItems(["Alle Orte", "Mit Ort", "Ohne Ort"])
         self.place.currentIndexChanged.connect(self._apply_filters)
         self.kind = QComboBox()
-        self.kind.addItems(["Alle Typen", "JPEG", "HEIC", "PNG", "RAW", "Sonstiges"])
+        self.kind.addItems(["Alle Typen", "JPEG", "HEIC", "PNG", "RAW", "Video", "Tracks", "Sonstiges"])
         self.kind.currentIndexChanged.connect(self._apply_filters)
         self.year = QComboBox()
         self.year.addItem("Alle Jahre")
@@ -84,6 +83,7 @@ class PhotosView(QWidget):
 
         self.gallery = GalleryView()
         self.gallery.item_activated.connect(self._preview)
+        self.gallery.rating_chosen.connect(self._on_rating)
         root.addWidget(self.gallery, 1)
 
         actions = QHBoxLayout()
@@ -130,7 +130,7 @@ class PhotosView(QWidget):
                 continue
             if place == 2 and item.gps_latitude is not None:
                 continue
-            if only_fav and not item.is_favorite:
+            if only_fav and effective_sort_status(item.sort_status, item.is_favorite) != "favorite":
                 continue
             if unused and item.used_in_journal:
                 continue
@@ -164,11 +164,37 @@ class PhotosView(QWidget):
             return
         self.refresh()
 
+    def _on_rating(self, item: object, status: str) -> None:
+        if not isinstance(item, GalleryItem):
+            return
+        current = effective_sort_status(item.sort_status, item.is_favorite)
+        next_status = None if current == status else status
+        try:
+            self.workspace.set_sort_status(item.source_file_id, next_status)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Fotos", str(exc))
+            return
+        self.refresh()
+
     def _preview(self, item: object) -> None:
         if not isinstance(item, GalleryItem):
             return
-        dialog = PreviewDialog(item, self)
-        dialog.exec()
+        window = MediaInspectorWindow(
+            item, items=self.gallery.items(), workspace=self.workspace, parent=self.window()
+        )
+        window.rating_changed.connect(self._on_inspector_rating)
+        window.rotation_changed.connect(self._on_inspector_rating)
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
+    def _on_inspector_rating(self, item: object) -> None:
+        if not isinstance(item, GalleryItem):
+            return
+        self._items = [
+            item if existing.source_file_id == item.source_file_id else existing for existing in self._items
+        ]
+        self._apply_filters()
 
     def _refresh_thumbs(self) -> None:
         if self.workspace.current is None:
@@ -193,26 +219,6 @@ class PhotosView(QWidget):
         QMessageBox.warning(self, "Fotos", message)
 
 
-class PreviewDialog(QDialog):
-    def __init__(self, item: GalleryItem, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle(item.filename)
-        self.resize(720, 640)
-        layout = QVBoxLayout(self)
-        image = QLabel()
-        image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        pixmap = _preview_pixmap(item)
-        image.setPixmap(pixmap)
-        layout.addWidget(image, 1)
-        meta = QLabel(_preview_text(item))
-        meta.setWordWrap(True)
-        meta.setObjectName("pageSubtitle")
-        layout.addWidget(meta)
-        close = QPushButton("Schließen")
-        close.clicked.connect(self.accept)
-        layout.addWidget(close)
-
-
 def _matches_kind(extension: str, kind: str) -> bool:
     suffix = extension.lower()
     if kind == "JPEG":
@@ -223,45 +229,11 @@ def _matches_kind(extension: str, kind: str) -> bool:
         return suffix == ".png"
     if kind == "RAW":
         return suffix in _RAW
+    if kind == "Video":
+        return suffix in _VIDEO
+    if kind == "Tracks":
+        return suffix in _TRACK
     if kind == "Sonstiges":
-        return suffix not in _JPEG | _HEIC | _RAW | {".png", ".webp", ".tif", ".tiff"}
+        return suffix not in _JPEG | _HEIC | _RAW | _VIDEO | _TRACK | {".png", ".webp", ".tif", ".tiff"}
     return True
 
-
-def _preview_pixmap(item: GalleryItem) -> QPixmap:
-    source = Path(item.path)
-    if source.suffix.lower() in _JPEG | {".png", ".webp"} and source.is_file():
-        pixmap = QPixmap(str(source))
-        if not pixmap.isNull():
-            return pixmap.scaled(
-                QSize(680, 480),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-    if item.thumbnail_path.is_file():
-        pixmap = QPixmap(str(item.thumbnail_path))
-        if not pixmap.isNull():
-            return pixmap.scaled(
-                QSize(512, 512),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-    empty = QPixmap(320, 240)
-    empty.fill(Qt.GlobalColor.darkGray)
-    return empty
-
-
-def _preview_text(item: GalleryItem) -> str:
-    parts = [item.path]
-    if item.captured_at is not None:
-        stamp = item.captured_at.strftime("%Y-%m-%d %H:%M:%S")
-        if item.timezone_unknown:
-            stamp += " (TZ unbekannt)"
-        parts.append(stamp)
-    if item.gps_latitude is not None and item.gps_longitude is not None:
-        parts.append(f"{item.gps_latitude:.5f}, {item.gps_longitude:.5f}")
-    if item.camera:
-        parts.append(item.camera)
-    if item.is_favorite:
-        parts.append("Favorit")
-    return " · ".join(parts)

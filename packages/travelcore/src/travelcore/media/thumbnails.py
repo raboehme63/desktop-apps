@@ -4,27 +4,40 @@ from __future__ import annotations
 
 import io
 import logging
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageDraw, ImageOps, UnidentifiedImageError
 from sqlalchemy import select
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from travelcore.database.models import Photo, Project, SourceFile, Video
-from travelcore.media.heic_win import decode_heic_preview
+from travelcore.exceptions import GpsError, ProjectError
+from travelcore.gps.geojson import parse_geojson
+from travelcore.gps.igc import parse_igc
+from travelcore.gps.kml import parse_kml
+from travelcore.gps.parse import ParsedTrack, parse_gpx
+from travelcore.media.heic_win import decode_windows_thumbnail
 from travelcore.media.heif_items import extract_heif_jpeg_item
-from travelcore.media.types import FileKind
+from travelcore.media.orientation import apply_display_rotation, normalize_rotation_degrees
+from travelcore.media.types import GPS_EXTENSIONS, PHOTO_EXTENSIONS, VIDEO_EXTENSIONS, FileKind
 from travelcore.parallel import map_in_threads
+from travelcore.project_settings import load_project_settings
 
 logger = logging.getLogger(__name__)
 
 _PILLOW_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"}
 _HEIC_SUFFIXES = {".heic", ".heif"}
+_RAW_SUFFIXES = PHOTO_EXTENSIONS - _PILLOW_SUFFIXES - _HEIC_SUFFIXES
 _JPEG_SOI = b"\xff\xd8\xff"
 _THUMB_FILL = (18, 21, 28)
 _MAX_THUMB_SOURCE_PIXELS = 40_000_000
+_MAX_TRACK_POINTS = 800
+_RAW_PREVIEW_BYTES = 32 * 1024 * 1024
+_VIDEO_PREVIEW_BYTES = 8 * 1024 * 1024
 
 ProgressFn = Callable[[int, int, str], None]
 
@@ -34,6 +47,9 @@ class ThumbnailJob:
     source: str
     destination: str
     size: int
+    tile_cache: str = ""
+    use_map_tiles: bool = True
+    rotation_degrees: int = 0
 
 
 @dataclass(slots=True)
@@ -49,12 +65,17 @@ def cached_thumbnail_path(
     source_file_id: int,
     sha256: str | None,
     size: int,
+    rotation_degrees: int | None = 0,
 ) -> Path:
     """Return the cache path for a thumbnail. The file may not exist yet."""
 
+    suffix = ""
+    degrees = normalize_rotation_degrees(rotation_degrees)
+    if degrees:
+        suffix = f"_r{degrees}"
     if sha256:
-        return thumbs_dir / f"{sha256}_{size}.jpg"
-    return thumbs_dir / f"sf{source_file_id}_{size}.jpg"
+        return thumbs_dir / f"{sha256}_{size}{suffix}.jpg"
+    return thumbs_dir / f"sf{source_file_id}_{size}{suffix}.jpg"
 
 
 def ensure_thumbnail(
@@ -63,18 +84,30 @@ def ensure_thumbnail(
     *,
     size: int = 256,
     orientation: int | None = None,
+    rotation_degrees: int | None = 0,
+    tile_cache: Path | None = None,
+    use_map_tiles: bool = True,
 ) -> Path | None:
     """Build a square JPEG thumbnail at ``destination``. Returns None on failure."""
 
     _ = orientation
     if destination.is_file() and destination.stat().st_size > 0:
         return destination
+    if source.suffix.lower() in GPS_EXTENSIONS:
+        return _write_track_thumbnail(
+            source,
+            destination,
+            size=size,
+            tile_cache=tile_cache,
+            use_map_tiles=use_map_tiles,
+        )
     image = _open_preview(source)
     if image is None:
         return None
     try:
         transposed = ImageOps.exif_transpose(image)
         working = transposed if transposed is not None else image
+        working = apply_display_rotation(working, rotation_degrees)
         fitted = _fit_square(working, size)
         destination.parent.mkdir(parents=True, exist_ok=True)
         fitted.save(destination, format="JPEG", quality=85, optimize=True)
@@ -86,12 +119,107 @@ def ensure_thumbnail(
     return destination if destination.is_file() else None
 
 
+def _write_track_thumbnail(
+    source: Path,
+    destination: Path,
+    *,
+    size: int,
+    tile_cache: Path | None = None,
+    use_map_tiles: bool = True,
+) -> Path | None:
+    try:
+        tracks = _parse_track_file(source)
+    except GpsError as exc:
+        logger.warning("Track-Thumbnail fehlgeschlagen für %s: %s", source.name, exc)
+        return None
+    segments = _track_segments(tracks)
+    if not segments:
+        return None
+    try:
+        image = _render_track_image(
+            segments, size, tile_cache=tile_cache, use_map_tiles=use_map_tiles
+        )
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        image.save(destination, format="JPEG", quality=90, optimize=True)
+    except (OSError, ValueError) as exc:
+        logger.warning("Track-Thumbnail fehlgeschlagen für %s: %s", source.name, exc)
+        return None
+    return destination if destination.is_file() else None
+
+
+def _parse_track_file(source: Path) -> tuple[ParsedTrack, ...]:
+    suffix = source.suffix.lower()
+    if suffix == ".gpx":
+        return parse_gpx(source)
+    if suffix == ".igc":
+        return parse_igc(source)
+    if suffix == ".kml":
+        return parse_kml(source)
+    if suffix == ".geojson":
+        return parse_geojson(source)
+    return ()
+
+
+def _track_segments(tracks: tuple[ParsedTrack, ...]) -> list[list[tuple[float, float]]]:
+    segments: list[list[tuple[float, float]]] = []
+    for track in tracks:
+        grouped: dict[int, list[tuple[float, float]]] = {}
+        order: list[int] = []
+        for point in track.points:
+            bucket = grouped.get(point.segment_id)
+            if bucket is None:
+                bucket = []
+                grouped[point.segment_id] = bucket
+                order.append(point.segment_id)
+            bucket.append((point.latitude, point.longitude))
+        for segment_id in order:
+            coords = _downsample_track(grouped[segment_id])
+            if coords:
+                segments.append(coords)
+    return segments
+
+
+def _downsample_track(coords: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    if len(coords) <= _MAX_TRACK_POINTS:
+        return coords
+    step = math.ceil(len(coords) / _MAX_TRACK_POINTS)
+    sampled = coords[::step]
+    if sampled[-1] != coords[-1]:
+        sampled.append(coords[-1])
+    return sampled
+
+
+def _render_track_image(
+    segments: list[list[tuple[float, float]]],
+    size: int,
+    *,
+    tile_cache: Path | None = None,
+    use_map_tiles: bool = True,
+) -> Image.Image:
+    from travelcore.maps.static import render_leaflet_excerpt
+
+    if not use_map_tiles:
+        return render_leaflet_excerpt(segments, size, fetch=_blank_map_tile)
+    return render_leaflet_excerpt(segments, size, cache_dir=tile_cache)
+
+
+def _blank_map_tile(_z: int, _x: int, _y: int) -> Image.Image | None:
+    return None
+
+
 def render_thumbnail_batch(jobs: tuple[ThumbnailJob, ...]) -> list[tuple[str, str, bool]]:
     """Module-level pool entry: write thumbnails for a chunk of jobs."""
 
     results: list[tuple[str, str, bool]] = []
     for job in jobs:
-        written = ensure_thumbnail(Path(job.source), Path(job.destination), size=job.size)
+        written = ensure_thumbnail(
+            Path(job.source),
+            Path(job.destination),
+            size=job.size,
+            rotation_degrees=job.rotation_degrees,
+            tile_cache=Path(job.tile_cache) if job.tile_cache else None,
+            use_map_tiles=job.use_map_tiles,
+        )
         results.append((job.source, job.destination, written is not None))
     return results
 
@@ -105,26 +233,31 @@ def generate_project_thumbnails(
     progress: ProgressFn | None = None,
     max_workers: int | None = None,
 ) -> ThumbnailResult:
-    """Create missing thumbnails for photo source files. Originals are read-only."""
+    """Create missing thumbnails for photos, videos, and GPS tracks. Originals are read-only."""
 
     thumbs_dir.mkdir(parents=True, exist_ok=True)
     rows = list(
         session.scalars(
             select(SourceFile).where(
                 SourceFile.project_id == project.id,
-                SourceFile.file_kind == FileKind.PHOTO.value,
+                SourceFile.file_kind.in_(
+                    (FileKind.PHOTO.value, FileKind.VIDEO.value, FileKind.GPS.value)
+                ),
             )
         )
     )
     result = ThumbnailResult()
     jobs: list[ThumbnailJob] = []
     queued_dests: set[str] = set()
+    tile_cache, use_map_tiles = _track_tile_cache(thumbs_dir)
     for row in rows:
+        rotation = normalize_rotation_degrees(row.rotation_degrees)
         dest = cached_thumbnail_path(
             thumbs_dir,
             source_file_id=row.id,
             sha256=row.sha256,
             size=size,
+            rotation_degrees=rotation,
         )
         dest_key = str(dest)
         if dest.is_file() and dest.stat().st_size > 0:
@@ -134,7 +267,16 @@ def generate_project_thumbnails(
             result.skipped += 1
             continue
         queued_dests.add(dest_key)
-        jobs.append(ThumbnailJob(source=row.path, destination=dest_key, size=size))
+        jobs.append(
+            ThumbnailJob(
+                source=row.path,
+                destination=dest_key,
+                size=size,
+                tile_cache=tile_cache,
+                use_map_tiles=use_map_tiles,
+                rotation_degrees=rotation,
+            )
+        )
 
     total = max(len(rows), 1)
     done = result.skipped
@@ -165,26 +307,63 @@ def generate_project_thumbnails(
     return result
 
 
+def _track_tile_cache(thumbs_dir: Path) -> tuple[str, bool]:
+    project_dir = thumbs_dir.parent
+    try:
+        provider = load_project_settings(project_dir).placeholders.map_provider
+    except ProjectError:
+        provider = "leaflet"
+    if provider.strip().lower() == "offline":
+        return "", False
+    cache = project_dir / "cache" / "map_tiles"
+    try:
+        cache.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return "", True
+    return str(cache), True
+
+
 def ensure_photo_and_video_rows(session: Session, project: Project) -> None:
     """Create ``photos`` / ``videos`` rows for indexed media if they are missing."""
 
-    photo_ids = set(session.scalars(select(Photo.source_file_id)))
-    video_ids = set(session.scalars(select(Video.source_file_id)))
-    rows = session.scalars(select(SourceFile).where(SourceFile.project_id == project.id))
-    for row in rows:
-        if row.file_kind == FileKind.PHOTO.value and row.id not in photo_ids:
-            session.add(
-                Photo(
-                    source_file_id=row.id,
-                    is_favorite=False,
-                    used_in_journal=False,
-                    is_cover=False,
-                    origin="auto",
-                )
-            )
-        elif row.file_kind == FileKind.VIDEO.value and row.id not in video_ids:
-            session.add(Video(source_file_id=row.id, origin="auto"))
     session.flush()
+    photo_ids = _present_source_ids(session, Photo)
+    video_ids = _present_source_ids(session, Video)
+    files = list(session.scalars(select(SourceFile).where(SourceFile.project_id == project.id)))
+    photos: list[dict[str, object]] = []
+    videos: list[dict[str, object]] = []
+    for row in files:
+        if row.id is None:
+            continue
+        if row.file_kind == FileKind.PHOTO.value and row.id not in photo_ids:
+            photos.append(
+                {
+                    "source_file_id": row.id,
+                    "is_favorite": False,
+                    "used_in_journal": False,
+                    "is_cover": False,
+                    "origin": "auto",
+                }
+            )
+            photo_ids.add(row.id)
+        elif row.file_kind == FileKind.VIDEO.value and row.id not in video_ids:
+            videos.append({"source_file_id": row.id, "origin": "auto"})
+            video_ids.add(row.id)
+    if photos:
+        stmt = sqlite_insert(Photo).on_conflict_do_nothing(index_elements=["source_file_id"])
+        session.execute(stmt, photos)
+    if videos:
+        stmt = sqlite_insert(Video).on_conflict_do_nothing(index_elements=["source_file_id"])
+        session.execute(stmt, videos)
+    session.flush()
+
+
+def _present_source_ids(session: Session, model: type[Photo] | type[Video]) -> set[int]:
+    found = {value for value in session.scalars(select(model.source_file_id)) if value is not None}
+    for obj in session.new:
+        if isinstance(obj, model) and obj.source_file_id is not None:
+            found.add(obj.source_file_id)
+    return found
 
 
 def extract_largest_embedded_jpeg(data: bytes) -> bytes | None:
@@ -228,18 +407,42 @@ def _open_preview(source: Path) -> Image.Image | None:
                 return None
             return image
         if suffix in _HEIC_SUFFIXES:
-            windows = decode_heic_preview(source, size=256)
+            windows = decode_windows_thumbnail(source, size=256)
             if windows is not None:
                 return windows
             payload = source.read_bytes()
             embedded = extract_heif_jpeg_item(payload) or extract_largest_embedded_jpeg(payload)
             if embedded is not None:
-                image = Image.open(io.BytesIO(embedded))
-                return image
+                return Image.open(io.BytesIO(embedded))
+            return None
+        if suffix in _RAW_SUFFIXES or suffix in VIDEO_EXTENSIONS:
+            windows = decode_windows_thumbnail(source, size=256)
+            if windows is not None:
+                return windows
+            limit = _VIDEO_PREVIEW_BYTES if suffix in VIDEO_EXTENSIONS else _RAW_PREVIEW_BYTES
+            embedded = extract_largest_embedded_jpeg(_read_prefix(source, limit))
+            if embedded is not None:
+                return Image.open(io.BytesIO(embedded))
+            return _type_placeholder(suffix)
     except (UnidentifiedImageError, OSError, ValueError, SyntaxError, Image.DecompressionBombError):
         logger.debug("No preview image for %s", source.name)
         return None
     return None
+
+
+def _read_prefix(source: Path, limit: int) -> bytes:
+    with source.open("rb") as handle:
+        return handle.read(limit)
+
+
+def _type_placeholder(suffix: str, *, size: int = 256) -> Image.Image:
+    canvas = Image.new("RGB", (size, size), _THUMB_FILL)
+    draw = ImageDraw.Draw(canvas)
+    label = suffix.lstrip(".").upper() or "?"
+    bbox = draw.textbbox((0, 0), label)
+    width, height = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    draw.text(((size - width) // 2, (size - height) // 2), label, fill=(197, 205, 219))
+    return canvas
 
 
 def _fit_square(image: Image.Image, size: int) -> Image.Image:

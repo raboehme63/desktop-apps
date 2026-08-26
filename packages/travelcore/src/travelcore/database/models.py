@@ -90,6 +90,7 @@ class SourceFile(Base):
     exposure_time: Mapped[str | None] = mapped_column(String(64), nullable=True)
     aperture: Mapped[str | None] = mapped_column(String(32), nullable=True)
     orientation: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rotation_degrees: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
@@ -119,6 +120,7 @@ class Photo(Base):
     is_favorite: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     used_in_journal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_cover: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sort_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
     caption: Mapped[str | None] = mapped_column(Text, nullable=True)
     sort_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
     origin: Mapped[str] = mapped_column(String(16), nullable=False, default="auto")
@@ -180,6 +182,7 @@ class Trip(Base):
 
     project: Mapped[Project] = relationship(back_populates="trips")
     days: Mapped[list[TripDay]] = relationship(back_populates="trip")
+    sections: Mapped[list[TripSection]] = relationship(back_populates="trip")
 
 
 class TripDay(Base):
@@ -191,6 +194,9 @@ class TripDay(Base):
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    youtube_urls: Mapped[str | None] = mapped_column(Text, nullable=True)
+    leonardo_urls: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cover_source_file_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     origin: Mapped[str] = mapped_column(String(16), nullable=False, default="auto")
 
     trip: Mapped[Trip] = relationship(back_populates="days")
@@ -198,6 +204,44 @@ class TripDay(Base):
     events: Mapped[list[Event]] = relationship(back_populates="day")
     overnight_stays: Mapped[list[OvernightStay]] = relationship(back_populates="day")
     text_notes: Mapped[list[TextNote]] = relationship(back_populates="day")
+
+
+class TripSection(Base):
+    """Thematic journal block. May span or split calendar days via member timestamps."""
+
+    __tablename__ = "trip_sections"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trip_id: Mapped[int] = mapped_column(ForeignKey("trips.id"), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    mode: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    location_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    location_from: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    location_to: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    youtube_urls: Mapped[str | None] = mapped_column(Text, nullable=True)
+    leonardo_urls: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cover_source_file_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sort_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    origin: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")
+
+    trip: Mapped[Trip] = relationship(back_populates="sections")
+    members: Mapped[list[SectionMember]] = relationship(back_populates="section")
+
+
+class SectionMember(Base):
+    __tablename__ = "section_members"
+    __table_args__ = (UniqueConstraint("source_file_id", name="uq_section_members_source"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    section_id: Mapped[int] = mapped_column(ForeignKey("trip_sections.id"), nullable=False, index=True)
+    source_file_id: Mapped[int] = mapped_column(ForeignKey("source_files.id"), nullable=False, index=True)
+    sort_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    section: Mapped[TripSection] = relationship(back_populates="members")
 
 
 class Place(Base):

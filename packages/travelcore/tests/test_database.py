@@ -38,6 +38,8 @@ def test_schema_contains_core_tables(tmp_path: Path) -> None:
         tables = set(inspector.get_table_names())
         columns = {column["name"] for column in inspector.get_columns("gps_tracks")}
         source_columns = {column["name"] for column in inspector.get_columns("source_files")}
+    assert "trip_sections" in tables
+    assert "section_members" in tables
     assert "source_files" in tables
     assert "gps_points" in tables
     assert "trips" in tables
@@ -52,6 +54,17 @@ def test_schema_contains_core_tables(tmp_path: Path) -> None:
     assert "heading_ref" in source_columns
     assert "heading_source" in source_columns
     assert "focal_length_35mm" in source_columns
+    assert "rotation_degrees" in source_columns
+    day_columns = {column["name"] for column in inspector.get_columns("trip_days")}
+    section_columns = {column["name"] for column in inspector.get_columns("trip_sections")}
+    assert "youtube_urls" in day_columns
+    assert "youtube_urls" in section_columns
+    assert "leonardo_urls" in day_columns
+    assert "leonardo_urls" in section_columns
+    photo_columns = {column["name"] for column in inspector.get_columns("photos")}
+    assert "sort_status" in photo_columns
+    assert "cover_source_file_id" in day_columns
+    assert "cover_source_file_id" in section_columns
 
 
 def test_folder_name_from_project_name_strips_invalid_chars() -> None:

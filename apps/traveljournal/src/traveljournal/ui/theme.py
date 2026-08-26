@@ -158,6 +158,18 @@ QLabel#pageSubtitle {
     color: #8b95a8;
 }
 
+QLabel#youtubeThumb {
+    background-color: #1c2230;
+    border: 1px solid #2a3144;
+    border-radius: 8px;
+}
+
+QLabel#entryCover {
+    background-color: #12151c;
+    border: 1px solid #2a3144;
+    border-radius: 8px;
+}
+
 QFrame#card {
     background-color: #1a2030;
     border: 1px solid #2a3144;
@@ -218,6 +230,62 @@ QMenu::separator {
     height: 1px;
     background: #2a3144;
     margin: 4px 8px;
+}
+
+QToolButton#entryMenu {
+    background: transparent;
+    border: none;
+    font-size: 18px;
+    padding: 2px 8px;
+    min-width: 28px;
+}
+
+QToolButton#entryMenu:hover {
+    background-color: #243044;
+    border-radius: 8px;
+}
+
+QToolButton#entryMenu::menu-indicator {
+    image: none;
+}
+
+QTabBar#mediaSortTabs {
+    background: transparent;
+}
+
+QTabBar#mediaSortTabs::tab {
+    background-color: #1a2030;
+    color: #9aa6b8;
+    border: 1px solid #2a3144;
+    border-bottom: none;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    padding: 6px 14px;
+    margin-right: 4px;
+}
+
+QTabBar#mediaSortTabs::tab:selected {
+    background-color: #243044;
+    color: #f4f7fb;
+}
+
+QTabBar#mediaSortTabs::tab:hover {
+    color: #e8edf5;
+}
+
+QPushButton#ratingChip {
+    min-width: 108px;
+}
+
+QPushButton#ratingChip:checked {
+    font-weight: 600;
+    border-color: #2eb8a0;
+    color: #7eebcf;
+}
+
+QPushButton#rotateChip {
+    min-width: 44px;
+    font-size: 16px;
 }
 
 QGroupBox {

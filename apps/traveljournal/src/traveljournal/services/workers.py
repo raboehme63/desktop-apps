@@ -58,28 +58,25 @@ class IndexRunnable(QRunnable):
                     generate_thumbnails=False,
                     checkpoint=checkpoint,
                 )
-            if result.media_changed:
-                on_progress(
-                    IndexProgress(
-                        current=0,
-                        total=1,
-                        path="",
-                        message="Vorschaubilder werden erzeugt…",
-                    )
+            on_progress(
+                IndexProgress(
+                    current=0,
+                    total=1,
+                    path="",
+                    message="Vorschaubilder werden erzeugt…",
                 )
-                with session_scope(self.open_project.session_factory) as session:
-                    project = session.get(Project, self.open_project.project_id)
-                    if project is None:
-                        raise RuntimeError("Projektzeile fehlt.")
-                    indexer.build_previews(
-                        session,
-                        project,
-                        result,
-                        on_progress,
-                        self.open_project.directory,
-                    )
-            else:
-                on_progress(IndexProgress(current=0, total=0, path="", message="Vorschaubilder unverändert"))
+            )
+            with session_scope(self.open_project.session_factory) as session:
+                project = session.get(Project, self.open_project.project_id)
+                if project is None:
+                    raise RuntimeError("Projektzeile fehlt.")
+                indexer.build_previews(
+                    session,
+                    project,
+                    result,
+                    on_progress,
+                    self.open_project.directory,
+                )
             self.signals.finished.emit(result)
         except Exception as exc:  # noqa: BLE001 - surface any import failure to the UI
             self.signals.failed.emit(str(exc))

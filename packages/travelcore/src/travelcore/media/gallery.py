@@ -10,8 +10,22 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from travelcore.database.models import Photo, SourceFile
+from travelcore.media.orientation import normalize_rotation_degrees
 from travelcore.media.thumbnails import cached_thumbnail_path
 from travelcore.media.types import FileKind
+
+SORT_FAVORITE = "favorite"
+SORT_RESERVE = "reserve"
+SORT_REJECTED = "rejected"
+SORT_STATUSES = (SORT_FAVORITE, SORT_RESERVE, SORT_REJECTED)
+
+
+def effective_sort_status(sort_status: str | None, is_favorite: bool = False) -> str | None:
+    if sort_status in SORT_STATUSES:
+        return sort_status
+    if is_favorite:
+        return SORT_FAVORITE
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +42,9 @@ class GalleryItem:
     is_favorite: bool
     used_in_journal: bool
     thumbnail_path: Path
+    sort_status: str | None = None
+    is_entry_cover: bool = False
+    rotation_degrees: int = 0
 
 
 def list_gallery_items(
@@ -37,19 +54,22 @@ def list_gallery_items(
     *,
     size: int = 256,
 ) -> list[GalleryItem]:
-    """Return photos in capture-time order with cache paths (file may be missing)."""
+    """Return photos, videos, and tracks in capture-time order with cache paths."""
 
     rows = session.execute(
         select(SourceFile, Photo)
         .outerjoin(Photo, Photo.source_file_id == SourceFile.id)
         .where(
             SourceFile.project_id == project_id,
-            SourceFile.file_kind == FileKind.PHOTO.value,
+            SourceFile.file_kind.in_(
+                (FileKind.PHOTO.value, FileKind.VIDEO.value, FileKind.GPS.value)
+            ),
         )
         .order_by(SourceFile.captured_at.asc().nulls_last(), SourceFile.filename.asc())
     )
     items: list[GalleryItem] = []
     for source, photo in rows:
+        rotation = normalize_rotation_degrees(source.rotation_degrees)
         items.append(
             GalleryItem(
                 source_file_id=source.id,
@@ -68,7 +88,13 @@ def list_gallery_items(
                     source_file_id=source.id,
                     sha256=source.sha256,
                     size=size,
+                    rotation_degrees=rotation,
                 ),
+                sort_status=effective_sort_status(
+                    photo.sort_status if photo is not None else None,
+                    bool(photo.is_favorite) if photo is not None else False,
+                ),
+                rotation_degrees=rotation,
             )
         )
     return items

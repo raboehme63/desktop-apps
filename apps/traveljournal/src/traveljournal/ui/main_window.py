@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from travelcore.exceptions import ProjectError
+from traveljournal.__about__ import app_window_title
 from traveljournal.services.workspace import Workspace
 from traveljournal.ui.sidebar import Sidebar
 from traveljournal.views.export_view import ExportView
@@ -30,7 +31,7 @@ from traveljournal.views.timeline_view import TimelineView
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Reisetagebuch")
+        self.setWindowTitle(app_window_title())
         self.resize(1180, 760)
         self.workspace = Workspace()
 
@@ -85,10 +86,7 @@ class MainWindow(QMainWindow):
         self.map_view.status_message.connect(self._set_status)
         self.timeline_view.status_message.connect(self._set_status)
         self.journal_view.status_message.connect(self._set_status)
-        self.timeline_view.timeline_changed.connect(self.journal_view.refresh)
-        self.timeline_view.timeline_changed.connect(self.map_view.refresh)
         self.journal_view.timeline_changed.connect(self.timeline_view.refresh)
-        self.journal_view.timeline_changed.connect(self.map_view.refresh)
         self.journal_view.timeline_changed.connect(self.photos_view.refresh)
         self._sync_menu()
 
@@ -192,6 +190,13 @@ class MainWindow(QMainWindow):
             self.journal_view.refresh()
 
     def _show_page(self, key: str) -> None:
+        previous = next(
+            (name for name, index in self._pages.items() if index == self.stack.currentIndex()),
+            None,
+        )
+        if previous == "timeline" and key != "timeline" and not self.timeline_view.confirm_leave():
+            self.sidebar.set_current("timeline")
+            return
         index = self._pages.get(key)
         if index is not None:
             self.stack.setCurrentIndex(index)
@@ -203,14 +208,14 @@ class MainWindow(QMainWindow):
         if key == "map":
             self.map_view.refresh()
         if key == "timeline":
-            self.timeline_view.refresh()
+            self.timeline_view.ensure_loaded()
         if key == "journal":
             self.journal_view.refresh()
 
     def _on_project_changed(self, name: str) -> None:
         self._sync_menu()
         if name:
-            self.setWindowTitle(f"Reisetagebuch – {name}")
+            self.setWindowTitle(app_window_title(name))
             self.timeline_view.clear()
             self.journal_view.clear()
             self.map_view.clear()
@@ -223,7 +228,7 @@ class MainWindow(QMainWindow):
             self.import_view.refresh_summary()
             self.import_view.load_index_async()
             return
-        self.setWindowTitle("Reisetagebuch")
+        self.setWindowTitle(app_window_title())
         self._load_progress.hide()
         self._set_status("Kein Projekt geöffnet")
         self.project_view.clear_load_progress()
@@ -238,5 +243,8 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(message)
 
     def closeEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+        if not self.timeline_view.confirm_leave():
+            event.ignore()
+            return
         self.workspace.close()
         super().closeEvent(event)

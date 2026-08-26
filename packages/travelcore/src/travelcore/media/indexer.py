@@ -240,17 +240,7 @@ class FileIndexer:
             )
             session.flush()
             if generate_thumbnails:
-                if result.media_changed:
-                    self.build_previews(session, project, result, progress, project_dir)
-                elif progress is not None:
-                    progress(
-                        IndexProgress(
-                            current=0,
-                            total=0,
-                            path="",
-                            message="Vorschaubilder unverändert",
-                        )
-                    )
+                self.build_previews(session, project, result, progress, project_dir)
             return result
         finally:
             if self._owns_provider:

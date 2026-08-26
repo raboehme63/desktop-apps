@@ -169,11 +169,7 @@ class ProjectView(QWidget):
         self.load_progress.setFormat(message)
 
     def create_project(self) -> None:
-        initial_parent: Path | None = None
-        recents = self.workspace.recent_projects()
-        if recents:
-            initial_parent = recents[0].parent
-        dialog = NewProjectDialog(self, initial_parent=initial_parent)
+        dialog = NewProjectDialog(self, initial_parent=self.workspace.projects_root())
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         parent, name = dialog.values()
@@ -186,7 +182,12 @@ class ProjectView(QWidget):
         self.project_changed.emit(opened.name)
 
     def open_project(self) -> None:
-        directory = QFileDialog.getExistingDirectory(self, "Projektordner öffnen")
+        start = self.workspace.projects_root()
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            "Projektordner öffnen",
+            str(start) if start is not None else "",
+        )
         if not directory:
             return
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)

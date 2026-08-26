@@ -10,14 +10,16 @@ from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 
 from travelcore.config import AppSettings
-from travelcore.database.models import Photo, Project, SourceFile
+from travelcore.database.models import Project, SourceFile, Trip
 from travelcore.database.project_store import OpenProject, ProjectStore
 from travelcore.exceptions import ProjectError
 from travelcore.gps.ingest import set_track_external_url, track_urls_by_source
 from travelcore.maps import FoliumMapBackend, MapScene, build_map_scene
 from travelcore.media.gallery import GalleryItem, list_gallery_items
 from travelcore.media.indexer import count_by_kind
-from travelcore.media.thumbnails import generate_project_thumbnails
+from travelcore.media.orientation import can_rotate_media
+from travelcore.media.thumbnails import cached_thumbnail_path, ensure_thumbnail, generate_project_thumbnails
+from travelcore.media.types import GPS_EXTENSIONS
 from travelcore.project_settings import (
     ProjectSettings,
     load_project_settings,
@@ -27,8 +29,39 @@ from travelcore.project_settings import (
 )
 from travelcore.timeline import TimelineSnapshot
 from travelcore.timeline import build as timeline_build
+from travelcore.timeline import sections as timeline_sections
 
-_RECENT_PATH = Path.home() / "AppData" / "Local" / "TravelJournal" / "recent.json"
+_CONFIG_DIR = Path.home() / "AppData" / "Local" / "TravelJournal"
+_RECENT_PATH = _CONFIG_DIR / "recent.json"
+_UI_CONFIG_PATH = _CONFIG_DIR / "config.json"
+TIMELINE_MEDIA_TABS = ("all", "favorite", "reserve", "rejected")
+
+
+def normalize_timeline_media_tab(value: object) -> str:
+    if isinstance(value, str) and value in TIMELINE_MEDIA_TABS:
+        return value
+    return "all"
+
+
+def resolve_projects_root(
+    *,
+    settings_root: str | None,
+    stored_root: str | None,
+    recents: list[Path],
+) -> Path | None:
+    """Prefer env/app settings, then saved config, then the last project parent."""
+
+    for raw in (settings_root, stored_root):
+        if not raw or not str(raw).strip():
+            continue
+        path = Path(str(raw).strip()).expanduser()
+        if path.is_dir():
+            return path.resolve()
+    for recent in recents:
+        parent = recent.parent
+        if parent.is_dir():
+            return parent.resolve()
+    return None
 
 
 class Workspace:
@@ -40,12 +73,14 @@ class Workspace:
         opened = self._store.create_under(parent, name)
         self.current = opened
         self._remember(opened.directory)
+        self.remember_projects_root(parent)
         return opened
 
     def open_project(self, directory: Path) -> OpenProject:
         self.close()
         self.current = self._store.open(directory)
         self._remember(self.current.directory)
+        self.remember_projects_root(self.current.directory.parent)
         return self.current
 
     def close(self) -> None:
@@ -193,6 +228,69 @@ class Workspace:
     def save_day_text(self, day_id: int, *, title: str, notes: str) -> None:
         self._mutate(lambda session: timeline_build.save_day_text(session, day_id, title=title, notes=notes))
 
+    def save_section_text(self, section_id: int, *, title: str, notes: str) -> None:
+        self._mutate(
+            lambda session: timeline_sections.save_section_text(session, section_id, title=title, notes=notes)
+        )
+
+    def save_youtube_urls(self, kind: str, entity_id: int, urls: list[str]) -> None:
+        if kind == "section":
+            self._mutate(
+                lambda session: timeline_sections.save_section_youtube_urls(session, entity_id, urls)
+            )
+            return
+        self._mutate(lambda session: timeline_build.save_day_youtube_urls(session, entity_id, urls))
+
+    def save_leonardo_urls(self, kind: str, entity_id: int, urls: list[str]) -> None:
+        if kind == "section":
+            self._mutate(
+                lambda session: timeline_sections.save_section_leonardo_urls(session, entity_id, urls)
+            )
+            return
+        self._mutate(lambda session: timeline_build.save_day_leonardo_urls(session, entity_id, urls))
+
+    def create_section(
+        self,
+        source_file_ids: list[int],
+        *,
+        kind: str,
+        mode: str | None = None,
+        title: str | None = None,
+        notes: str | None = None,
+        location_name: str | None = None,
+        location_from: str | None = None,
+        location_to: str | None = None,
+        youtube_urls: list[str] | None = None,
+        leonardo_urls: list[str] | None = None,
+        cover_source_file_id: int | None = None,
+    ) -> None:
+        opened = self._require_open()
+        with opened.session_factory() as session:
+            trip_id = session.scalar(
+                select(Trip.id).where(Trip.project_id == opened.project_id).order_by(Trip.id.asc())
+            )
+            if trip_id is None:
+                raise ProjectError("Keine Timeline. Bitte zuerst die Timeline aktualisieren.")
+            timeline_sections.create_section(
+                session,
+                trip_id,
+                source_file_ids,
+                kind=kind,
+                mode=mode,
+                title=title,
+                notes=notes,
+                location_name=location_name,
+                location_from=location_from,
+                location_to=location_to,
+                youtube_urls=youtube_urls,
+                leonardo_urls=leonardo_urls,
+                cover_source_file_id=cover_source_file_id,
+            )
+            session.commit()
+
+    def dissolve_section(self, section_id: int) -> None:
+        self._mutate(lambda session: timeline_sections.dissolve_section(session, section_id))
+
     def set_photo_in_journal(self, source_file_id: int, used: bool) -> None:
         self._mutate(lambda session: timeline_build.set_photo_journal_flag(session, source_file_id, used))
 
@@ -201,6 +299,9 @@ class Workspace:
         with opened.session_factory() as session:
             timeline_build.set_cover_photo(session, opened.project_id, source_file_id)
             session.commit()
+
+    def set_entry_cover(self, kind: str, entity_id: int, source_file_id: int | None) -> None:
+        self._mutate(lambda session: timeline_build.set_entry_cover(session, kind, entity_id, source_file_id))
 
     def confirm_place(self, place_id: int, name: str) -> None:
         self._mutate(lambda session: timeline_build.confirm_place(session, place_id, name))
@@ -241,23 +342,39 @@ class Workspace:
         return path
 
     def set_favorite(self, source_file_id: int, value: bool) -> None:
-        if self.current is None:
-            raise ProjectError("Kein Projekt geöffnet.")
-        with self.current.session_factory() as session:
-            photo = session.scalar(select(Photo).where(Photo.source_file_id == source_file_id))
-            if photo is None:
-                photo = Photo(
-                    source_file_id=source_file_id,
-                    is_favorite=value,
-                    used_in_journal=False,
-                    is_cover=False,
-                    origin="manual",
-                )
-                session.add(photo)
-            else:
-                photo.is_favorite = value
-                photo.origin = "manual"
+        self.set_sort_status(source_file_id, "favorite" if value else None)
+
+    def set_sort_status(self, source_file_id: int, status: str | None) -> None:
+        self._mutate(lambda session: timeline_build.set_photo_sort_status(session, source_file_id, status))
+
+    def add_rotation(self, source_file_id: int, delta_degrees: int) -> tuple[int, Path]:
+        """Rotate a photo/video clockwise in 90° steps. Originals stay read-only."""
+
+        opened = self._require_open()
+        thumbs, size = self._thumbs_and_size()
+        with opened.session_factory() as session:
+            degrees = timeline_build.add_source_rotation(session, source_file_id, delta_degrees)
+            row = session.get(SourceFile, source_file_id)
+            if row is None:
+                raise ProjectError("Datei nicht gefunden.")
+            dest = cached_thumbnail_path(
+                thumbs,
+                source_file_id=row.id,
+                sha256=row.sha256,
+                size=size,
+                rotation_degrees=degrees,
+            )
+            source_path = Path(row.path)
+            extension = row.extension
             session.commit()
+        if can_rotate_media(extension) and source_path.suffix.lower() not in GPS_EXTENSIONS:
+            try:
+                if dest.is_file():
+                    dest.unlink()
+            except OSError:
+                pass
+            ensure_thumbnail(source_path, dest, size=size, rotation_degrees=degrees)
+        return degrees, dest
 
     def generate_missing_thumbnails(self) -> int:
         if self.current is None:
@@ -274,6 +391,34 @@ class Workspace:
                 size=settings.default_thumbnail_size,
             )
         return result.written
+
+    def projects_root(self) -> Path | None:
+        stored = self._load_ui_config().get("projects_root")
+        stored_text = stored if isinstance(stored, str) else None
+        return resolve_projects_root(
+            settings_root=AppSettings().projects_root,
+            stored_root=stored_text,
+            recents=self.recent_projects(),
+        )
+
+    def timeline_media_tab(self) -> str:
+        return normalize_timeline_media_tab(self._load_ui_config().get("timeline_media_tab"))
+
+    def set_timeline_media_tab(self, key: str) -> None:
+        normalized = normalize_timeline_media_tab(key)
+        data = self._load_ui_config()
+        if data.get("timeline_media_tab") == normalized:
+            return
+        data["timeline_media_tab"] = normalized
+        self._save_ui_config(data)
+
+    def remember_projects_root(self, directory: Path) -> None:
+        path = directory.expanduser().resolve()
+        if not path.is_dir():
+            return
+        data = self._load_ui_config()
+        data["projects_root"] = str(path)
+        self._save_ui_config(data)
 
     def recent_projects(self) -> list[Path]:
         if not _RECENT_PATH.is_file():
@@ -292,6 +437,19 @@ class Workspace:
                 items.append(str(existing))
         _RECENT_PATH.parent.mkdir(parents=True, exist_ok=True)
         _RECENT_PATH.write_text(json.dumps(items[:10], indent=2), encoding="utf-8")
+
+    def _load_ui_config(self) -> dict[str, object]:
+        if not _UI_CONFIG_PATH.is_file():
+            return {}
+        try:
+            raw = json.loads(_UI_CONFIG_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return raw if isinstance(raw, dict) else {}
+
+    def _save_ui_config(self, data: dict[str, object]) -> None:
+        _UI_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _UI_CONFIG_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     def _require_open(self) -> OpenProject:
         if self.current is None:

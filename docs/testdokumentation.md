@@ -2,9 +2,9 @@
 
 | Feld | Inhalt |
 | --- | --- |
-| Version | 0.8 |
-| Stand | 18. August 2026 |
-| Bezugsversion Software | Phase 7 (Timeline und Tagebuch) |
+| Version | 0.9 |
+| Stand | 26. August 2026 |
+| Bezugsversion Software | Phase 7 erweitert, Software **R1.0.0** |
 | Bezug | [pflichtenheft.md](pflichtenheft.md), [konzept.md](konzept.md) |
 
 Diese Dokumentation beschreibt **Teststrategie, Automatisierung, manuelle Prüfung und Abdeckungslücken**. Sie ist die Testdoku zum Pflichtenheft, kein Ersatz für pytest-Ausgaben.
@@ -24,10 +24,10 @@ Diese Dokumentation beschreibt **Teststrategie, Automatisierung, manuelle Prüfu
 
 | Stufe | Ort | Werkzeug | Was |
 | --- | --- | --- | --- |
-| Unit | `packages/travelcore/tests/` | pytest | Typen, Hash, Zeit, GPS, Provider, HEIC-Container, GPX, Interpolation, ExifTool-JSON, Aufenthaltscluster |
+| Unit | `packages/travelcore/tests/` | pytest | Typen, Hash, Zeit, GPS, Provider, HEIC-Container, GPX/IGC/KML, Interpolation, ExifTool-JSON, Thumbnails, Orientierung, Timeline, Abschnitte |
 | Integration | `packages/travelcore/tests/test_indexer.py`, `test_database.py`, `test_timeline.py`; `tests/integration/` | pytest | Projektordner, Schema, Index → SQLite, Timeline-Sync, Re-Open |
-| GUI-Rauch | `tests/test_gui_smoke.py` | pytest + Qt offscreen | Hauptfenster startet, sieben Seiten |
-| Manuell | dieses Dokument, Abschnitt 7 | Windows-Desktop | Import echter HEIC/JPEG, Liste, Timeline, Tagebuch, Karte |
+| GUI-Rauch | `tests/test_gui_smoke.py` | pytest + Qt offscreen | Hauptfenster, sieben Seiten, Inspektor, Register, Titel mit Version |
+| Manuell | dieses Dokument, Abschnitt 7 | Windows-Desktop | Import echter HEIC/JPEG, Liste, Timeline, Abschnitte, Tagebuch, Karte, Inspektor |
 | Statisch | Repository-Wurzel | Ruff, später pyright | Stil, Imports, grundlegende Typen |
 
 Nicht eingeführt (geplant): pytest-qt für Interaktion, visuelle Galerie-/Kartentests, Lasttest mit zehntausenden Dateien.
@@ -48,7 +48,7 @@ ExifTool ist **kein** Testdependency. HEIC- und Provider-Tests müssen ohne das 
 ### 3.2 Befehle
 
 ```powershell
-cd D:\20-GITWorkspace\travel-journal
+cd D:\20-GITWorkspace\desktop-apps
 .\.venv\Scripts\python.exe -m pytest
 .\.venv\Scripts\python.exe -m pytest packages/travelcore/tests/test_timeline.py -q
 .\.venv\Scripts\python.exe -m ruff check packages apps tests
@@ -74,7 +74,7 @@ Hilfsmodul: `packages/travelcore/tests/jpeg_fixtures.py`. GPX-Hilfen: `gpx_fixtu
 
 ## 4. Abbildungsmatrix Pflichtenheft → automatisierte Tests
 
-Stand nach `pytest --collect-only`: **98 Tests** (18. August 2026). Neue Tests sind ergänzend zu führen, nicht still zu löschen.
+Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests sind ergänzend zu führen, nicht still zu löschen.
 
 ### 4.1 Dateitypen und Scan — FA-010 bis FA-016
 
@@ -160,7 +160,13 @@ Stand nach `pytest --collect-only`: **98 Tests** (18. August 2026). Neue Tests s
 | --- | --- | --- |
 | `test_create_project_layout_and_row` | `test_database.py` | Ordnerlayout + Projektzeile + `settings.toml` |
 | `test_open_existing_project` | `test_database.py` | Öffnen bestehender DB |
-| `test_schema_contains_core_tables` | `test_database.py` | Kern-Tabellen inkl. `source_files`, `trips`, `photo_analyses` |
+| `test_schema_contains_core_tables` | `test_database.py` | Kern-Tabellen inkl. `source_files`, `trips`, `trip_sections`, `photo_analyses`; Spalten `rotation_degrees`, `sort_status`, Cover- und URL-Felder |
+| `test_folder_name_from_project_name_strips_invalid_chars` | `test_database.py` | ungültige Ordnerzeichen entfernt |
+| `test_create_under_uses_name_as_subdirectory` | `test_database.py` | Anlegen unter Stammordner |
+| `test_create_under_sanitizes_folder_but_keeps_display_name` | `test_database.py` | Anzeigename bleibt, Ordnername bereinigt |
+| `test_create_under_rejects_existing_project` | `test_database.py` | bestehendes Projekt nicht überschreiben |
+| `test_create_under_rejects_empty_name` | `test_database.py` | leerer Name abgelehnt |
+| `test_sqlite_waits_when_busy` | `test_database.py` | Busy-Timeout statt sofortigem Fehler |
 | `test_new_project_writes_settings_file` | `test_project_settings.py` | Default-`settings.toml` |
 | `test_settings_roundtrip_preserves_values` | `test_project_settings.py` | Exportformat, Wurzel, Zeitzone, CPU-Worker |
 | `test_corrupt_settings_raise` | `test_project_settings.py` | unlesbares TOML → `ProjectError` |
@@ -169,7 +175,7 @@ Stand nach `pytest --collect-only`: **98 Tests** (18. August 2026). Neue Tests s
 | `test_project_survives_close_and_reopen` | `tests/integration/test_project_lifecycle.py` | Index überlebt Re-Open |
 | `test_exporters_share_interface` | `test_interfaces.py` | HTML/PDF/LaTeX/CEWE sind `Exporter` |
 | `test_protocols_are_importable` | `test_interfaces.py` | `MetadataProvider`, `RankingStrategy`, `MapBackend` |
-| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel, 7 Seiten, Menü Projekt |
+| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R1.0.0, 7 Seiten, Menü Projekt |
 
 ### 4.7 GPX und zeitliche Zuordnung — FA-040 bis FA-042
 
@@ -218,13 +224,27 @@ Stand nach `pytest --collect-only`: **98 Tests** (18. August 2026). Neue Tests s
 | `test_windows_heic_helper_handles_garbage` | `test_thumbnails.py` | defekte Bytes → `None`, kein Absturz |
 | `test_extract_largest_embedded_jpeg` | `test_thumbnails.py` | größtes eingebettetes JPEG |
 | `test_cached_thumbnail_path_uses_hash` | `test_thumbnails.py` | Cache-Dateiname enthält SHA-256 |
+| `test_cached_thumbnail_path_includes_rotation` | `test_thumbnails.py` | `_r90` im Cachepfad bei Drehung |
+| `test_ensure_thumbnail_applies_display_rotation` | `test_thumbnails.py` | 90°-Drehung ändert Pixel, Original unverändert |
+| `test_gpx_thumbnail_is_red_track_on_map` | `test_thumbnails.py` | GPX-Vorschau: rote Spur |
+| `test_igc_thumbnail_is_red_track_on_map` | `test_thumbnails.py` | IGC-Vorschau: rote Spur |
+| `test_empty_gpx_does_not_write_thumbnail` | `test_thumbnails.py` | leere GPX ohne Thumb |
+| `test_kml_thumbnail_is_red_track_on_map` | `test_thumbnails.py` | KML-Vorschau |
+| `test_geojson_thumbnail_is_red_track_on_map` | `test_thumbnails.py` | GeoJSON-Vorschau |
+| `test_gpx_thumbnail_falls_back_to_black_without_map_tiles` | `test_thumbnails.py` | ohne OSM-Kacheln schwarzer Hintergrund |
+| `test_raw_uses_embedded_jpeg_preview` | `test_thumbnails.py` | RAW-Vorschau aus eingebettetem JPEG |
+| `test_video_uses_embedded_jpeg_preview` | `test_thumbnails.py` | Video-Vorschau aus eingebettetem JPEG |
+| `test_video_without_preview_writes_placeholder` | `test_thumbnails.py` | Platzhalter ohne Preview |
 | `test_indexer_writes_thumbnail_and_photo_row` | `test_indexer.py` | Cache + `photos`-Zeile |
+| `test_indexer_writes_igc_and_gpx_thumbnails` | `test_indexer.py` | Track-Thumbs beim Import |
+| `test_indexer_writes_video_thumbnail` | `test_indexer.py` | Video-Thumb beim Import |
 | `test_indexer_does_not_regenerate_thumbnails_on_reimport` | `test_indexer.py` | Re-Import schreibt vorhandene Thumbs nicht neu |
 | `test_indexer_does_not_count_thumbnails_when_source_is_project` | `test_indexer.py` | Projektordner als Quelle zählt Thumbs nicht als Fotos |
 | `test_indexer_drops_previously_indexed_thumbnails` | `test_indexer.py` | bereits indexierte Thumbs werden entfernt |
 | `test_indexer_can_defer_thumbnails` | `test_indexer.py` | Index ohne Thumbs, danach `build_previews` |
 | `test_indexer_writes_thumbnails_in_parallel` | `test_indexer.py` | vier Vorschaubilder per ProcessPool |
-| `test_gallery_lists_photos_in_capture_order` | `test_gallery.py` | chronologische Reihenfolge |
+| `test_effective_sort_status_prefers_stored_value` | `test_gallery.py` | gespeicherter `sort_status` vor Favoriten-Flag |
+| `test_effective_sort_status_falls_back_to_favorite_flag` | `test_gallery.py` | leerer Status plus Favorit gilt als Favorit |
 
 ### 4.9 Karte — FA-050 bis FA-052
 
@@ -237,7 +257,7 @@ Stand nach `pytest --collect-only`: **98 Tests** (18. August 2026). Neue Tests s
 | `test_offline_backend_omits_osm_tiles` | `test_maps.py` | `tiles=None` ohne OSM-URL |
 | `test_map_scene_includes_igc_flight` | `test_maps.py` | IGC-Polylinie, Pilot, DHV-Link, Zoom-Skript |
 
-### 4.10 Timeline und Tagebuch — FA-060 bis FA-064, FA-080, FA-081
+### 4.10 Timeline und Tagebuch — FA-014, FA-060 bis FA-064, FA-080 bis FA-082
 
 | Test | Datei | Prüft |
 | --- | --- | --- |
@@ -247,12 +267,96 @@ Stand nach `pytest --collect-only`: **98 Tests** (18. August 2026). Neue Tests s
 | `test_manual_day_text_survives_resync` | `test_timeline.py` | Titel/Text `origin=manual` bleibt nach Sync |
 | `test_place_suggestion_not_auto_assigned_to_gps_media` | `test_timeline.py` | Import vergibt keinen Ortsnamen; opt-in-Vorschlag und Bestätigen |
 | `test_overnight_and_journal_flags` | `test_timeline.py` | Übernachtung, `used_in_journal`, Titelbild |
+| `test_youtube_urls_roundtrip_on_day` | `test_timeline.py` | YouTube-URLs am Tag |
+| `test_leonardo_urls_roundtrip_on_day` | `test_timeline.py` | DHV-Leonardo-URLs am Tag |
+| `test_sync_prefills_title_and_notes_from_imported_text` | `test_timeline.py` | TXT/MD füllt leeren Tag |
+| `test_imported_text_does_not_overwrite_manual_day` | `test_timeline.py` | manueller Text bleibt |
+| `test_text_only_note_creates_a_day` | `test_timeline.py` | Nur-Text erzeugt einen Tag |
+| `test_photo_sort_status_keeps_favorite_in_sync` | `test_timeline.py` | `sort_status` und `is_favorite` |
+| `test_source_rotation_is_stored_and_used_for_thumbs` | `test_timeline.py` | `rotation_degrees` steuert Cache |
+| `test_indexer_preserves_rotation_on_reingest` | `test_indexer.py` | Re-Import überschreibt Nutzerdrehung nicht |
+| `test_parse_markdown_heading` | `test_timeline_texts.py` | `# Titel` |
+| `test_parse_first_line_as_title` | `test_timeline_texts.py` | erste Zeile als Titel |
+| `test_parse_falls_back_to_filename_when_first_line_is_long` | `test_timeline_texts.py` | langer Text → Dateiname |
+| `test_date_and_title_from_filename` | `test_timeline_texts.py` | Datum im Dateinamen |
+| `test_combine_imported_texts_uses_first_title` | `test_timeline_texts.py` | mehrere Texte, erster Titel |
+
+### 4.11 Reiseabschnitte und Titelbild — FA-065 bis FA-067, FA-083
+
+| Test | Datei | Prüft |
+| --- | --- | --- |
+| `test_expand_range_selection_fills_between_first_and_last` | `test_timeline_sections.py` | Bereich zwischen erstem und letztem Klick |
+| `test_parse_and_serialize_transfer_modes` | `test_timeline_sections.py` | Verkehrsmittel-Liste |
+| `test_format_section_span_uses_object_dates` | `test_timeline_sections.py` | `am …` / `von … bis …` |
+| `test_create_section_same_day_is_am` | `test_timeline_sections.py` | Aufenthalt am selben Kalendertag |
+| `test_dissolve_section_returns_files_to_leftover_days` | `test_timeline_sections.py` | Auflösen → Resttage |
+| `test_leftover_day_sits_between_sections` | `test_timeline_sections.py` | Resttag zwischen Abschnitten |
+| `test_create_movement_section_from_last_day_files` | `test_timeline_sections.py` | Transfer aus Dateien |
+| `test_transfer_mode_is_optional_and_can_be_multiple` | `test_timeline_sections.py` | mehrere Verkehrsmittel |
+| `test_apply_pending_sections_is_preview_only` | `test_timeline_sections.py` | Overlay schreibt nicht |
+| `test_set_entry_cover_on_day_and_section` | `test_timeline_sections.py` | Foto als Eintrags-Titelbild |
+| `test_set_entry_cover_accepts_gps_track` | `test_timeline_sections.py` | Track als Eintrags-Titelbild |
+
+### 4.12 Links — FA-068, FA-069
+
+| Test | Datei | Prüft |
+| --- | --- | --- |
+| `test_parse_and_serialize_youtube_urls` | `test_timeline_links.py` | YouTube-Liste |
+| `test_normalize_youtube_url_rejects_other_hosts` | `test_timeline_links.py` | nur YouTube-Hosts |
+| `test_parse_and_serialize_leonardo_urls` | `test_timeline_links.py` | DHV-Leonardo-Liste |
+| `test_normalize_leonardo_url_requires_http` | `test_timeline_links.py` | kein `javascript:` |
+| `test_is_igc_filename` | `test_timeline_links.py` | IGC-Erkennung |
+| `test_youtube_video_id_and_thumbnail_url` | `test_timeline_links.py` | Vorschaubild-URL |
+
+### 4.13 KML, GeoJSON, statische Karte — FA-043, FA-104
+
+| Test | Datei | Prüft |
+| --- | --- | --- |
+| `test_parse_kml_linestring` | `test_kml_geojson.py` | KML-LineString |
+| `test_parse_kml_gx_track` | `test_kml_geojson.py` | gx:Track |
+| `test_parse_geojson_linestring` | `test_kml_geojson.py` | GeoJSON-LineString |
+| `test_latlon_to_world_px_origin_at_zoom_zero` | `test_maps_static.py` | Weltpixel bei Zoom 0 |
+| `test_leaflet_excerpt_paints_red_track_on_stub_tiles` | `test_maps_static.py` | rote Spur auf Stub-Kacheln |
+| `test_leaflet_excerpt_falls_back_to_black_without_tiles` | `test_maps_static.py` | Fallback schwarz |
+| `test_leaflet_provider_creates_tile_cache_dir` | `test_maps_static.py` | `cache/map_tiles` |
+| `test_offline_provider_skips_osm_tiles` | `test_maps_static.py` | `offline` lädt keine Kacheln |
+
+### 4.14 Anzeigedrehung — FA-022, FA-102
+
+| Test | Datei | Prüft |
+| --- | --- | --- |
+| `test_normalize_rotation_degrees_snaps_to_right_angles` | `test_orientation.py` | 0/90/180/270 |
+| `test_apply_display_rotation_clockwise_moves_top_left` | `test_orientation.py` | Pixelverschiebung |
+| `test_orient_image_applies_exif_then_user_rotation` | `test_orientation.py` | EXIF zuerst, dann Nutzer |
+| `test_can_rotate_photos_and_videos_not_tracks` | `test_orientation.py` | Tracks nicht drehbar |
+
+### 4.15 GUI-Rauch — FA-082, FA-090, FA-102, FA-103, FA-105
+
+| Test | Datei | Prüft |
+| --- | --- | --- |
+| `test_app_window_title_includes_version` | `tests/test_gui_smoke.py` | `Reisetagebuch R1.0.0` |
+| `test_entry_widget_separates_tracks_from_media` | `tests/test_gui_smoke.py` | getrennte Galerien |
+| `test_entry_widget_track_can_be_cover` | `tests/test_gui_smoke.py` | T-Chip auf Track |
+| `test_entry_widget_shows_cover_in_heading` | `tests/test_gui_smoke.py` | 72-px-Cover in der Karte |
+| `test_entry_widget_media_tab_filters_favorites` | `tests/test_gui_smoke.py` | Register filtert Favoriten |
+| `test_media_tabs_change_only_on_click` | `tests/test_gui_smoke.py` | Mausrad wechselt keinen Reiter |
+| `test_timeline_global_register_applies_to_all_days` | `tests/test_gui_smoke.py` | globales Register |
+| `test_gallery_rating_hotspots` | `tests/test_gui_smoke.py` | Bewertungs-Chips |
+| `test_media_inspector_shows_original_and_ratings` | `tests/test_gui_smoke.py` | Inspektor mit Chips |
+| `test_media_inspector_rotates_display_without_writing_original` | `tests/test_gui_smoke.py` | Drehen, Original-mtime gleich |
+| `test_media_inspector_browses_section_sequence` | `tests/test_gui_smoke.py` | Blättern in der Sequenz |
+| `test_inspector_keeps_photo_aspect_on_resize` | `tests/test_gui_smoke.py` | Eckgriff proportional |
+| `test_inspector_allows_free_window_resize` | `tests/test_gui_smoke.py` | Ränder frei |
+| `test_media_inspector_zoom_arrows_and_fit` | `tests/test_gui_smoke.py` | Zoom und Einpassen |
+| `test_youtube_links_dialog_add_and_delete` | `tests/test_gui_smoke.py` | YouTube-Dialog |
+| `test_normalize_timeline_media_tab` | `tests/test_workspace.py` | gültige Tab-Namen |
+| `test_timeline_media_tab_persists` | `tests/test_workspace.py` | `config.json` hält das Register |
 
 ---
 
 ## 5. Abdeckung gegen das Pflichtenheft
 
-### 5.1 Gut abgedeckt (Phase 7)
+### 5.1 Gut abgedeckt (Phase 7 erweitert, R1.0.0)
 
 - Dateiklassifikation und rekursiver Scan
 - SHA-256 und Skip unveränderter Dateien
@@ -260,13 +364,20 @@ Stand nach `pytest --collect-only`: **98 Tests** (18. August 2026). Neue Tests s
 - JPEG-GPS und Kamera
 - HEIC-GPS/Kamera ohne ExifTool (ISO 6709, eingebettetes TIFF, Apple-Boxen)
 - GPX-Parsing inkl. zeitloser und leerer Tracks, Interpolation, keine Überschreibung von EXIF-GPS
+- IGC-Parsing, Pilot, DHV-Leonardo-Link überlebt Re-Import
+- KML/GeoJSON-Parser für Track-Vorschauen (kein Ingest)
 - JPEG-Thumbnails, HEIC-Vorschau (Windows-Shell/WIC oder eingebettetes JPEG), Originale unverändert
+- Track-Thumbs (rote Spur, OSM-Ausschnitt oder schwarz offline)
 - Importliste während des Einlesens und nach GPS-Abgleich, bevor Thumbnails erzeugt werden
-- Galerie-Reihenfolge nach Aufnahmezeit
+- Sortierstatus Favorit/Reserve/Aussortiert inkl. Fallback auf Favoriten-Flag
 - Import bricht bei einer defekten Datei (JPEG oder GPX) nicht ab
-- Projekt anlegen, Schema, Wiederöffnen, `settings.toml` (inkl. defekter Datei) und Pfad-Rebase
+- Projekt anlegen, Schema (Abschnitte, URLs, Cover, Drehung), Wiederöffnen, `settings.toml` und Pfad-Rebase
 - Karte: Tracklinie, Fotomarker, Cluster je Tag, Übernachtung/Ort, offline ohne OSM
 - Timeline: Tage aus Aufnahmezeit, manuelle Texte bleiben, Ortsvorschläge, Übernachtungen, Tagebuch-Flags
+- Reiseabschnitte, Resttage, Pending-Vorschau, Eintrags-Titelbild (Foto und Track)
+- YouTube- und DHV-Leonardo-URL-Normalisierung
+- Anzeigedrehung (Index, Cachepfad, Re-Import, Inspektor ohne Originalschreiben)
+- GUI-Rauch: Fenstertitel mit Version, getrennte Medien/Tracks, Register nur per Klick, Inspektor Blättern/Zoom/Drehen
 - Export- und Provider-*Verträge* existieren
 
 ### 5.2 Bewusst noch ohne Automatisierung
@@ -274,17 +385,19 @@ Stand nach `pytest --collect-only`: **98 Tests** (18. August 2026). Neue Tests s
 | Lücke | FA | Grund / nächste Phase |
 | --- | --- | --- |
 | Visuelle Marker-Vorschau / Cluster in Qt | FA-050, FA-051 | Szene automatisiert in `test_maps.py`; visuell MT-12 |
-| Timeline-/Tagebuch-Bedienung | FA-060–FA-064, FA-080 | Logik in `test_timeline.py`; visuell MT-13 |
+| Timeline-/Tagebuch-Bedienung | FA-060–FA-069, FA-080 | Logik in `test_timeline*.py`; visuell MT-13, MT-18–MT-22 |
 | Galeriefilter in der UI | FA-101 | Logik der Liste automatisiert; Filter nur MT-09 |
 | Zuletzt verwendete Projekte in der UI | FA-091 | `recent.json` ohne Oberfläche; manuell nicht zwingend |
 | HTML-/PDF-/LaTeX-Ausgabe | FA-121–FA-123 | Phase 8 |
 | Qualitätskennzahlen | FA-070 | Phase 9 |
 | pHash/dHash, Dublettengruppen | FA-071 | Phase 10 |
 | Importliste „alle Dateien“ (kein 250er-Limit) | FA-025 | nur manuell / GUI, kein Unit-Test der Qt-Tabelle |
-| Originale unverändert | FA-023 | implizit (nur Lese-APIs); Thumbnail-Tests prüfen mtime |
+| Originale unverändert | FA-023 | implizit (nur Lese-APIs); Thumbnail- und Inspektor-Tests prüfen mtime |
 | IPTC | FA-030 | ausstehend |
 | Video-Metadaten live mit ffprobe | FA-038 | Adapter + optionales Binary |
 | pytest-qt Bedienung Import-Button | FA-092 | geplant |
+| KML/GeoJSON auf der interaktiven Karte | FA-013, FA-043 | bewusst nicht; Parser + Thumbs automatisiert |
+| Reiseabschnitte auf der Folium-Karte | FA-050 | Timeline ja; Karte OP-09 |
 
 Qualität und perceptual hashing entstehen mit den Phasen 9–10; die Verträge `QualityAnalyzer` und `RankingStrategy` sind importierbar.
 
@@ -310,7 +423,7 @@ Schweregrade für manuelle Funde:
 
 ---
 
-## 7. Manuelle Testfälle (Phase 3 bis 7)
+## 7. Manuelle Testfälle (Phase 3 bis 7, Software R1.0.0)
 
 Voraussetzung: App starten mit
 
@@ -383,7 +496,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | --- | --- |
 | Seite **Fotos**: Filter Jahr / Mit Ort / JPEG / Favorit / Nicht im Tagebuch | sichtbare Menge ändert sich; Zähler „N von M Fotos“ |
 | Favorit umschalten, Projekt schließen und öffnen | Favorit bleibt |
-| Doppelklick | Vorschau mit Zeit, GPS, Kamera |
+| Doppelklick | Medieninspektor mit Zeit, GPS, Kamera; Originale unverändert |
 
 ### MT-10 Foto ohne GPS, GPX im selben Ordner
 
@@ -395,7 +508,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Nach Import Seite **Fotos** öffnen | Vorschaubilder, chronologisch; Doppelklick zeigt Metadaten |
+| Nach Import Seite **Fotos** öffnen | Vorschaubilder, chronologisch; Doppelklick öffnet den Medieninspektor |
 | HEIC ohne eingebettetes JPEG (HEIF Image Extensions installiert) | echtes Vorschaubild, kein Absturz |
 | HEIC ohne Codec/Erweiterung | Platzhalter, kein Absturz |
 
@@ -419,6 +532,46 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Foto-Häkchen und Titelbild | `used_in_journal` / `is_cover` bleiben nach erneutem Öffnen; Foto bleibt am Aufnahmetag |
 | Alle ins Tagebuch / Alle entfernen | nur das Häkchen ändert sich, nicht der Tag |
 | Übernachtung mit Name, Ort, optional GPS | erscheint in Timeline, Tagebuch und auf der Karte; Löschen entfernt sie überall |
+| Timeline: mehrere Fotos markieren, **Neuen Reiseabschnitt erstellen** (Aufenthalt) | Abschnitt erscheint; Resttage bleiben; ohne Speichern und Verlassen fragt nach |
+| Transfer mit mehreren Verkehrsmitteln, **Speichern**, ⊟ auflösen | Dateien wieder auf Resttagen |
+| YouTube im ⋯-Menü, Dialog-OK, **ohne** Speichern die Timeline verlassen und verwerfen | YouTube nicht in der DB |
+| DHV-Leonardo extra an gespeichertem Tag, Dialog-OK | sofort in der DB; nie als „DAV“ bezeichnet |
+| Chip **T** auf Foto und auf Track | Cover in der Kartenüberschrift; Video hat kein T |
+
+### MT-18 Medieninspektor
+
+| Schritt | Erwartung |
+| --- | --- |
+| Timeline: Doppelklick auf ein Foto in einem Tag mit mehreren Bildern | eigenes Fenster; Titel `datei.jpg · 2 von N` |
+| Pfeiltasten oder Klick in den linken/rechten Rand | nächstes/vorheriges Bild derselben Sequenz; weiße Pfeile beim Überfahren der Ränder |
+| Mausrad über dem Foto | Zoom um den Cursor; Ziehen verschiebt bei Zoom |
+| Doppelklick in die Bildmitte | Einpassen |
+| Ecke unten rechts ziehen | Fenster wächst proportional zum Foto |
+| Fensterrand ziehen | frei breiter oder höher |
+| Maximieren oder F11 | Foto eingepasst, schwarze Ränder, Zoom zurückgesetzt |
+| Seite **Fotos**: Doppelklick | dieselbe Sequenz wie die aktuelle Galerie |
+
+### MT-19 Anzeigedrehung
+
+| Schritt | Erwartung |
+| --- | --- |
+| Inspektor: ↺ oder ↻ (Tasten L/R oder `[`/`]`) | Bild dreht sich 90°; Original-mtime/Größe unverändert |
+| Projekt schließen, öffnen, Galerie und Inspektor | Drehung bleibt; Vorschau folgt `rotation_degrees` |
+| Erneut importieren | Nutzerdrehung bleibt |
+
+### MT-20 Medienregister nur per Klick
+
+| Schritt | Erwartung |
+| --- | --- |
+| Timeline: Mausrad über einer Karte mit Register Alle/Favoriten/… | Tag scrollt, Reiter bleibt |
+| Klick auf **Favoriten** oben neben „Neuen Reiseabschnitt erstellen“ | alle Karten filtern; nach Verlassen der Seite und Zurückkehren bleibt Favoriten |
+
+### MT-21 Fenstertitel
+
+| Schritt | Erwartung |
+| --- | --- |
+| App ohne Projekt | Titelleiste `Reisetagebuch R1.0.0` |
+| Projekt öffnen | `Reisetagebuch R1.0.0 - {Projekttitel}` |
 
 ## 8. Manuelle Fälle ab Phase 8 (Vorschau)
 
@@ -439,7 +592,8 @@ Diese Fälle werden mit der jeweiligen Phase verbindlich.
 | --- | --- |
 | Jede Codeänderung an `travelcore.metadata` oder Import | `pytest` vollständig |
 | HEIC-/GPS-Parser | zusätzlich `test_heic_gps.py`, `test_indexer.py`, manuell MT-03 |
-| Timeline / Tagebuch | `test_timeline.py`, manuell MT-13 |
+| Timeline / Tagebuch / Abschnitte | `test_timeline.py`, `test_timeline_sections.py`, manuell MT-13 |
+| Inspektor / Drehung / Register | `test_orientation.py`, `tests/test_gui_smoke.py`, manuell MT-18–MT-21 |
 | UI-Importliste | MT-04 |
 | Vor Phasenabschluss | pytest grün + manuelle Fälle der Phase + Ruff |
 
@@ -451,6 +605,7 @@ Ein Phasenabschluss ohne grüne Automatisierung gilt als nicht abgenommen.
 
 | Datum | Kommando | Ergebnis |
 | --- | --- | --- |
+| 26.08.2026 | `python -m pytest` im Projekt-venv | 222 bestanden |
 | 18.08.2026 | `python -m pytest` im Projekt-venv | 98 bestanden |
 
 Diese Zeile bei der nächsten vollständigen Fahrt fortschreiben.

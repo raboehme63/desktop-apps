@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from travelcore.database.models import GpsPoint, GpsTrack, OvernightStay, Place, SourceFile, Trip, TripDay
+from travelcore.media.orientation import normalize_rotation_degrees
 from travelcore.media.thumbnails import cached_thumbnail_path
 from travelcore.media.types import FileKind
 
@@ -180,6 +181,7 @@ def _photo_markers(
                     source_file_id=row.id,
                     sha256=row.sha256,
                     size=size,
+                    rotation_degrees=normalize_rotation_degrees(row.rotation_degrees),
                 ),
                 day_key=day_key,
                 color=color,

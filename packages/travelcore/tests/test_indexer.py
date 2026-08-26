@@ -10,9 +10,11 @@ from sqlalchemy import func, select
 from travelcore.database.models import FileError, GpsPoint, GpsTrack, Photo, Project, SourceFile
 from travelcore.database.project_store import OpenProject, ProjectStore
 from travelcore.gps.ingest import set_track_external_url
-from travelcore.media.indexer import FileIndexer, count_by_kind
+from travelcore.media.indexer import FileIndexer, IndexResult, count_by_kind
+from travelcore.media.thumbnails import ensure_photo_and_video_rows
 from travelcore.media.types import FileKind
 from travelcore.project_settings import load_project_settings
+from travelcore.timeline import sync_timeline
 
 
 def _as_utc(value: datetime | None) -> datetime | None:
@@ -518,6 +520,46 @@ def test_indexer_writes_thumbnail_and_photo_row(open_project: OpenProject, tmp_p
         assert photo.is_favorite is False
 
 
+def test_indexer_writes_igc_and_gpx_thumbnails(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_gpx(
+        source / "spur.gpx",
+        [
+            (46.0, 11.0, None, "2025-05-15T13:31:50Z"),
+            (46.2, 11.2, None, "2025-05-15T13:32:10Z"),
+        ],
+    )
+    write_igc(source / "flug.igc", bozen_points())
+
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        result = FileIndexer().index(session, project, source, project_dir=open_project.directory)
+        session.commit()
+
+    assert result.thumbnails_written == 2
+    thumbs = list((open_project.directory / "thumbnails").glob("*.jpg"))
+    assert len(thumbs) == 2
+
+
+def test_indexer_writes_video_thumbnail(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    jpeg = write_plain_jpeg(tmp_path / "inner.jpg", size=(40, 30))
+    (source / "clip.mp4").write_bytes(b"ftypisom" + jpeg.read_bytes())
+
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        result = FileIndexer().index(session, project, source, project_dir=open_project.directory)
+        session.commit()
+
+    assert result.by_kind[FileKind.VIDEO.value] == 1
+    assert result.thumbnails_written == 1
+    assert list((open_project.directory / "thumbnails").glob("*.jpg"))
+
+
 def test_indexer_does_not_regenerate_thumbnails_on_reimport(
     open_project: OpenProject, tmp_path: Path
 ) -> None:
@@ -545,6 +587,67 @@ def test_indexer_does_not_regenerate_thumbnails_on_reimport(
     assert second.media_changed is False
     assert second.thumbnails_written == 0
     assert thumbs[0].stat().st_mtime == stamp
+
+
+def test_ensure_photo_rows_then_previews_still_write_thumbs(
+    open_project: OpenProject, tmp_path: Path
+) -> None:
+    """Photo rows from timeline sync must not block thumbnail generation on import."""
+
+    source = tmp_path / "media"
+    source.mkdir()
+    write_plain_jpeg(source / "platz.jpg")
+    indexer = FileIndexer()
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        indexer.index(
+            session,
+            project,
+            source,
+            project_dir=open_project.directory,
+            generate_thumbnails=False,
+        )
+        session.commit()
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        sync_timeline(session, project)
+        ensure_photo_and_video_rows(session, project)
+        session.commit()
+        assert session.scalar(select(func.count()).select_from(Photo)) == 1
+    result = IndexResult(media_changed=True)
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        indexer.build_previews(session, project, result, None, open_project.directory)
+        session.commit()
+        assert session.scalar(select(func.count()).select_from(Photo)) == 1
+    assert result.thumbnails_written == 1
+    assert list((open_project.directory / "thumbnails").glob("*.jpg"))
+
+
+def test_reimport_writes_missing_thumbnails(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_plain_jpeg(source / "platz.jpg")
+    indexer = FileIndexer()
+    thumbs = open_project.directory / "thumbnails"
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        indexer.index(session, project, source, project_dir=open_project.directory)
+        session.commit()
+    for path in thumbs.glob("*.jpg"):
+        path.unlink()
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        second = indexer.index(session, project, source, project_dir=open_project.directory)
+        session.commit()
+    assert second.media_changed is False
+    assert second.thumbnails_written == 1
+    assert list(thumbs.glob("*.jpg"))
 
 
 def test_indexer_does_not_count_thumbnails_when_source_is_project(
@@ -808,6 +911,36 @@ def test_indexer_preserves_igc_dhv_url_on_reingest(open_project: OpenProject, tm
         track = session.scalar(select(GpsTrack))
         assert track is not None
         assert track.external_url == "https://de.dhv.de/dbnx/nx.php?id=42"
+
+
+def test_indexer_preserves_rotation_on_reingest(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "foto.jpg",
+        datetime_original="2025:05:15 08:20:00",
+        offset_original="+02:00",
+    )
+    indexer = FileIndexer()
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        indexer.index(session, project, source, generate_thumbnails=False)
+        photo = session.scalar(select(SourceFile).where(SourceFile.file_kind == FileKind.PHOTO.value))
+        assert photo is not None
+        photo.rotation_degrees = 90
+        session.commit()
+
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        indexer.index(session, project, source, generate_thumbnails=False)
+        session.commit()
+
+    with open_project.session_factory() as session:
+        photo = session.scalar(select(SourceFile).where(SourceFile.file_kind == FileKind.PHOTO.value))
+        assert photo is not None
+        assert photo.rotation_degrees == 90
 
 
 def test_set_track_url_rejects_non_http(open_project: OpenProject, tmp_path: Path) -> None:

@@ -72,7 +72,16 @@ _GUID_24BGR = _guid("6fddc324-4e03-4bfe-b185-3d77768dc90c")
 
 
 def decode_heic_preview(path: Path, *, size: int = 256) -> Image.Image | None:
-    """Return a Pillow image for a HEIC file using Windows APIs, or None."""
+    """Return a Pillow image via Windows Shell/WIC, or None.
+
+    Works for HEIC and other formats Explorer can preview (RAW, video).
+    """
+
+    return decode_windows_thumbnail(path, size=size)
+
+
+def decode_windows_thumbnail(path: Path, *, size: int = 256) -> Image.Image | None:
+    """Return a Shell/WIC thumbnail for any path Windows can preview."""
 
     if sys.platform != "win32":
         return None
@@ -82,7 +91,7 @@ def decode_heic_preview(path: Path, *, size: int = 256) -> Image.Image | None:
             return image
         return _wic_frame(path)
     except Exception:  # noqa: BLE001 - Shell/WIC failures must not abort import
-        logger.debug("Windows HEIC decode failed for %s", path.name, exc_info=True)
+        logger.debug("Windows thumbnail decode failed for %s", path.name, exc_info=True)
         return None
 
 

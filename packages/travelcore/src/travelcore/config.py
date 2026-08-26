@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,6 +11,18 @@ class AppSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="TRAVELJOURNAL_", extra="ignore")
 
+    projects_root: str | None = Field(
+        default=None,
+        description="Default parent folder for creating and opening projects.",
+    )
+
+    @field_validator("projects_root", mode="before")
+    @classmethod
+    def _blank_projects_root(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
     default_thumbnail_size: int = Field(default=256, ge=64, le=1024)
     hash_chunk_size: int = Field(default=1024 * 1024, ge=4096)
     stay_radius_meters: float = Field(default=150.0, gt=0)
