@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import delete, select
@@ -31,7 +31,7 @@ from travelcore.gps.types import GpsFix, TrackPoint
 
 logger = logging.getLogger(__name__)
 
-ProgressFn = Callable[[int, int, str], None]
+ProgressFn = Callable[[int, int, str, str], None]
 
 SOURCE_TRACK = "gpx_track"
 SOURCE_IGC_TRACK = "igc_track"
@@ -47,6 +47,7 @@ class GpsIngestResult:
     points: int = 0
     matched: int = 0
     errors: int = 0
+    skipped: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,14 +66,18 @@ def ingest_gps_tracks(
     *,
     max_delta_seconds: int = 120,
     progress: ProgressFn | None = None,
+    skip_unchanged_ids: set[int] | frozenset[int] | None = None,
 ) -> GpsIngestResult:
     """Parse GPX and IGC source files, store points, and match media without EXIF GPS.
 
     Photos and videos without a protected position are filled in this order:
     nearby geotagged photos, then GPX, then IGC.
+
+    Unchanged source files that already have stored points are not parsed again.
     """
 
     result = GpsIngestResult()
+    skip_ids = skip_unchanged_ids or frozenset()
     gps_rows = list(
         session.scalars(
             select(SourceFile).where(
@@ -83,8 +88,12 @@ def ingest_gps_tracks(
     )
     total = max(len(gps_rows), 1)
     for index, row in enumerate(gps_rows, start=1):
+        skip_this = row.id in skip_ids and _source_has_stored_points(session, row.id)
         if progress is not None:
-            progress(index, total, row.path)
+            progress(index, total, row.path, "skip" if skip_this else "track")
+        if skip_this:
+            result.skipped += 1
+            continue
         suffix = Path(row.path).suffix.lower()
         parser = _TRACK_SUFFIXES.get(suffix)
         if parser is None:
@@ -117,7 +126,7 @@ def ingest_gps_tracks(
             )
         )
     )
-    photo_points = _photo_reference_points(media_rows, project)
+    photo_points = _sorted_points(_photo_reference_points(media_rows, project))
     gpx_points = _load_timed_points(session, project.id, track_format="gpx")
     igc_points = _load_timed_points(session, project.id, track_format="igc")
     if not photo_points and not gpx_points and not igc_points:
@@ -125,7 +134,7 @@ def ingest_gps_tracks(
     media_total = max(len(media_rows), 1)
     for index, row in enumerate(media_rows, start=1):
         if progress is not None:
-            progress(index, media_total, row.path)
+            progress(index, media_total, row.path, "match")
         if not _should_match(row) or row.captured_at is None:
             continue
         fix = _match_media_position(
@@ -140,6 +149,8 @@ def ingest_gps_tracks(
             continue
         _apply_fix(row, fix)
         result.matched += 1
+    if progress is not None:
+        progress(media_total, media_total, "", "done")
     return result
 
 
@@ -325,6 +336,18 @@ def _normalize_external_url(value: str | None) -> str | None:
     return text
 
 
+def _source_has_stored_points(session: Session, source_file_id: int) -> bool:
+    return (
+        session.scalar(
+            select(GpsPoint.id)
+            .join(GpsTrack, GpsPoint.track_id == GpsTrack.id)
+            .where(GpsTrack.source_file_id == source_file_id)
+            .limit(1)
+        )
+        is not None
+    )
+
+
 def _load_timed_points(session: Session, project_id: int, *, track_format: str) -> list[TrackPoint]:
     rows = session.execute(
         select(GpsPoint, GpsTrack.id)
@@ -383,6 +406,20 @@ def _photo_reference_points(rows: list[SourceFile], project: Project) -> list[Tr
     return points
 
 
+def _sorted_points(points: list[TrackPoint]) -> list[TrackPoint]:
+    timed = [point for point in points if point.recorded_at is not None]
+    timed.sort(key=lambda item: _aware_time(item.recorded_at))
+    return timed
+
+
+def _aware_time(value: datetime | None) -> datetime:
+    if value is None:
+        return datetime.min.replace(tzinfo=UTC)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
 def _match_media_position(
     row: SourceFile,
     project: Project,
@@ -400,13 +437,14 @@ def _match_media_position(
         timezone_unknown=row.timezone_unknown,
         default_timezone=project.default_timezone,
     )
-    donors = [point for point in photo_points if point.track_id != str(row.id)]
+    # Photos without a protected EXIF/QuickTime fix are not in ``photo_points``.
     fix = match_position(
         moment,
-        donors,
+        photo_points,
         max_delta_seconds=max_delta_seconds,
         source_interpolated=SOURCE_PHOTO_INTERPOLATED,
         source_nearest=SOURCE_PHOTO_NEAREST,
+        points_sorted=True,
     )
     if fix is not None:
         return fix
@@ -416,6 +454,7 @@ def _match_media_position(
         max_delta_seconds=max_delta_seconds,
         source_interpolated=SOURCE_INTERPOLATED,
         source_nearest=SOURCE_NEAREST,
+        points_sorted=True,
     )
     if fix is not None:
         return fix
@@ -425,4 +464,5 @@ def _match_media_position(
         max_delta_seconds=max_delta_seconds,
         source_interpolated=SOURCE_IGC_INTERPOLATED,
         source_nearest=SOURCE_IGC_NEAREST,
+        points_sorted=True,
     )

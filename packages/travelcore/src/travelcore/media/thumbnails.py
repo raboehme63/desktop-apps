@@ -16,7 +16,7 @@ from travelcore.database.models import Photo, Project, SourceFile, Video
 from travelcore.media.heic_win import decode_heic_preview
 from travelcore.media.heif_items import extract_heif_jpeg_item
 from travelcore.media.types import FileKind
-from travelcore.parallel import map_in_processes
+from travelcore.parallel import map_in_threads
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,7 @@ _PILLOW_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"}
 _HEIC_SUFFIXES = {".heic", ".heif"}
 _JPEG_SOI = b"\xff\xd8\xff"
 _THUMB_FILL = (18, 21, 28)
+_MAX_THUMB_SOURCE_PIXELS = 40_000_000
 
 ProgressFn = Callable[[int, int, str], None]
 
@@ -77,7 +78,7 @@ def ensure_thumbnail(
         fitted = _fit_square(working, size)
         destination.parent.mkdir(parents=True, exist_ok=True)
         fitted.save(destination, format="JPEG", quality=85, optimize=True)
-    except (OSError, ValueError, SyntaxError) as exc:
+    except (OSError, ValueError, SyntaxError, Image.DecompressionBombError) as exc:
         logger.warning("Thumbnail failed for %s: %s", source.name, exc)
         return None
     finally:
@@ -150,7 +151,7 @@ def generate_project_thumbnails(
             progress(total, total, "")
         return result
 
-    outcomes = map_in_processes(
+    outcomes = map_in_threads(
         render_thumbnail_batch,
         jobs,
         max_workers=max_workers,
@@ -215,7 +216,16 @@ def _open_preview(source: Path) -> Image.Image | None:
     try:
         if suffix in _PILLOW_SUFFIXES:
             image = Image.open(source)
-            image.load()
+            width, height = image.size
+            if width * height > _MAX_THUMB_SOURCE_PIXELS:
+                logger.warning(
+                    "Thumbnail skipped, image too large: %s (%sx%s)",
+                    source.name,
+                    width,
+                    height,
+                )
+                image.close()
+                return None
             return image
         if suffix in _HEIC_SUFFIXES:
             windows = decode_heic_preview(source, size=256)
@@ -225,9 +235,8 @@ def _open_preview(source: Path) -> Image.Image | None:
             embedded = extract_heif_jpeg_item(payload) or extract_largest_embedded_jpeg(payload)
             if embedded is not None:
                 image = Image.open(io.BytesIO(embedded))
-                image.load()
                 return image
-    except (UnidentifiedImageError, OSError, ValueError, SyntaxError):
+    except (UnidentifiedImageError, OSError, ValueError, SyntaxError, Image.DecompressionBombError):
         logger.debug("No preview image for %s", source.name)
         return None
     return None

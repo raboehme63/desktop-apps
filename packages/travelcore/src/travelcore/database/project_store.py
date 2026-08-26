@@ -20,6 +20,38 @@ from travelcore.project_settings import ensure_project_settings
 
 PROJECT_DB_NAME = "project.sqlite"
 PROJECT_SUBDIRS = ("thumbnails", "cache", "exports", "logs")
+_INVALID_FOLDER_CHARS = frozenset('<>:"/\\|?*')
+_RESERVED_DEVICE_NAMES = frozenset(
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        *(f"COM{index}" for index in range(1, 10)),
+        *(f"LPT{index}" for index in range(1, 10)),
+    }
+)
+_MAX_FOLDER_NAME = 200
+
+
+def folder_name_from_project_name(name: str) -> str:
+    """Turn a display name into a Windows-safe folder name, or empty if unusable."""
+
+    pieces: list[str] = []
+    for char in name.strip():
+        if ord(char) < 32 or char in _INVALID_FOLDER_CHARS:
+            pieces.append(" ")
+        else:
+            pieces.append(char)
+    folded = " ".join("".join(pieces).split()).strip(" .")
+    if not folded or folded in {".", ".."}:
+        return ""
+    stem = folded.split(".", maxsplit=1)[0].upper()
+    if stem in _RESERVED_DEVICE_NAMES:
+        folded = f"Projekt {folded}"
+    if len(folded) > _MAX_FOLDER_NAME:
+        folded = folded[:_MAX_FOLDER_NAME].rstrip(" .")
+    return folded
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +67,25 @@ class OpenProject:
 
 class ProjectStore:
     """Manages the on-disk project layout and database lifecycle."""
+
+    def create_under(self, parent: Path, name: str) -> OpenProject:
+        """Create a new project as ``parent / <sanitized name>``."""
+
+        name = name.strip()
+        if not name:
+            raise ProjectError("Bitte einen Projektnamen eingeben.")
+        folder = folder_name_from_project_name(name)
+        if not folder:
+            raise ProjectError("Der Projektname ergibt keinen gültigen Ordnernamen.")
+        parent = parent.expanduser().resolve()
+        if not parent.is_dir():
+            raise ProjectError(f"Übergeordneter Ordner existiert nicht: {parent}")
+        directory = parent / folder
+        if (directory / PROJECT_DB_NAME).is_file():
+            raise ProjectError(f"Projektordner existiert bereits: {directory}")
+        if directory.exists() and any(directory.iterdir()):
+            raise ProjectError(f"Verzeichnis ist nicht leer und enthält kein Projekt: {directory}")
+        return self.create(directory, name)
 
     def create(self, directory: Path, name: str) -> OpenProject:
         directory = directory.expanduser().resolve()

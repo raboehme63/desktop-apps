@@ -1,6 +1,7 @@
 from io import BytesIO
 from pathlib import Path
 
+import pytest
 from jpeg_fixtures import write_jpeg_with_exif, write_plain_jpeg
 from PIL import Image
 
@@ -33,6 +34,28 @@ def test_ensure_thumbnail_skips_existing(tmp_path: Path) -> None:
     again = ensure_thumbnail(source, dest, size=32)
     assert again == dest
     assert dest.stat().st_mtime == first
+
+
+def test_ensure_thumbnail_writes_png(tmp_path: Path) -> None:
+    source = tmp_path / "karte.png"
+    Image.new("RGB", (48, 32), "teal").save(source)
+    dest = tmp_path / "karte.jpg"
+    written = ensure_thumbnail(source, dest, size=32)
+    assert written == dest
+    with Image.open(dest) as image:
+        assert image.size == (32, 32)
+        assert image.format == "JPEG"
+
+
+def test_ensure_thumbnail_skips_huge_png(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import travelcore.media.thumbnails as thumbs
+
+    monkeypatch.setattr(thumbs, "_MAX_THUMB_SOURCE_PIXELS", 10)
+    source = tmp_path / "huge.png"
+    Image.new("RGB", (8, 8), "red").save(source)
+    dest = tmp_path / "out.jpg"
+    assert thumbs.ensure_thumbnail(source, dest, size=32) is None
+    assert not dest.is_file()
 
 
 def test_corrupt_jpeg_returns_none(tmp_path: Path) -> None:

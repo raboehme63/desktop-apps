@@ -7,7 +7,14 @@ from pathlib import Path
 
 from PySide6.QtCore import QAbstractListModel, QModelIndex, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
-from PySide6.QtWidgets import QListView, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QWidget
+from PySide6.QtWidgets import (
+    QListView,
+    QSizePolicy,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
+    QWidget,
+)
 
 from travelcore.media.gallery import GalleryItem
 
@@ -130,9 +137,44 @@ class GalleryView(QListView):
         self.setSpacing(8)
         self.setSelectionMode(QListView.SelectionMode.SingleSelection)
         self.doubleClicked.connect(self._emit_item)
+        self._expand_to_fit = False
+
+    def set_expand_to_fit(self, enabled: bool) -> None:
+        """Grow with the item count so a parent scroll area can own scrolling."""
+
+        self._expand_to_fit = enabled
+        if enabled:
+            self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._update_expanded_height()
 
     def set_items(self, items: list[GalleryItem]) -> None:
         self._model.set_items(items)
+        self._update_expanded_height()
+
+    def resizeEvent(self, event) -> None:  # noqa: ANN001, N802
+        super().resizeEvent(event)
+        self._update_expanded_height()
+
+    def wheelEvent(self, event) -> None:  # noqa: ANN001, N802
+        if self._expand_to_fit:
+            event.ignore()
+            return
+        super().wheelEvent(event)
+
+    def _update_expanded_height(self) -> None:
+        if not self._expand_to_fit:
+            return
+        count = self._model.rowCount()
+        if count == 0:
+            self.setFixedHeight(8)
+            return
+        available = max(self.viewport().width(), self.width() - 16, _CELL.width())
+        cell = _CELL.width() + self.spacing()
+        columns = max(1, available // cell)
+        rows = (count + columns - 1) // columns
+        self.setFixedHeight(rows * (_CELL.height() + self.spacing()) + 8)
 
     def selected_item(self) -> GalleryItem | None:
         indexes = self.selectedIndexes()

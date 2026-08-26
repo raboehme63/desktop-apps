@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from travelcore.database.models import SourceFile
+from travelcore.metadata.gps import HEADING_SOURCE_ABSENT
 from travelcore.metadata.provider import CapturedTime, MediaMetadata, MetadataProvider
 from travelcore.metadata.time import filesystem_captured_time
 
@@ -81,6 +82,8 @@ def _apply_camera(row: SourceFile, metadata: MediaMetadata) -> None:
         row.lens = metadata.lens
     if metadata.focal_length is not None:
         row.focal_length = metadata.focal_length
+    if metadata.focal_length_35mm is not None and row.focal_length_35mm is None:
+        row.focal_length_35mm = metadata.focal_length_35mm
     if metadata.iso is not None:
         row.iso = metadata.iso
     if metadata.exposure_time:
@@ -93,3 +96,15 @@ def _apply_camera(row: SourceFile, metadata: MediaMetadata) -> None:
         row.width = metadata.width
     if metadata.height is not None:
         row.height = metadata.height
+    _apply_heading(row, metadata)
+
+
+def _apply_heading(row: SourceFile, metadata: MediaMetadata) -> None:
+    if metadata.heading_degrees is not None:
+        if row.heading_degrees is None:
+            row.heading_degrees = metadata.heading_degrees
+            row.heading_ref = metadata.heading_ref
+            row.heading_source = metadata.heading_source
+        return
+    if row.heading_source is None:
+        row.heading_source = HEADING_SOURCE_ABSENT

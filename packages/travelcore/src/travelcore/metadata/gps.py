@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Sequence
 
 from travelcore.metadata.provider import GeoPosition
+
+HEADING_SOURCE_IMG = "gps_img_direction"
+HEADING_SOURCE_DEST = "gps_dest_bearing"
+HEADING_SOURCE_ABSENT = "absent"
 
 _GPS_SOURCE_EXIF = "exif"
 _GPS_SOURCE_QUICKTIME = "quicktime"
@@ -64,6 +69,47 @@ def dms_to_decimal(dms: object, ref: str | None) -> float | None:
     if direction in {"S", "W"} and decimal > 0:
         decimal = -decimal
     return decimal
+
+
+def heading_from_exif(
+    *,
+    img_direction: object = None,
+    img_direction_ref: object = None,
+    dest_bearing: object = None,
+    dest_bearing_ref: object = None,
+) -> tuple[float, str, str] | None:
+    """Return ``(degrees, ref, source)`` from GPSImgDirection, else GPSDestBearing.
+
+    Degrees are normalized to ``[0, 360)``. ``ref`` is ``T`` (true) or ``M``
+    (magnetic); missing ref defaults to true north.
+    """
+
+    heading = _one_heading(img_direction, img_direction_ref, HEADING_SOURCE_IMG)
+    if heading is None:
+        heading = _one_heading(dest_bearing, dest_bearing_ref, HEADING_SOURCE_DEST)
+    return heading
+
+
+def _one_heading(value: object, ref: object, source: str) -> tuple[float, str, str] | None:
+    degrees = _to_float(value)
+    if degrees is None or not math.isfinite(degrees):
+        return None
+    degrees %= 360.0
+    if degrees < 0:
+        degrees += 360.0
+    text = _heading_ref(ref)
+    return degrees, text, source
+
+
+def _heading_ref(value: object) -> str:
+    if isinstance(value, (bytes, bytearray)):
+        text = bytes(value).split(b"\x00", 1)[0].decode("ascii", errors="replace").strip()
+    elif value is None:
+        text = ""
+    else:
+        text = str(value).strip().strip("\x00")
+    letter = text[:1].upper()
+    return letter if letter in {"T", "M"} else "T"
 
 
 def position_from_exif(

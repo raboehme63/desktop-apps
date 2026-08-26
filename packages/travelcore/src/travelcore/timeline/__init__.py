@@ -31,4 +31,3 @@ __all__ = [
     "set_photo_journal_flag",
     "sync_timeline",
 ]
-

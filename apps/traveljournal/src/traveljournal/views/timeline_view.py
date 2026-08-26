@@ -2,24 +2,29 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QIcon, QPixmap
+from pathlib import Path
+
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QResizeEvent, QTextOption
 from PySide6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
+    QLineEdit,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
-    QSplitter,
+    QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from travelcore.exceptions import ProjectError
-from travelcore.timeline.types import TimelineDay, TimelineSnapshot
+from travelcore.media.gallery import GalleryItem
+from travelcore.timeline.types import TimelineDay, TimelinePhoto, TimelineSnapshot
 from traveljournal.services.workspace import Workspace
+from traveljournal.widgets.gallery import GalleryView
 
 
 class TimelineView(QWidget):
@@ -30,7 +35,8 @@ class TimelineView(QWidget):
         super().__init__(parent)
         self.workspace = workspace
         self._snapshot: TimelineSnapshot | None = None
-        self._selected_day_id: int | None = None
+        self._blocks: list[DayEntryWidget] = []
+        self._loading = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 28)
@@ -39,10 +45,9 @@ class TimelineView(QWidget):
         title = QLabel("Timeline")
         title.setObjectName("pageTitle")
         self._subtitle = QLabel(
-            "Tage entstehen automatisch aus der Aufnahmezeit. "
-            "Orte und Übernachtungen setzt du im Tagebuch; "
-            "Foto-, Video- und Trackpositionen bekommen keinen Ortsnamen. "
-            "Manuelle Texte überschreibt die Automatik nicht."
+            "Alle Tage untereinander. Titel und Tagebucheintrag sind bearbeitbar "
+            "und werden aus importierten Texten vorbefüllt. "
+            "Manuelle Änderungen überschreibt die Automatik nicht."
         )
         self._subtitle.setObjectName("pageSubtitle")
         self._subtitle.setWordWrap(True)
@@ -52,61 +57,40 @@ class TimelineView(QWidget):
         toolbar = QHBoxLayout()
         refresh = QPushButton("Timeline aktualisieren")
         refresh.clicked.connect(self.rebuild)
+        self._save_button = QPushButton("Speichern")
+        self._save_button.setObjectName("primary")
+        self._save_button.clicked.connect(self._on_save_clicked)
         toolbar.addWidget(refresh)
         toolbar.addStretch(1)
+        toolbar.addWidget(self._save_button)
         root.addLayout(toolbar)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.days = QListWidget()
-        self.days.currentItemChanged.connect(self._on_day_changed)
-        splitter.addWidget(self.days)
-
-        detail = QWidget()
-        detail_layout = QVBoxLayout(detail)
-        detail_layout.setContentsMargins(8, 0, 0, 0)
-        self._detail_title = QLabel("Kein Tag gewählt")
-        self._detail_title.setObjectName("pageTitle")
-        self._detail_notes = QLabel("")
-        self._detail_notes.setObjectName("pageSubtitle")
-        self._detail_notes.setWordWrap(True)
-        self.events = QListWidget()
-        self.photos = QListWidget()
-        self.photos.setIconSize(QSize(56, 56))
-        self.places = QListWidget()
-        self.stays = QListWidget()
-        detail_layout.addWidget(self._detail_title)
-        detail_layout.addWidget(self._detail_notes)
-        detail_layout.addWidget(QLabel("Ereignisse"))
-        detail_layout.addWidget(self.events)
-        detail_layout.addWidget(QLabel("Medien"))
-        detail_layout.addWidget(self.photos, 1)
-        detail_layout.addWidget(QLabel("Orte"))
-        detail_layout.addWidget(self.places)
-        place_row = QHBoxLayout()
-        confirm = QPushButton("Ort bestätigen…")
-        confirm.clicked.connect(self._confirm_place)
-        delete_place = QPushButton("Ort löschen")
-        delete_place.clicked.connect(self._delete_place)
-        place_row.addWidget(confirm)
-        place_row.addWidget(delete_place)
-        place_row.addStretch(1)
-        detail_layout.addLayout(place_row)
-        detail_layout.addWidget(QLabel("Übernachtungen"))
-        detail_layout.addWidget(self.stays)
-        splitter.addWidget(detail)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 2)
-        root.addWidget(splitter, 1)
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._host = QWidget()
+        self._host_layout = QVBoxLayout(self._host)
+        self._host_layout.setContentsMargins(0, 0, 8, 0)
+        self._host_layout.setSpacing(16)
+        self._empty = QLabel("Bitte ein Projekt öffnen.")
+        self._empty.setObjectName("pageSubtitle")
+        self._empty.setWordWrap(True)
+        self._host_layout.addWidget(self._empty)
+        self._host_layout.addStretch(1)
+        self._scroll.setWidget(self._host)
+        root.addWidget(self._scroll, 1)
+        self._save_button.setEnabled(False)
 
     def rebuild(self) -> None:
         self.refresh(rebuild=True)
         self.timeline_changed.emit()
 
     def refresh(self, rebuild: bool = False) -> None:
+        self._commit_if_dirty()
         if self.workspace.current is None:
             self._snapshot = None
-            self.days.clear()
-            self._show_day(None)
+            self._fill_days()
             self._subtitle.setText("Bitte ein Projekt öffnen.")
             return
         try:
@@ -121,128 +105,157 @@ class TimelineView(QWidget):
             return
         self._snapshot = snapshot
         self._subtitle.setText(
-            f"{snapshot.title}: {snapshot.day_count} Tage. Übernachtungen und Orte setzt du im Tagebuch."
+            f"{snapshot.title}: {snapshot.day_count} Tage untereinander. "
+            "Titel und Text aus Notizen vorbefüllt, Medien als Vorschau."
         )
         self._fill_days()
         self.status_message.emit(f"Timeline: {snapshot.day_count} Tage")
 
+    def clear(self) -> None:
+        self._snapshot = None
+        self._fill_days()
+        self._subtitle.setText(
+            "Index wird geladen…" if self.workspace.current is not None else "Bitte ein Projekt öffnen."
+        )
+
     def _fill_days(self) -> None:
-        self.days.blockSignals(True)
-        self.days.clear()
-        selected: QListWidgetItem | None = None
-        for day in self._snapshot.days if self._snapshot is not None else ():
-            item = QListWidgetItem(_day_summary(day))
-            item.setData(Qt.ItemDataRole.UserRole, day.id)
-            self.days.addItem(item)
-            if self._selected_day_id == day.id:
-                selected = item
-        self.days.blockSignals(False)
-        if selected is not None:
-            self.days.setCurrentItem(selected)
-        elif self.days.count():
-            self.days.setCurrentRow(0)
-        else:
-            self._show_day(None)
-
-    def _on_day_changed(self, current: QListWidgetItem | None, _previous: QListWidgetItem | None) -> None:
-        if current is None or self._snapshot is None:
-            self._show_day(None)
+        self._loading = True
+        scroll = self._scroll.verticalScrollBar().value()
+        for block in self._blocks:
+            self._host_layout.removeWidget(block)
+            block.deleteLater()
+        self._blocks.clear()
+        days = self._snapshot.days if self._snapshot is not None else ()
+        if not days:
+            self._empty.setVisible(True)
+            if self.workspace.current is None:
+                self._empty.setText("Bitte ein Projekt öffnen.")
+            elif self._snapshot is None:
+                self._empty.setText("Index wird geladen…")
+            else:
+                self._empty.setText("Keine Tage in der Timeline.")
+            self._save_button.setEnabled(False)
+            self._loading = False
             return
-        day_id = current.data(Qt.ItemDataRole.UserRole)
-        self._selected_day_id = int(day_id) if day_id is not None else None
-        day = next((item for item in self._snapshot.days if item.id == self._selected_day_id), None)
-        self._show_day(day)
+        self._empty.setVisible(False)
+        insert_at = max(self._host_layout.count() - 1, 0)
+        for day in days:
+            block = DayEntryWidget(day)
+            self._blocks.append(block)
+            self._host_layout.insertWidget(insert_at, block)
+            insert_at += 1
+        self._save_button.setEnabled(True)
+        self._loading = False
+        self._scroll.verticalScrollBar().setValue(scroll)
 
-    def _show_day(self, day: TimelineDay | None) -> None:
-        self.events.clear()
-        self.photos.clear()
-        self.places.clear()
-        self.stays.clear()
-        if day is None:
-            self._detail_title.setText("Kein Tag gewählt")
-            self._detail_notes.setText("")
+    def _commit_if_dirty(self) -> bool:
+        if self._loading:
+            return True
+        dirty = [block for block in self._blocks if block.is_dirty()]
+        if not dirty:
+            return True
+        try:
+            for block in dirty:
+                day_id, title, notes = block.values()
+                self.workspace.save_day_text(day_id, title=title, notes=notes)
+                block.mark_clean()
+        except ProjectError as exc:
+            QMessageBox.warning(self, "Timeline", str(exc))
+            return False
+        return True
+
+    def _on_save_clicked(self) -> None:
+        if not self._blocks:
+            QMessageBox.information(self, "Timeline", "Keine Tage zum Speichern.")
             return
+        if not self._commit_if_dirty():
+            return
+        self.refresh()
+        self.timeline_changed.emit()
+        self.status_message.emit("Tagebuch gespeichert.")
+
+
+class DayEntryWidget(QFrame):
+    def __init__(self, day: TimelineDay, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("card")
+        self._day_id = day.id
+        self._loaded_title = day.title or ""
+        self._loaded_notes = day.notes or ""
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        date_text = day.date.strftime("%d.%m.%Y") if day.date is not None else "Ohne Datum"
         origin = "manuell" if day.origin == "manual" else "automatisch"
-        title = day.title or "Ohne Titel"
-        self._detail_title.setText(f"{title} ({origin})")
-        notes = (day.notes or "").strip() or "Kein Text — Texte schreibst du im Tagebuch."
-        self._detail_notes.setText(notes)
-        for event in day.events:
-            mark = "auto" if event.origin == "auto" else "manuell"
-            self.events.addItem(f"{event.title} ({mark})")
-        for photo in day.photos:
-            text = photo.filename
-            extras: list[str] = []
-            if photo.used_in_journal:
-                extras.append("Tagebuch")
-            if photo.is_cover:
-                extras.append("Titelbild")
-            if extras:
-                text = f"{text} · {' · '.join(extras)}"
-            item = QListWidgetItem(text)
-            if photo.thumbnail_path.is_file():
-                pixmap = QPixmap(str(photo.thumbnail_path))
-                if not pixmap.isNull():
-                    item.setIcon(QIcon(pixmap))
-            self.photos.addItem(item)
-        for place in day.places:
-            state = "bestätigt" if place.confirmed else "Vorschlag"
-            self.places.addItem(QListWidgetItem(f"{place.name} ({state})"))
-            self.places.item(self.places.count() - 1).setData(Qt.ItemDataRole.UserRole, place.id)
-        for stay in day.stays:
-            where = f" · {stay.location_name}" if stay.location_name else ""
-            self.stays.addItem(f"{stay.name}{where}")
+        heading = QLabel(f"{date_text} · {origin}")
+        heading.setObjectName("pageSubtitle")
+        self.title_edit = QLineEdit(self._loaded_title)
+        self.title_edit.setPlaceholderText("Titel des Tages")
+        self.notes_edit = QPlainTextEdit(self._loaded_notes)
+        self.notes_edit.setPlaceholderText("Tagebucheintrag — aus importierten Texten vorbefüllt")
+        self.notes_edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.notes_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.notes_edit.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self.notes_edit.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        self.notes_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.notes_edit.textChanged.connect(self._fit_notes)
+        media_count = len(day.photos)
+        media_label = QLabel("Keine Medien" if media_count == 0 else f"Medien ({media_count})")
+        media_label.setObjectName("pageSubtitle")
+        self.gallery = GalleryView()
+        self.gallery.set_expand_to_fit(True)
+        self.gallery.set_items([_gallery_item(photo) for photo in day.photos])
+        self.gallery.setVisible(media_count > 0)
 
-    def _selected_place_id(self) -> int | None:
-        item = self.places.currentItem()
-        if item is None:
-            return None
-        value = item.data(Qt.ItemDataRole.UserRole)
-        return int(value) if value is not None else None
+        layout.addWidget(heading)
+        layout.addWidget(QLabel("Titel des Tages"))
+        layout.addWidget(self.title_edit)
+        layout.addWidget(QLabel("Tagebucheintrag"))
+        layout.addWidget(self.notes_edit)
+        layout.addWidget(media_label)
+        if media_count:
+            layout.addWidget(self.gallery)
+        self._fit_notes()
 
-    def _confirm_place(self) -> None:
-        place_id = self._selected_place_id()
-        if place_id is None:
-            QMessageBox.information(self, "Timeline", "Bitte einen Ort auswählen.")
-            return
-        current = self.places.currentItem()
-        suggestion = current.text().rsplit(" (", 1)[0] if current is not None else ""
-        name, accepted = QInputDialog.getText(self, "Ort bestätigen", "Name", text=suggestion)
-        if not accepted:
-            return
-        try:
-            self.workspace.confirm_place(place_id, name)
-        except ProjectError as exc:
-            QMessageBox.warning(self, "Timeline", str(exc))
-            return
-        self.refresh()
-        self.timeline_changed.emit()
+    def values(self) -> tuple[int, str, str]:
+        return self._day_id, self.title_edit.text(), self.notes_edit.toPlainText()
 
-    def _delete_place(self) -> None:
-        place_id = self._selected_place_id()
-        if place_id is None:
-            QMessageBox.information(self, "Timeline", "Bitte einen Ort auswählen.")
-            return
-        if (
-            QMessageBox.question(self, "Ort löschen", "Diesen Ort wirklich löschen?")
-            != QMessageBox.StandardButton.Yes
-        ):
-            return
-        try:
-            self.workspace.delete_place(place_id)
-        except ProjectError as exc:
-            QMessageBox.warning(self, "Timeline", str(exc))
-            return
-        self.refresh()
-        self.timeline_changed.emit()
+    def is_dirty(self) -> bool:
+        return (
+            self.title_edit.text() != self._loaded_title
+            or self.notes_edit.toPlainText() != self._loaded_notes
+        )
+
+    def mark_clean(self) -> None:
+        self._loaded_title = self.title_edit.text()
+        self._loaded_notes = self.notes_edit.toPlainText()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._fit_notes()
+
+    def _fit_notes(self) -> None:
+        document = self.notes_edit.document()
+        document.setTextWidth(max(self.notes_edit.viewport().width(), 100))
+        margins = self.notes_edit.contentsMargins()
+        height = int(document.size().height()) + margins.top() + margins.bottom() + 16
+        self.notes_edit.setFixedHeight(max(88, height))
 
 
-def _day_summary(day: TimelineDay) -> str:
-    date_text = day.date.strftime("%d.%m.%Y") if day.date is not None else "Ohne Datum"
-    title = day.title or date_text
-    bits = [f"{len(day.photos)} Medien"]
-    if day.places:
-        bits.append(f"{len(day.places)} Orte")
-    if day.stays:
-        bits.append(f"{len(day.stays)} Übernachtungen")
-    return f"{title}\n{date_text} · {' · '.join(bits)}"
+def _gallery_item(photo: TimelinePhoto) -> GalleryItem:
+    return GalleryItem(
+        source_file_id=photo.source_file_id,
+        path=photo.path,
+        filename=photo.filename,
+        extension=Path(photo.filename).suffix,
+        captured_at=photo.captured_at,
+        timezone_unknown=True,
+        gps_latitude=photo.gps_latitude,
+        gps_longitude=photo.gps_longitude,
+        camera=None,
+        is_favorite=photo.is_favorite,
+        used_in_journal=photo.used_in_journal,
+        thumbnail_path=photo.thumbnail_path,
+    )

@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from travelcore.exceptions import MetadataError
-from travelcore.metadata.gps import position_from_coordinates_text, position_from_exif
+from travelcore.metadata.gps import heading_from_exif, position_from_coordinates_text, position_from_exif
 from travelcore.metadata.provider import MediaMetadata
 from travelcore.metadata.time import choose_captured_time, parse_exif_datetime, with_source
 
@@ -240,18 +240,28 @@ def metadata_from_exiftool_json(data: dict[str, Any]) -> MediaMetadata:
         camera = model if model.lower().startswith(make.lower()) else f"{make} {model}"
     else:
         camera = model or make
+    heading = heading_from_exif(
+        img_direction=data.get("GPSImgDirection"),
+        img_direction_ref=data.get("GPSImgDirectionRef"),
+        dest_bearing=data.get("GPSDestBearing"),
+        dest_bearing_ref=data.get("GPSDestBearingRef"),
+    )
     return MediaMetadata(
         captured=captured,
         position=position,
         camera=camera,
         lens=_text(data.get("LensModel") or data.get("Lens")),
         focal_length=_float(data.get("FocalLength")),
+        focal_length_35mm=_float(data.get("FocalLengthIn35mmFilm") or data.get("FocalLength35efl")),
         iso=_int(data.get("ISO")),
         exposure_time=_text(data.get("ExposureTime")),
         aperture=_aperture(data.get("FNumber") or data.get("Aperture")),
         orientation=_int(data.get("Orientation")),
         width=_int(data.get("ImageWidth") or data.get("ExifImageWidth")),
         height=_int(data.get("ImageHeight") or data.get("ExifImageHeight")),
+        heading_degrees=heading[0] if heading else None,
+        heading_ref=heading[1] if heading else None,
+        heading_source=heading[2] if heading else None,
     )
 
 

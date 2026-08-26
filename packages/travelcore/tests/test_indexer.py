@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from travelcore.database.models import FileError, GpsPoint, GpsTrack, Photo, Project, SourceFile
 from travelcore.database.project_store import OpenProject, ProjectStore
 from travelcore.gps.ingest import set_track_external_url
-from travelcore.media.indexer import FileIndexer
+from travelcore.media.indexer import FileIndexer, count_by_kind
 from travelcore.media.types import FileKind
 from travelcore.project_settings import load_project_settings
 
@@ -75,6 +75,10 @@ def test_indexer_reads_exif_time_and_gps(open_project: OpenProject, tmp_path: Pa
         offset_original="+02:00",
         latitude=(46.0, 30.0, 0.0),
         longitude=(11.0, 21.0, 0.0),
+        heading=123.5,
+        heading_ref="T",
+        focal_length=8.0,
+        focal_length_35mm=24,
     )
 
     with open_project.session_factory() as session:
@@ -93,6 +97,12 @@ def test_indexer_reads_exif_time_and_gps(open_project: OpenProject, tmp_path: Pa
         assert photo.gps_longitude is not None
         assert photo.position_source == "exif"
         assert photo.camera == "Canon EOS R6"
+        assert photo.heading_degrees is not None
+        assert abs(photo.heading_degrees - 123.5) < 1e-6
+        assert photo.heading_ref == "T"
+        assert photo.heading_source == "gps_img_direction"
+        assert photo.focal_length == 8.0
+        assert photo.focal_length_35mm == 24.0
 
 
 def test_indexer_skips_unchanged_files(open_project: OpenProject, tmp_path: Path) -> None:
@@ -223,8 +233,13 @@ def test_indexer_matches_photo_without_gps_to_gpx(open_project: OpenProject, tmp
     assert result.tracks_ingested == 1
     assert result.track_points == 2
     assert result.positions_matched == 1
+    assert result.positions_unmatched == 0
 
     with open_project.session_factory() as session:
+        counts = count_by_kind(session, open_project.project_id)
+        assert counts["located"] == 2
+        assert counts["matched"] == 1
+        assert counts["unlocated"] == 0
         photo = session.scalar(select(SourceFile).where(SourceFile.file_kind == FileKind.PHOTO.value))
         assert photo is not None
         assert photo.position_source == "gpx_interpolated"
@@ -270,6 +285,9 @@ def test_indexer_does_not_overwrite_exif_gps_with_gpx(open_project: OpenProject,
         session.commit()
 
     with open_project.session_factory() as session:
+        counts = count_by_kind(session, open_project.project_id)
+        assert counts["matched"] == 0
+        assert counts["unlocated"] == 0
         photo = session.scalar(select(SourceFile).where(SourceFile.file_kind == FileKind.PHOTO.value))
         assert photo is not None
         assert photo.position_source == "exif"
@@ -291,6 +309,7 @@ def test_corrupt_gpx_does_not_abort_import(open_project: OpenProject, tmp_path: 
 
     assert result.indexed == 2
     assert result.errors >= 1
+    assert result.positions_unmatched == 1
     with open_project.session_factory() as session:
         files = list(session.scalars(select(SourceFile)))
         errors = list(session.scalars(select(FileError)))
@@ -299,6 +318,9 @@ def test_corrupt_gpx_does_not_abort_import(open_project: OpenProject, tmp_path: 
         broken = next(row for row in files if row.filename == "broken.gpx")
         assert broken.gps_latitude is None
         assert broken.captured_at is None
+        counts = count_by_kind(session, open_project.project_id)
+        assert counts["unlocated"] == 1
+        assert counts["matched"] == 0
 
 
 def test_indexer_fills_gpx_source_file_position_and_time(open_project: OpenProject, tmp_path: Path) -> None:
@@ -393,6 +415,41 @@ def test_indexer_gpx_reingest_updates_source_file_metadata(open_project: OpenPro
         assert gps.captured_at_source is None
 
 
+def test_indexer_skips_unchanged_gpx_track_rewrite(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_gpx(
+        source / "spur.gpx",
+        [
+            (46.0, 11.0, 260.0, "2025-05-15T13:31:50Z"),
+            (46.2, 11.2, 280.0, "2025-05-15T13:32:10Z"),
+        ],
+    )
+    indexer = FileIndexer()
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        first = indexer.index(session, project, source, generate_thumbnails=False)
+        session.commit()
+        point_ids = [row.id for row in session.scalars(select(GpsPoint))]
+
+    assert first.tracks_ingested == 1
+    assert first.tracks_skipped == 0
+    assert point_ids
+
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        second = indexer.index(session, project, source, generate_thumbnails=False)
+        session.commit()
+        same_ids = [row.id for row in session.scalars(select(GpsPoint))]
+
+    assert second.skipped_unchanged >= 1
+    assert second.tracks_ingested == 0
+    assert second.tracks_skipped == 1
+    assert same_ids == point_ids
+
+
 def test_indexer_untimed_gpx_sets_position_without_date(open_project: OpenProject, tmp_path: Path) -> None:
     source = tmp_path / "media"
     source.mkdir()
@@ -459,6 +516,94 @@ def test_indexer_writes_thumbnail_and_photo_row(open_project: OpenProject, tmp_p
         photo = session.scalar(select(Photo))
         assert photo is not None
         assert photo.is_favorite is False
+
+
+def test_indexer_does_not_regenerate_thumbnails_on_reimport(
+    open_project: OpenProject, tmp_path: Path
+) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_plain_jpeg(source / "platz.jpg")
+    indexer = FileIndexer()
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        first = indexer.index(session, project, source, project_dir=open_project.directory)
+        session.commit()
+    thumbs = list((open_project.directory / "thumbnails").glob("*.jpg"))
+    assert first.thumbnails_written == 1
+    assert first.media_changed is True
+    assert len(thumbs) == 1
+    stamp = thumbs[0].stat().st_mtime
+
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        second = indexer.index(session, project, source, project_dir=open_project.directory)
+        session.commit()
+
+    assert second.media_changed is False
+    assert second.thumbnails_written == 0
+    assert thumbs[0].stat().st_mtime == stamp
+
+
+def test_indexer_does_not_count_thumbnails_when_source_is_project(
+    open_project: OpenProject,
+) -> None:
+    source = open_project.directory
+    write_plain_jpeg(source / "foto.jpg")
+    indexer = FileIndexer()
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        first = indexer.index(session, project, source, project_dir=open_project.directory)
+        session.commit()
+    assert first.by_kind[FileKind.PHOTO.value] == 1
+    assert list((open_project.directory / "thumbnails").glob("*.jpg"))
+
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        second = indexer.index(session, project, source, project_dir=open_project.directory)
+        session.commit()
+        counts = count_by_kind(session, open_project.project_id)
+    assert second.by_kind[FileKind.PHOTO.value] == 1
+    assert counts[FileKind.PHOTO.value] == 1
+
+
+def test_indexer_drops_previously_indexed_thumbnails(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_plain_jpeg(source / "foto.jpg")
+    thumb = open_project.directory / "thumbnails" / "abc_256.jpg"
+    write_plain_jpeg(thumb)
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        session.add(
+            SourceFile(
+                project_id=project.id,
+                path=str(thumb),
+                filename=thumb.name,
+                file_kind="photo",
+                extension=".jpg",
+                size_bytes=thumb.stat().st_size,
+                imported_at=project.created_at,
+                status="ok",
+                timezone_unknown=True,
+            )
+        )
+        session.commit()
+
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        FileIndexer().index(session, project, source, generate_thumbnails=False)
+        session.commit()
+        counts = count_by_kind(session, open_project.project_id)
+        paths = [row.path for row in session.scalars(select(SourceFile))]
+    assert counts[FileKind.PHOTO.value] == 1
+    assert str(thumb) not in paths
 
 
 def test_indexer_can_defer_thumbnails(open_project: OpenProject, tmp_path: Path) -> None:
@@ -705,6 +850,9 @@ def test_indexer_matches_photo_without_gps_to_nearby_photo(open_project: OpenPro
 
     assert result.positions_matched == 1
     with open_project.session_factory() as session:
+        counts = count_by_kind(session, open_project.project_id)
+        assert counts["matched"] == 1
+        assert counts["unlocated"] == 0
         photo = session.scalar(select(SourceFile).where(SourceFile.filename == "ohne_gps.jpg"))
         assert photo is not None
         assert photo.position_source == "photo_nearest"

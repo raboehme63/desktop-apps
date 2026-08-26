@@ -1,4 +1,9 @@
-from travelcore.metadata.gps import dms_to_decimal, position_from_coordinates_text, position_from_exif
+from travelcore.metadata.gps import (
+    dms_to_decimal,
+    heading_from_exif,
+    position_from_coordinates_text,
+    position_from_exif,
+)
 
 
 def test_dms_north_east() -> None:
@@ -69,3 +74,32 @@ def test_gps_coordinates_dms_text() -> None:
     position = position_from_coordinates_text("""46 deg 29' 53.00" N, 11 deg 21' 12.00" E""")
     assert position is not None
     assert position.source == "quicktime"
+
+
+def test_heading_prefers_img_direction() -> None:
+    heading = heading_from_exif(
+        img_direction=123.5,
+        img_direction_ref="T",
+        dest_bearing=10.0,
+        dest_bearing_ref="M",
+    )
+    assert heading == (123.5, "T", "gps_img_direction")
+
+
+def test_heading_falls_back_to_dest_bearing() -> None:
+    heading = heading_from_exif(dest_bearing=(350, 1), dest_bearing_ref="M")
+    assert heading is not None
+    assert abs(heading[0] - 350.0) < 1e-9
+    assert heading[1] == "M"
+    assert heading[2] == "gps_dest_bearing"
+
+
+def test_heading_normalizes_to_360() -> None:
+    heading = heading_from_exif(img_direction=365.0, img_direction_ref="T")
+    assert heading is not None
+    assert abs(heading[0] - 5.0) < 1e-9
+
+
+def test_heading_defaults_ref_to_true_north() -> None:
+    heading = heading_from_exif(img_direction=90)
+    assert heading == (90.0, "T", "gps_img_direction")

@@ -14,6 +14,12 @@ from travelcore.database.models import Event, OvernightStay, Photo, Place, Proje
 from travelcore.geolocation.stays import cluster_stays
 from travelcore.media.thumbnails import cached_thumbnail_path, ensure_photo_and_video_rows
 from travelcore.media.types import FileKind
+from travelcore.timeline.texts import (
+    JOURNAL_TEXT_SUFFIXES,
+    combine_imported_texts,
+    date_from_text_filename,
+    read_imported_text,
+)
 from travelcore.timeline.types import (
     TimelineDay,
     TimelineEvent,
@@ -36,14 +42,19 @@ def sync_timeline(
     suggest_places: bool = False,
     settings: AppSettings | None = None,
 ) -> TimelineSnapshot:
-    """Create missing trip/days from media dates. Manual titles and notes stay."""
+    """Create missing trip/days from media and note dates. Manual titles and notes stay."""
 
     ensure_photo_and_video_rows(session, project)
     media = _media_rows(session, project.id)
+    texts = _text_rows(session, project.id)
     by_date = _group_by_date(media)
+    texts_by_date = _group_texts_by_date(texts)
     trip = _ensure_trip(session, project)
     existing = _days_by_key(session, trip.id)
-    ordered_keys = sorted(by_date.keys(), key=lambda item: (item is None, item or date.min))
+    ordered_keys = sorted(
+        set(by_date) | set(texts_by_date),
+        key=lambda item: (item is None, item or date.min),
+    )
     kept_ids: set[int] = set()
     for index, key in enumerate(ordered_keys):
         day = existing.get(key)
@@ -59,11 +70,11 @@ def sync_timeline(
             session.flush()
         else:
             day.day_index = index
-            if day.origin != ORIGIN_MANUAL:
-                day.title = _auto_title(key)
-                if not day.notes:
-                    day.origin = ORIGIN_AUTO
-        _ensure_auto_event(session, day, len(by_date[key]))
+            if day.origin != ORIGIN_MANUAL and not (day.notes or "").strip():
+                day.origin = ORIGIN_AUTO
+        if day.origin != ORIGIN_MANUAL:
+            _apply_text_prefill(day, key, texts_by_date.get(key, []))
+        _ensure_auto_event(session, day, len(by_date.get(key, [])))
         kept_ids.add(day.id)
     _drop_empty_auto_days(session, trip.id, kept_ids)
     session.flush()
@@ -258,6 +269,39 @@ def delete_overnight_stay(session: Session, stay_id: int) -> None:
     stay = session.get(OvernightStay, stay_id)
     if stay is not None:
         session.delete(stay)
+
+
+def _text_rows(session: Session, project_id: int) -> list[SourceFile]:
+    return list(
+        session.scalars(
+            select(SourceFile)
+            .where(
+                SourceFile.project_id == project_id,
+                SourceFile.file_kind == FileKind.TEXT.value,
+            )
+            .order_by(SourceFile.captured_at.asc().nulls_last(), SourceFile.filename.asc())
+        )
+    )
+
+
+def _group_texts_by_date(rows: list[SourceFile]) -> dict[date | None, list[SourceFile]]:
+    grouped: dict[date | None, list[SourceFile]] = defaultdict(list)
+    for row in rows:
+        suffix = Path(row.filename).suffix.lower()
+        if suffix not in JOURNAL_TEXT_SUFFIXES:
+            continue
+        key = date_from_text_filename(row.filename)
+        if key is None and row.captured_at is not None:
+            key = row.captured_at.date()
+        grouped[key].append(row)
+    return grouped
+
+
+def _apply_text_prefill(day: TripDay, key: date | None, rows: list[SourceFile]) -> None:
+    parts = [read_imported_text(Path(row.path)) for row in rows]
+    title, notes = combine_imported_texts(parts)
+    day.title = title or _auto_title(key)
+    day.notes = notes
 
 
 def _media_rows(session: Session, project_id: int) -> list[tuple[SourceFile, Photo | None]]:

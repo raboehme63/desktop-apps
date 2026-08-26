@@ -141,7 +141,7 @@ Die Datenbank speichert nur **Referenzen** auf Originaldateien. Originale werden
 | --- | --- | --- | --- |
 | FA-020 | Muss | Zentraler Dateiindex in SQLite je Projekt. | umgesetzt |
 | FA-021 | Muss | Pro Datei: Pfad, Name, Typ, MIME, Größe, FS-Erstellung, FS-Änderung, SHA-256, Importzeit. | umgesetzt |
-| FA-022 | Muss | Für Medien zusätzlich: Aufnahmezeit, Zeitzone, GPS, Kamera, Objektiv, Brennweite, ISO, Belichtung, Blende, Orientierung, Breite, Höhe. | umgesetzt (soweit in Metadaten vorhanden) |
+| FA-022 | Muss | Für Medien zusätzlich: Aufnahmezeit, Zeitzone, GPS, Blickrichtung (`GPSImgDirection` bzw. `GPSDestBearing`), Kamera, Objektiv, Brennweite, 35-mm-äquivalente Brennweite, ISO, Belichtung, Blende, Orientierung, Breite, Höhe. | umgesetzt (soweit in Metadaten vorhanden) |
 | FA-023 | Muss | Originaldateien werden niemals verändert. | umgesetzt |
 | FA-024 | Muss | Unveränderte Dateien (Größe, mtime, vorhandener Hash) werden beim Re-Import nicht neu gehasht; fehlende Metadaten dürfen nachgezogen werden. | umgesetzt |
 | FA-025 | Muss | Die Importliste zeigt **alle** indexierten Dateien, nicht nur eine Teilmenge. | umgesetzt |
@@ -155,7 +155,8 @@ Die Datenbank speichert nur **Referenzen** auf Originaldateien. Originale werden
 | FA-032 | Muss | Rohwert **und** normalisierter Zeitpunkt werden gespeichert; die Quelle ist nachvollziehbar. | umgesetzt |
 | FA-033 | Muss | Fehlende Zeitzone darf nicht als UTC behauptet werden; Flag `timezone_unknown`. | umgesetzt |
 | FA-034 | Muss | EXIF-GPS (Breite, Länge, Höhe) wird gelesen, sofern vorhanden. | umgesetzt |
-| FA-035 | Muss | Kamera und Aufnahmeparameter werden gelesen, sofern vorhanden. | umgesetzt |
+| FA-034a | Soll | Blickrichtung aus `GPSImgDirection` (Fallback `GPSDestBearing`) inkl. True/Magnetic-Ref. | umgesetzt |
+| FA-035 | Muss | Kamera und Aufnahmeparameter werden gelesen, sofern vorhanden, inkl. 35-mm-äquivalenter Brennweite. | umgesetzt |
 | FA-036 | Muss | HEIC/HEIF: GPS und Kamera auch **ohne ExifTool**, aus eingebettetem EXIF-TIFF und/oder QuickTime ISO 6709 bzw. Apple-Metadatenboxen. | umgesetzt |
 | FA-037 | Soll | ExifTool als optionaler Adapter für HEIC/RAW, nie direkt aus der GUI aufgerufen. | umgesetzt (Adapter; Binary optional) |
 | FA-038 | Soll | Video-Zeit und -GPS über gekapselten ffprobe-Adapter. | geplant |
@@ -209,7 +210,7 @@ Die Datenbank speichert nur **Referenzen** auf Originaldateien. Originale werden
 | --- | --- | --- | --- |
 | FA-090 | Muss | Moderne Windows-UI mit PySide6, Navigation links. | umgesetzt (Rahmen) |
 | FA-091 | Muss | Bereich Projekt: neu, öffnen, speichern; Menü **Projekt → Einstellungen**. | teilweise (neu/öffnen/speichern/Einstellungen; zuletzt verwendete Projekte intern in `recent.json`, noch ohne UI-Liste) |
-| FA-092 | Muss | Bereich Import: Ordner, Analyse, Fortschritt, Dateiliste mit Zeit/GPS/Kamera. Die Liste wird während des Einlesens periodisch aktualisiert, erneut nach GPS-Abgleich, und vor den Vorschaubildern. | umgesetzt (Kamera/Pilot, DHV-Leonardo-Spalte für IGC) |
+| FA-092 | Muss | Bereich Import: Ordner, Analyse, Fortschritt, Dateiliste mit Zeit/GPS/Kamera. Klick/Mouseover zeigt Vorschau und Metadaten. Die Liste wird während des Einlesens periodisch aktualisiert, erneut nach GPS-Abgleich, und vor den Vorschaubildern. | umgesetzt (Kamera/Pilot; DHV-Leonardo per Doppelklick auf IGC) |
 | FA-093 | Muss | Bereiche Timeline, Karte, Fotos, Tagebuch, Export. | teilweise (Timeline, Karte, Fotos, Tagebuch umgesetzt; Export Platzhalter bis Phase 8) |
 | FA-094 | Muss | Lange Aufgaben laufen über `QThreadPool`/`QRunnable`; die GUI bleibt bedienbar. | umgesetzt (Import) |
 | FA-095 | Muss | Eine defekte Datei bricht den Import nicht ab; Fehler sind geloggt, in der DB und in der UI sichtbar. | umgesetzt |

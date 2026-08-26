@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QMainWindow,
     QMessageBox,
+    QProgressBar,
     QStackedWidget,
     QStatusBar,
     QWidget,
@@ -64,17 +66,21 @@ class MainWindow(QMainWindow):
 
         status = QStatusBar()
         self.setStatusBar(status)
+        self._load_progress = QProgressBar()
+        self._load_progress.setMaximumWidth(240)
+        self._load_progress.setTextVisible(True)
+        self._load_progress.setFormat("Bereit")
+        self._load_progress.hide()
+        status.addPermanentWidget(self._load_progress)
         self._set_status("Kein Projekt geöffnet")
         self._build_menu()
 
         self.sidebar.page_changed.connect(self._show_page)
         self.project_view.project_changed.connect(self._on_project_changed)
         self.import_view.status_message.connect(self._set_status)
-        self.import_view.import_finished.connect(self.project_view.refresh)
-        self.import_view.import_finished.connect(self.photos_view.refresh)
-        self.import_view.import_finished.connect(self.map_view.refresh)
-        self.import_view.import_finished.connect(self.timeline_view.rebuild)
-        self.import_view.import_finished.connect(self.journal_view.refresh)
+        self.import_view.import_finished.connect(self._on_import_finished)
+        self.import_view.index_load_progress.connect(self._on_index_progress)
+        self.import_view.index_load_finished.connect(self._on_index_loaded)
         self.photos_view.status_message.connect(self._set_status)
         self.map_view.status_message.connect(self._set_status)
         self.timeline_view.status_message.connect(self._set_status)
@@ -151,11 +157,47 @@ class MainWindow(QMainWindow):
         else:
             self._set_status("Einstellungen gespeichert.")
 
+    def _on_import_finished(self) -> None:
+        self.project_view.refresh()
+        self._set_status("Timeline und Karte werden aktualisiert…")
+        QTimer.singleShot(0, self.timeline_view.rebuild)
+
+    def _on_index_progress(self, current: int, total: int, message: str) -> None:
+        self._load_progress.show()
+        if total <= 0:
+            self._load_progress.setRange(0, 0)
+        else:
+            self._load_progress.setRange(0, total)
+            self._load_progress.setValue(current)
+        self._load_progress.setFormat(message or "Index wird gelesen…")
+        self.project_view.set_load_progress(current, total, message)
+        self._set_status(message)
+
+    def _on_index_loaded(self) -> None:
+        self._load_progress.hide()
+        if self.workspace.current is None:
+            self.project_view.clear_load_progress()
+            self._set_status("Kein Projekt geöffnet")
+            return
+        self.project_view.clear_load_progress("Index geladen")
+        self._set_status("Projekt geladen")
+        key = self.sidebar.current_key()
+        if key == "photos":
+            self.photos_view.refresh()
+        elif key == "map":
+            self.map_view.refresh()
+        elif key == "timeline":
+            self.timeline_view.refresh()
+        elif key == "journal":
+            self.journal_view.refresh()
+
     def _show_page(self, key: str) -> None:
         index = self._pages.get(key)
         if index is not None:
             self.stack.setCurrentIndex(index)
             self.sidebar.set_current(key)
+        if self.import_view.is_loading_index:
+            return
         if key == "photos":
             self.photos_view.refresh()
         if key == "map":
@@ -169,19 +211,28 @@ class MainWindow(QMainWindow):
         self._sync_menu()
         if name:
             self.setWindowTitle(f"Reisetagebuch – {name}")
-            self._set_status(f"Projekt geöffnet: {name}")
-            self.import_view.refresh()
-            self.photos_view.refresh()
-            self.map_view.refresh()
-            self.timeline_view.refresh()
-            self.journal_view.refresh()
-        else:
-            self.setWindowTitle("Reisetagebuch")
-            self._set_status("Kein Projekt geöffnet")
-            self.photos_view.refresh()
-            self.map_view.refresh()
-            self.timeline_view.refresh()
-            self.journal_view.refresh()
+            self.timeline_view.clear()
+            self.journal_view.clear()
+            self.map_view.clear()
+            self.photos_view.clear()
+            self._show_page("project")
+            self._set_status(f"Projekt geöffnet: {name} — Index wird geladen…")
+            self._load_progress.show()
+            self._load_progress.setRange(0, 0)
+            self._load_progress.setFormat("Index wird gelesen…")
+            self.import_view.refresh_summary()
+            self.import_view.load_index_async()
+            return
+        self.setWindowTitle("Reisetagebuch")
+        self._load_progress.hide()
+        self._set_status("Kein Projekt geöffnet")
+        self.project_view.clear_load_progress()
+        self.import_view.refresh_summary()
+        self.import_view.load_index_async()
+        self.photos_view.refresh()
+        self.map_view.refresh()
+        self.timeline_view.refresh()
+        self.journal_view.refresh()
 
     def _set_status(self, message: str) -> None:
         self.statusBar().showMessage(message)

@@ -34,3 +34,15 @@ def test_scan_finds_igc_flight_log(tmp_path: Path) -> None:
     assert len(found) == 1
     assert found[0].kind is FileKind.GPS
     assert found[0].filename == "flug.IGC"
+
+
+def test_scan_skips_thumbnail_jpegs(tmp_path: Path) -> None:
+    (tmp_path / "foto.jpg").write_bytes(MIN_JPEG)
+    thumbs = tmp_path / "thumbnails"
+    thumbs.mkdir()
+    (thumbs / "deadbeef_256.jpg").write_bytes(MIN_JPEG)
+    nested = tmp_path / "cache" / "map"
+    nested.mkdir(parents=True)
+    (nested / "preview.jpg").write_bytes(MIN_JPEG)
+    found = list(scan_source_directory(tmp_path))
+    assert {item.filename for item in found} == {"foto.jpg"}

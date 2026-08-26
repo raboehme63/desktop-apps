@@ -80,10 +80,18 @@ def merge_metadata(primary: MediaMetadata, extra: MediaMetadata) -> MediaMetadat
         camera=primary.camera or extra.camera,
         lens=primary.lens or extra.lens,
         focal_length=primary.focal_length if primary.focal_length is not None else extra.focal_length,
+        focal_length_35mm=(
+            primary.focal_length_35mm if primary.focal_length_35mm is not None else extra.focal_length_35mm
+        ),
         iso=primary.iso if primary.iso is not None else extra.iso,
         exposure_time=primary.exposure_time or extra.exposure_time,
         aperture=primary.aperture or extra.aperture,
         orientation=primary.orientation if primary.orientation is not None else extra.orientation,
         width=primary.width if primary.width is not None else extra.width,
         height=primary.height if primary.height is not None else extra.height,
+        heading_degrees=(
+            primary.heading_degrees if primary.heading_degrees is not None else extra.heading_degrees
+        ),
+        heading_ref=primary.heading_ref or extra.heading_ref,
+        heading_source=primary.heading_source or extra.heading_source,
     )

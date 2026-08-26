@@ -146,6 +146,15 @@ class JournalView(QWidget):
         self._fill_days()
         self.status_message.emit(f"Tagebuch: {snapshot.day_count} Tage")
 
+    def clear(self) -> None:
+        self._snapshot = None
+        self._selected_day_id = None
+        self.days.clear()
+        self._show_day(None)
+        self._subtitle.setText(
+            "Index wird geladen…" if self.workspace.current is not None else "Bitte ein Projekt öffnen."
+        )
+
     def _fill_days(self) -> None:
         self.days.blockSignals(True)
         self.days.clear()

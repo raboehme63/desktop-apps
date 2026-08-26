@@ -10,16 +10,27 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from travelcore.config import AppSettings
-from travelcore.database.models import FileError, Project, SourceFile
+from travelcore.database.models import (
+    FileError,
+    GpsTrack,
+    Photo,
+    PhotoAnalysis,
+    Project,
+    SimilarityGroupMember,
+    SourceFile,
+    TextNote,
+    Video,
+)
 from travelcore.exceptions import MetadataError, ProjectError
 from travelcore.gps.ingest import ingest_gps_tracks
+from travelcore.gps.match import DERIVED_SOURCES
 from travelcore.media.extract import ExtractRequest, FileFacts, extract_many
 from travelcore.media.hashing import sha256_file
-from travelcore.media.scanner import ScannedFile, scan_source_directory
+from travelcore.media.scanner import ScannedFile, is_skipped_source_path, scan_source_directory
 from travelcore.media.thumbnails import ensure_photo_and_video_rows, generate_project_thumbnails
 from travelcore.media.types import FileKind
 from travelcore.metadata.apply import apply_metadata
@@ -53,10 +64,13 @@ class IndexResult:
     skipped_unchanged: int = 0
     errors: int = 0
     tracks_ingested: int = 0
+    tracks_skipped: int = 0
     track_points: int = 0
     positions_matched: int = 0
+    positions_unmatched: int = 0
     thumbnails_written: int = 0
     thumbnails_skipped: int = 0
+    media_changed: bool = False
     by_kind: dict[str, int] = field(default_factory=dict)
 
 
@@ -137,6 +151,7 @@ class FileIndexer:
             row.path: row
             for row in session.scalars(select(SourceFile).where(SourceFile.project_id == project.id))
         }
+        _drop_skipped_source_files(session, existing)
 
         last_checkpoint = 0.0
         interval = max(checkpoint_every, 1)
@@ -156,6 +171,7 @@ class FileIndexer:
 
         try:
             facts_by_path = self._extract_facts(scanned_files, existing, workers, progress)
+            unchanged_gps_ids: set[int] = set()
 
             for index, scanned in enumerate(scanned_files, start=1):
                 path_str = str(scanned.path)
@@ -182,6 +198,20 @@ class FileIndexer:
                         result.updated += 1
                     else:
                         result.skipped_unchanged += 1
+                        row = existing.get(path_str)
+                        if (
+                            scanned.kind == FileKind.GPS
+                            and row is not None
+                            and row.id is not None
+                            and row.sha256
+                            and row.sha256 == sha256_file(scanned.path)
+                        ):
+                            unchanged_gps_ids.add(row.id)
+                    if action in {"indexed", "updated"} and scanned.kind in {
+                        FileKind.PHOTO,
+                        FileKind.VIDEO,
+                    }:
+                        result.media_changed = True
                     if metadata_error:
                         result.errors += 1
                     counts[scanned.kind.value] += 1
@@ -200,11 +230,27 @@ class FileIndexer:
 
             result.by_kind = dict(counts)
             session.flush()
-            self._ingest_gps(session, project, result, progress, gps_delta)
-            if checkpoint is not None:
-                checkpoint()
+            self._ingest_gps(
+                session,
+                project,
+                result,
+                progress,
+                gps_delta,
+                skip_unchanged_ids=unchanged_gps_ids,
+            )
+            session.flush()
             if generate_thumbnails:
-                self.build_previews(session, project, result, progress, project_dir)
+                if result.media_changed:
+                    self.build_previews(session, project, result, progress, project_dir)
+                elif progress is not None:
+                    progress(
+                        IndexProgress(
+                            current=0,
+                            total=0,
+                            path="",
+                            message="Vorschaubilder unverändert",
+                        )
+                    )
             return result
         finally:
             if self._owns_provider:
@@ -276,23 +322,26 @@ class FileIndexer:
         result: IndexResult,
         progress: ProgressCallback | None,
         max_delta_seconds: int | None = None,
+        skip_unchanged_ids: set[int] | None = None,
     ) -> None:
-        def on_gps_progress(current: int, total: int, path: str) -> None:
+        def on_gps_progress(current: int, total: int, path: str, stage: str = "track") -> None:
             if progress is None:
                 return
             name = Path(path).name
-            suffix = Path(path).suffix.lower()
-            phase = (
-                f"Track einlesen: {name}"
-                if suffix in {".gpx", ".igc"}
-                else f"GPS-Abgleich: {name}"
-            )
+            labels = {
+                "track": "Track einlesen",
+                "skip": "Track unverändert",
+                "match": "GPS-Abgleich",
+                "done": "GPS-Abgleich fertig",
+            }
+            heading = labels.get(stage, "Track einlesen")
+            text = f"{heading}: {name}" if name else heading
             progress(
                 IndexProgress(
                     current=current,
                     total=max(total, 1),
                     path=path,
-                    message=phase,
+                    message=text,
                 )
             )
 
@@ -301,10 +350,13 @@ class FileIndexer:
             project,
             max_delta_seconds=max_delta_seconds or self.settings.gps_match_max_delta_seconds,
             progress=on_gps_progress,
+            skip_unchanged_ids=skip_unchanged_ids,
         )
         result.tracks_ingested = gps_result.tracks
+        result.tracks_skipped = gps_result.skipped
         result.track_points = gps_result.points
         result.positions_matched = gps_result.matched
+        result.positions_unmatched = count_by_kind(session, project.id)["unlocated"]
         result.errors += gps_result.errors
 
     def build_previews(
@@ -332,7 +384,7 @@ class FileIndexer:
             if progress is None:
                 return
             name = Path(path).name
-            phase = f"Vorschaubild: {name}" if name else "Vorschaubilder"
+            phase = f"Vorschaubild: {name}" if name else "Vorschaubilder unverändert"
             progress(
                 IndexProgress(
                     current=current,
@@ -483,7 +535,8 @@ def _needs_metadata(existing: SourceFile | None, scanned: ScannedFile) -> bool:
     has_real_time = existing.captured_at is not None and existing.captured_at_source != "filesystem_mtime"
     has_gps = existing.gps_latitude is not None
     has_camera = bool(existing.camera)
-    return not (has_real_time and has_gps and has_camera)
+    has_heading = existing.heading_source is not None
+    return not (has_real_time and has_gps and has_camera and has_heading)
 
 
 def _unchanged(existing: SourceFile, scanned: ScannedFile) -> bool:
@@ -497,6 +550,28 @@ def _unchanged(existing: SourceFile, scanned: ScannedFile) -> bool:
     if abs((existing_mtime - scanned.fs_modified_at).total_seconds()) > 1:
         return False
     return existing.sha256 is not None
+
+
+def _drop_skipped_source_files(session: Session, existing: dict[str, SourceFile]) -> int:
+    """Remove previously indexed JPEG caches (thumbnails/) from the file index."""
+
+    stale = [row for path, row in existing.items() if is_skipped_source_path(Path(path))]
+    if not stale:
+        return 0
+    ids = [row.id for row in stale]
+    photo_ids = list(session.scalars(select(Photo.id).where(Photo.source_file_id.in_(ids))))
+    if photo_ids:
+        session.execute(delete(PhotoAnalysis).where(PhotoAnalysis.photo_id.in_(photo_ids)))
+    session.execute(delete(Photo).where(Photo.source_file_id.in_(ids)))
+    session.execute(delete(Video).where(Video.source_file_id.in_(ids)))
+    session.execute(delete(SimilarityGroupMember).where(SimilarityGroupMember.source_file_id.in_(ids)))
+    session.execute(update(GpsTrack).where(GpsTrack.source_file_id.in_(ids)).values(source_file_id=None))
+    session.execute(update(TextNote).where(TextNote.source_file_id.in_(ids)).values(source_file_id=None))
+    session.execute(delete(SourceFile).where(SourceFile.id.in_(ids)))
+    for row in stale:
+        existing.pop(row.path, None)
+    session.flush()
+    return len(ids)
 
 
 def _project_dir_from_session(session: Session) -> Path | None:
@@ -514,7 +589,14 @@ def count_by_kind(session: Session, project_id: int) -> dict[str, int]:
         counts[row.file_kind] += 1
         if row.gps_latitude is not None:
             counts["located"] += 1
+        if row.file_kind in ("photo", "video"):
+            if row.gps_latitude is None:
+                counts["unlocated"] += 1
+            elif row.position_source in DERIVED_SOURCES:
+                counts["matched"] += 1
     for kind in FileKind:
         counts.setdefault(kind.value, 0)
     counts.setdefault("located", 0)
+    counts.setdefault("matched", 0)
+    counts.setdefault("unlocated", 0)
     return dict(counts)

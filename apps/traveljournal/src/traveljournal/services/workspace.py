@@ -7,6 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 
 from travelcore.config import AppSettings
 from travelcore.database.models import Photo, Project, SourceFile
@@ -35,11 +36,11 @@ class Workspace:
         self._store = ProjectStore()
         self.current: OpenProject | None = None
 
-    def create_project(self, directory: Path, name: str) -> OpenProject:
-        self.close()
-        self.current = self._store.create(directory, name)
-        self._remember(self.current.directory)
-        return self.current
+    def create_project(self, parent: Path, name: str) -> OpenProject:
+        opened = self._store.create_under(parent, name)
+        self.current = opened
+        self._remember(opened.directory)
+        return opened
 
     def open_project(self, directory: Path) -> OpenProject:
         self.close()
@@ -165,13 +166,19 @@ class Workspace:
     def sync_timeline(self) -> TimelineSnapshot:
         opened = self._require_open()
         thumbs, size = self._thumbs_and_size()
-        with opened.session_factory() as session:
-            project = session.get(Project, opened.project_id)
-            if project is None:
-                raise ProjectError("Projektzeile fehlt.")
-            snapshot = timeline_build.sync_timeline(session, project, thumbs_dir=thumbs, size=size)
-            session.commit()
-            return snapshot
+        try:
+            with opened.session_factory() as session:
+                project = session.get(Project, opened.project_id)
+                if project is None:
+                    raise ProjectError("Projektzeile fehlt.")
+                snapshot = timeline_build.sync_timeline(session, project, thumbs_dir=thumbs, size=size)
+                session.commit()
+                return snapshot
+        except OperationalError as exc:
+            raise ProjectError(
+                "Die Projektdatenbank ist gerade beschäftigt. "
+                "Bitte einen Moment warten und die Seite erneut öffnen."
+            ) from exc
 
     def load_timeline(self) -> TimelineSnapshot | None:
         if self.current is None:

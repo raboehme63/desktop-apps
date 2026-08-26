@@ -76,13 +76,21 @@ def match_position(
     max_delta_seconds: float = 120.0,
     source_interpolated: str = SOURCE_INTERPOLATED,
     source_nearest: str = SOURCE_NEAREST,
+    points_sorted: bool = False,
 ) -> GpsFix | None:
-    """Return an interpolated or nearest fix if ``moment`` lies near the track."""
+    """Return an interpolated or nearest fix if ``moment`` lies near the track.
 
-    timed = sorted(
-        (point for point in points if point.recorded_at is not None),
-        key=lambda item: _require_time(item),
-    )
+    Pass ``points_sorted=True`` when ``points`` is already ordered by time so a
+    long track is not re-sorted for every photo.
+    """
+
+    if points_sorted:
+        timed = [point for point in points if point.recorded_at is not None]
+    else:
+        timed = sorted(
+            (point for point in points if point.recorded_at is not None),
+            key=lambda item: _require_time(item),
+        )
     if not timed:
         return None
     moment = _as_utc(moment)

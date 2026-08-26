@@ -44,12 +44,16 @@ class MediaMetadata:
     camera: str | None = None
     lens: str | None = None
     focal_length: float | None = None
+    focal_length_35mm: float | None = None
     iso: int | None = None
     exposure_time: str | None = None
     aperture: str | None = None
     orientation: int | None = None
     width: int | None = None
     height: int | None = None
+    heading_degrees: float | None = None
+    heading_ref: str | None = None
+    heading_source: str | None = None
 
 
 @runtime_checkable

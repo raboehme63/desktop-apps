@@ -10,7 +10,7 @@ from PIL import Image, UnidentifiedImageError
 from PIL.ExifTags import GPS, IFD, Base
 
 from travelcore.exceptions import MetadataError
-from travelcore.metadata.gps import position_from_exif
+from travelcore.metadata.gps import heading_from_exif, position_from_exif
 from travelcore.metadata.provider import CapturedTime, MediaMetadata
 from travelcore.metadata.time import choose_captured_time, parse_exif_datetime, with_source
 
@@ -46,18 +46,30 @@ class PillowMetadataProvider:
         gps_ifd = _ifd(exif, IFD.GPSInfo)
         captured = _captured_from_pillow(exif, exif_ifd, xmp)
         position = _position_from_pillow(gps_ifd)
+        heading = heading_from_exif(
+            img_direction=gps_ifd.get(GPS.GPSImgDirection),
+            img_direction_ref=_text(gps_ifd.get(GPS.GPSImgDirectionRef)),
+            dest_bearing=gps_ifd.get(GPS.GPSDestBearing),
+            dest_bearing_ref=_text(gps_ifd.get(GPS.GPSDestBearingRef)),
+        )
         return MediaMetadata(
             captured=captured,
             position=position,
             camera=_camera(exif, exif_ifd),
             lens=_text(exif_ifd.get(Base.LensModel) or exif.get(Base.LensModel)),
             focal_length=_first_float(exif_ifd.get(Base.FocalLength)),
+            focal_length_35mm=_first_float(
+                exif_ifd.get(Base.FocalLengthIn35mmFilm) or exif.get(Base.FocalLengthIn35mmFilm)
+            ),
             iso=_iso(exif_ifd.get(Base.ISOSpeedRatings)),
             exposure_time=_exposure(exif_ifd.get(Base.ExposureTime)),
             aperture=_aperture(exif_ifd.get(Base.FNumber)),
             orientation=_int_or_none(exif.get(Base.Orientation)),
             width=width,
             height=height,
+            heading_degrees=heading[0] if heading else None,
+            heading_ref=heading[1] if heading else None,
+            heading_source=heading[2] if heading else None,
         )
 
 

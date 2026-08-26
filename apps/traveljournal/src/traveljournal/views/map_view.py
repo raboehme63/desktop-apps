@@ -88,6 +88,12 @@ class MapView(QWidget):
         self._stack.setCurrentWidget(self._web_host)
         self.status_message.emit(_summary(scene))
 
+    def clear(self) -> None:
+        if self.workspace.current is None:
+            self._show_message("Bitte ein Projekt öffnen.")
+            return
+        self._show_message("Index wird geladen…")
+
     def _ensure_web(self) -> None:
         if self._web is not None or QWebEngineView is None:
             return

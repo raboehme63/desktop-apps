@@ -14,9 +14,9 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
-        QPushButton,
-        QVBoxLayout,
-        QWidget,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
 
 from travelcore.media.gallery import GalleryItem
@@ -103,13 +103,7 @@ class PhotosView(QWidget):
             self.summary.setText("Kein Projekt geöffnet")
             return
         self._items = self.workspace.gallery_items()
-        years = sorted(
-            {
-                item.captured_at.year
-                for item in self._items
-                if item.captured_at is not None
-            }
-        )
+        years = sorted({item.captured_at.year for item in self._items if item.captured_at is not None})
         current = self.year.currentText()
         self.year.blockSignals(True)
         self.year.clear()
@@ -149,6 +143,14 @@ class PhotosView(QWidget):
             shown.append(item)
         self.gallery.set_items(shown)
         self.summary.setText(f"{len(shown)} von {len(self._items)} Fotos")
+
+    def clear(self) -> None:
+        self._items = []
+        self.gallery.set_items([])
+        if self.workspace.current is None:
+            self.summary.setText("Kein Projekt geöffnet")
+            return
+        self.summary.setText("Index wird geladen…")
 
     def _toggle_favorite(self) -> None:
         item = self.gallery.selected_item()

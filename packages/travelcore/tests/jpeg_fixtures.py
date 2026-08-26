@@ -27,6 +27,12 @@ def write_jpeg_with_exif(
     longitude: tuple[float, float, float] | None = None,
     longitude_ref: str = "E",
     altitude: float | None = None,
+    heading: float | None = None,
+    heading_ref: str = "T",
+    dest_bearing: float | None = None,
+    dest_bearing_ref: str = "T",
+    focal_length: float | None = None,
+    focal_length_35mm: float | None = None,
     size: tuple[int, int] = (32, 24),
 ) -> Path:
     image = Image.new("RGB", size, (30, 60, 90))
@@ -44,15 +50,32 @@ def write_jpeg_with_exif(
         exif_ifd[Base.DateTimeDigitized] = create_date
     if offset_original:
         exif_ifd[Base.OffsetTimeOriginal] = offset_original
-    if latitude is not None and longitude is not None:
+    if focal_length is not None:
+        exif_ifd[Base.FocalLength] = focal_length
+    if focal_length_35mm is not None:
+        exif_ifd[Base.FocalLengthIn35mmFilm] = focal_length_35mm
+        exif[Base.FocalLengthIn35mmFilm] = focal_length_35mm
+    need_gps = (
+        (latitude is not None and longitude is not None)
+        or heading is not None
+        or dest_bearing is not None
+    )
+    if need_gps:
         gps_ifd = exif.get_ifd(IFD.GPSInfo)
-        gps_ifd[GPS.GPSLatitudeRef] = latitude_ref
-        gps_ifd[GPS.GPSLatitude] = latitude
-        gps_ifd[GPS.GPSLongitudeRef] = longitude_ref
-        gps_ifd[GPS.GPSLongitude] = longitude
-        if altitude is not None:
-            gps_ifd[GPS.GPSAltitude] = altitude
-            gps_ifd[GPS.GPSAltitudeRef] = 0
+        if latitude is not None and longitude is not None:
+            gps_ifd[GPS.GPSLatitudeRef] = latitude_ref
+            gps_ifd[GPS.GPSLatitude] = latitude
+            gps_ifd[GPS.GPSLongitudeRef] = longitude_ref
+            gps_ifd[GPS.GPSLongitude] = longitude
+            if altitude is not None:
+                gps_ifd[GPS.GPSAltitude] = altitude
+                gps_ifd[GPS.GPSAltitudeRef] = 0
+        if heading is not None:
+            gps_ifd[GPS.GPSImgDirectionRef] = heading_ref
+            gps_ifd[GPS.GPSImgDirection] = heading
+        if dest_bearing is not None:
+            gps_ifd[GPS.GPSDestBearingRef] = dest_bearing_ref
+            gps_ifd[GPS.GPSDestBearing] = dest_bearing
     image.save(path, format="JPEG", exif=exif)
     return path
 

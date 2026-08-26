@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from travelcore.metadata.gps import position_from_exif
+from travelcore.metadata.gps import heading_from_exif, position_from_exif
 from travelcore.metadata.provider import MediaMetadata
 from travelcore.metadata.time import choose_captured_time, parse_exif_datetime, with_source
 
@@ -24,12 +24,18 @@ _TAG_OFFSET_ORIGINAL = 0x9011
 _TAG_OFFSET_DIGITIZED = 0x9012
 _TAG_PIXEL_X = 0xA002
 _TAG_PIXEL_Y = 0xA003
+_TAG_FOCAL_LENGTH = 0x920A
+_TAG_FOCAL_35MM = 0xA405
 _GPS_LAT_REF = 1
 _GPS_LAT = 2
 _GPS_LON_REF = 3
 _GPS_LON = 4
 _GPS_ALT_REF = 5
 _GPS_ALT = 6
+_GPS_IMG_DIR_REF = 16
+_GPS_IMG_DIR = 17
+_GPS_DEST_BEARING_REF = 23
+_GPS_DEST_BEARING = 24
 
 _TYPE_SIZE = {1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 7: 1, 9: 4, 10: 8}
 
@@ -106,6 +112,12 @@ def parse_tiff_exif(tiff: bytes) -> MediaMetadata | None:
             altitude_ref=gps_ifd.get(_GPS_ALT_REF),
         )
     camera = _camera_name(_as_text(ifd0.get(_TAG_MAKE)), _as_text(ifd0.get(_TAG_MODEL)))
+    heading = heading_from_exif(
+        img_direction=gps_ifd.get(_GPS_IMG_DIR),
+        img_direction_ref=_as_text(gps_ifd.get(_GPS_IMG_DIR_REF)),
+        dest_bearing=gps_ifd.get(_GPS_DEST_BEARING),
+        dest_bearing_ref=_as_text(gps_ifd.get(_GPS_DEST_BEARING_REF)),
+    )
     return MediaMetadata(
         captured=captured,
         position=position,
@@ -113,6 +125,11 @@ def parse_tiff_exif(tiff: bytes) -> MediaMetadata | None:
         orientation=_as_int(ifd0.get(_TAG_ORIENTATION)),
         width=_as_int(exif_ifd.get(_TAG_PIXEL_X)),
         height=_as_int(exif_ifd.get(_TAG_PIXEL_Y)),
+        focal_length=_as_float(exif_ifd.get(_TAG_FOCAL_LENGTH)),
+        focal_length_35mm=_as_float(exif_ifd.get(_TAG_FOCAL_35MM)),
+        heading_degrees=heading[0] if heading else None,
+        heading_ref=heading[1] if heading else None,
+        heading_source=heading[2] if heading else None,
     )
 
 
@@ -227,6 +244,26 @@ def _as_text(value: object) -> str | None:
         return text or None
     text = str(value).strip("\x00 ").strip()
     return text or None
+
+
+def _as_float(value: object) -> float | None:
+    if value is None or isinstance(value, (bytes, bytearray, str)):
+        return None
+    if isinstance(value, (tuple, list)) and len(value) == 2:
+        try:
+            denominator = float(value[1])
+        except (TypeError, ValueError):
+            return None
+        if denominator == 0:
+            return None
+        try:
+            return float(value[0]) / denominator
+        except (TypeError, ValueError):
+            return None
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
 
 
 def _as_int(value: object) -> int | None:

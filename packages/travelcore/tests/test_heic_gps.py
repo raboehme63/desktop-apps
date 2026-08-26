@@ -80,6 +80,9 @@ def test_embedded_exif_tiff_from_jpeg_app1(tmp_path: Path) -> None:
         model="iPhone 15 Pro",
         latitude=(46.0, 30.0, 0.0),
         longitude=(11.0, 21.0, 0.0),
+        heading=80.0,
+        heading_ref="T",
+        focal_length_35mm=26,
     )
     metadata = parse_embedded_exif(jpeg.read_bytes())
     assert metadata is not None
@@ -88,6 +91,8 @@ def test_embedded_exif_tiff_from_jpeg_app1(tmp_path: Path) -> None:
     assert abs(metadata.position.latitude - 46.5) < 1e-6
     assert metadata.captured is not None
     assert metadata.captured.raw_value == "2025:05:15 15:10:00"
+    assert metadata.heading_degrees == 80.0
+    assert metadata.focal_length_35mm == 26.0
 
 
 def test_heic_embedded_exif_fills_gps_and_camera(tmp_path: Path) -> None:

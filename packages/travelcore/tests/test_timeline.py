@@ -165,6 +165,57 @@ def test_overnight_and_journal_flags(open_project: OpenProject, tmp_path: Path) 
     assert photo.is_cover is True
 
 
+def test_sync_prefills_title_and_notes_from_imported_text(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "ankunft.jpg",
+        datetime_original="2025:05:15 08:20:00",
+        offset_original="+02:00",
+    )
+    (source / "2025-05-15.md").write_text("# Bozen\n\nAnkunft am Abend.\n", encoding="utf-8")
+    snapshot = _index_and_sync(open_project, source)
+    assert snapshot.day_count == 1
+    assert snapshot.days[0].title == "Bozen"
+    assert snapshot.days[0].notes == "Ankunft am Abend."
+    assert snapshot.days[0].origin == "auto"
+    assert snapshot.days[0].photos[0].filename == "ankunft.jpg"
+
+
+def test_imported_text_does_not_overwrite_manual_day(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "ankunft.jpg",
+        datetime_original="2025:05:15 08:20:00",
+        offset_original="+02:00",
+    )
+    (source / "2025-05-15.md").write_text("# Bozen\n\nAus der Datei.\n", encoding="utf-8")
+    first = _index_and_sync(open_project, source)
+    day_id = first.days[0].id
+    with open_project.session_factory() as session:
+        save_day_text(session, day_id, title="Manuell", notes="Bleibt stehen.")
+        session.commit()
+    (source / "2025-05-15.md").write_text("# Neu\n\nSollte nicht gewinnen.\n", encoding="utf-8")
+    again = _index_and_sync(open_project, source)
+    assert again.days[0].title == "Manuell"
+    assert again.days[0].notes == "Bleibt stehen."
+    assert again.days[0].origin == "manual"
+
+
+def test_text_only_note_creates_a_day(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    (source / "2025-06-01.md").write_text("# Pause\n\nKein Foto an diesem Tag.\n", encoding="utf-8")
+    snapshot = _index_and_sync(open_project, source)
+    assert snapshot.day_count == 1
+    assert snapshot.days[0].date is not None
+    assert snapshot.days[0].date.isoformat() == "2025-06-01"
+    assert snapshot.days[0].title == "Pause"
+    assert snapshot.days[0].notes == "Kein Foto an diesem Tag."
+    assert snapshot.days[0].photos == ()
+
+
 def _index_and_sync(open_project: OpenProject, source: Path) -> TimelineSnapshot:
     with open_project.session_factory() as session:
         project = session.get(Project, open_project.project_id)

@@ -52,6 +52,12 @@ class Sidebar(QWidget):
         layout.addStretch(1)
         self._buttons["project"].setChecked(True)
 
+    def current_key(self) -> str:
+        for key, button in self._buttons.items():
+            if button.isChecked():
+                return key
+        return "project"
+
     def set_current(self, key: str) -> None:
         button = self._buttons.get(key)
         if button is not None:

@@ -17,6 +17,10 @@ def test_merge_fills_missing_fields_only() -> None:
         camera="Sony A7",
         width=6000,
         height=4000,
+        heading_degrees=42.0,
+        heading_ref="T",
+        heading_source="gps_img_direction",
+        focal_length_35mm=28.0,
     )
     merged = merge_metadata(primary, extra)
     assert merged.captured is not None
@@ -25,3 +29,5 @@ def test_merge_fills_missing_fields_only() -> None:
     assert merged.camera == "Sony A7"
     assert merged.width == 32
     assert merged.height == 24
+    assert merged.heading_degrees == 42.0
+    assert merged.focal_length_35mm == 28.0

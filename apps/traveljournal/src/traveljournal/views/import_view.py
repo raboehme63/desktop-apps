@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThreadPool, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -19,6 +20,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -26,16 +29,23 @@ from PySide6.QtWidgets import (
 )
 from sqlalchemy import func, select
 
+from travelcore.config import AppSettings
 from travelcore.database.models import FileError, SourceFile
 from travelcore.exceptions import ProjectError
 from travelcore.media.indexer import IndexResult
-from traveljournal.services.workers import IndexRunnable
+from travelcore.media.thumbnails import cached_thumbnail_path
+from travelcore.media.types import FileKind
+from traveljournal.services.workers import IndexLoadRunnable, IndexRunnable
 from traveljournal.services.workspace import Workspace
+
+_TABLE_FILL_CHUNK = 80
 
 
 class ImportView(QWidget):
     status_message = Signal(str)
     import_finished = Signal()
+    index_load_progress = Signal(int, int, str)
+    index_load_finished = Signal()
 
     def __init__(self, workspace: Workspace, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -56,9 +66,11 @@ class ImportView(QWidget):
         subtitle = QLabel(
             "Quellverzeichnis rekursiv durchsuchen. Aufnahmezeit und GPS aus Metadaten; "
             "Fotos ohne Koordinaten werden zeitlich mit GPX- und IGC-Tracks abgeglichen. "
-            "IGC-Flüge: Pilot aus dem Log, DHV-Leonardo-Link in der Tabelle."
+            "Klick oder Mouseover zeigt Vorschau und Metadaten. "
+            "IGC-Flüge: Pilot aus dem Log; DHV-Leonardo-Link per Doppelklick."
         )
         subtitle.setObjectName("pageSubtitle")
+        subtitle.setWordWrap(True)
         root.addWidget(title)
         root.addWidget(subtitle)
 
@@ -90,19 +102,35 @@ class ImportView(QWidget):
         grid = QGridLayout(stats)
         grid.setContentsMargins(16, 14, 16, 14)
         self._stat_labels: dict[str, QLabel] = {}
-        for column, key in enumerate(("photo", "video", "gps", "located", "text", "errors")):
-            titles = {
-                "photo": "Fotos",
-                "video": "Videos",
-                "gps": "Tracks",
-                "located": "mit Ort",
-                "text": "Texte",
-                "errors": "Fehler",
-            }
+        titles = {
+            "photo": "Fotos",
+            "video": "Videos",
+            "gps": "Tracks",
+            "located": "mit Ort",
+            "matched": "aus Abgleich",
+            "unlocated": "ohne Ort",
+            "text": "Texte",
+            "errors": "Fehler",
+        }
+        tooltips = {
+            "located": "Dateien mit GPS-Koordinaten aus Metadaten, Track oder Abgleich.",
+            "matched": "Fotos und Videos, denen per GPS-Abgleich eine Position zugeordnet wurde.",
+            "unlocated": (
+                "Fotos und Videos, denen nach Metadaten und GPS-Abgleich keine Position "
+                "zugeordnet werden konnte."
+            ),
+        }
+        for column, key in enumerate(
+            ("photo", "video", "gps", "located", "matched", "unlocated", "text", "errors")
+        ):
             value = QLabel("0")
             value.setObjectName("statValue")
             label = QLabel(titles[key])
             label.setObjectName("statLabel")
+            tip = tooltips.get(key)
+            if tip:
+                value.setToolTip(tip)
+                label.setToolTip(tip)
             cell = QVBoxLayout()
             cell.addWidget(value)
             cell.addWidget(label)
@@ -110,23 +138,76 @@ class ImportView(QWidget):
             self._stat_labels[key] = value
         root.addWidget(stats)
 
-        self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(
-            ["Datei", "Typ", "Aufnahmezeit", "GPS", "Kamera / Pilot", "DHV-Leonardo"]
-        )
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["Datei", "Typ", "Aufnahmezeit", "GPS", "Kamera / Pilot"])
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.setMouseTracking(True)
+        self.table.viewport().setMouseTracking(True)
+        self.table.viewport().installEventFilter(self)
         self.table.itemDoubleClicked.connect(self._on_row_double_clicked)
-        self.table.itemChanged.connect(self._on_item_changed)
-        root.addWidget(self.table, 1)
+        self.table.itemEntered.connect(self._on_item_entered)
+        self.table.itemSelectionChanged.connect(self._on_selection_changed)
+
+        preview = QFrame()
+        preview.setObjectName("card")
+        preview.setMinimumWidth(260)
+        preview.setMaximumWidth(380)
+        preview_layout = QVBoxLayout(preview)
+        preview_layout.setContentsMargins(16, 14, 16, 14)
+        preview_layout.setSpacing(10)
+        self._preview_image = QLabel("Keine Datei gewählt")
+        self._preview_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._preview_image.setMinimumHeight(220)
+        self._preview_image.setObjectName("statLabel")
+        self._preview_meta = QLabel("Klick oder Mouseover auf eine Zeile zeigt Metadaten.")
+        self._preview_meta.setWordWrap(True)
+        self._preview_meta.setObjectName("pageSubtitle")
+        self._preview_meta.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        meta_scroll = QScrollArea()
+        meta_scroll.setWidgetResizable(True)
+        meta_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        meta_scroll.setWidget(self._preview_meta)
+        preview_layout.addWidget(self._preview_image)
+        preview_layout.addWidget(meta_scroll, 1)
+
+        split = QSplitter(Qt.Orientation.Horizontal)
+        split.addWidget(self.table)
+        split.addWidget(preview)
+        split.setStretchFactor(0, 4)
+        split.setStretchFactor(1, 1)
+        root.addWidget(split, 1)
         self._list_summary = QLabel("")
         self._list_summary.setObjectName("pageSubtitle")
         root.addWidget(self._list_summary)
 
+        self._files: dict[int, SourceFile] = {}
+        self._dhv_urls: dict[int, str] = {}
+        self._preview_id: int | None = None
+        self._thumb_cache: tuple[str, QPixmap] | None = None
+        self._pending_rows: list[SourceFile] = []
+        self._fill_offset = 0
+        self._load_generation = 0
+        self._emit_import_after_load = False
+        self._index_loader: IndexLoadRunnable | None = None
+        self._index_loading = False
+
     def refresh(self) -> None:
+        self.refresh_summary()
+        if self._busy:
+            self._fill_table()
+            return
+        self.load_index_async()
+
+    def refresh_summary(self) -> None:
         project = self.workspace.project_row()
         if project and project.source_root:
             self.path_edit.setText(project.source_root)
@@ -137,9 +218,8 @@ class ImportView(QWidget):
                 root = None
             if root:
                 self.path_edit.setText(root)
-        self._fill_table()
         counts = self.workspace.file_counts()
-        for key in ("photo", "video", "gps", "text", "located"):
+        for key in ("photo", "video", "gps", "text", "located", "matched", "unlocated"):
             self._stat_labels[key].setText(str(counts.get(key, 0)))
         errors = 0
         if self.workspace.current is not None:
@@ -153,6 +233,123 @@ class ImportView(QWidget):
                     or 0
                 )
         self._stat_labels["errors"].setText(str(errors))
+
+    @property
+    def is_loading_index(self) -> bool:
+        return self._index_loading
+
+    def load_index_async(self) -> None:
+        """Read the stored file index in the background, then fill the table in chunks."""
+
+        self._load_generation += 1
+        generation = self._load_generation
+        self._index_loading = True
+        self._pending_rows = []
+        self._fill_offset = 0
+        self._files = {}
+        self._dhv_urls = {}
+        self._thumb_cache = None
+        self.table.setRowCount(0)
+        if self.workspace.current is None:
+            self._list_summary.setText("")
+            self.progress.setValue(0)
+            self.progress.setFormat("Bereit")
+            self._notify_index_loaded()
+            return
+        self.progress.setRange(0, 0)
+        self.progress.setFormat("Index wird gelesen…")
+        self._list_summary.setText("Index wird gelesen…")
+        self.index_load_progress.emit(0, 0, "Index wird gelesen…")
+        worker = IndexLoadRunnable(self.workspace)
+        self._index_loader = worker
+        worker.signals.ready.connect(lambda rows, urls: self._on_index_ready(generation, rows, urls))
+        worker.signals.failed.connect(lambda message: self._on_index_failed(generation, message))
+        self._pool.start(worker)
+
+    def _on_index_ready(self, generation: int, rows: object, urls: object) -> None:
+        if generation != self._load_generation:
+            return
+        if not isinstance(rows, list):
+            rows = []
+        self._pending_rows = rows
+        self._dhv_urls = urls if isinstance(urls, dict) else {}
+        self._fill_offset = 0
+        self._files = {}
+        self._thumb_cache = None
+        total = max(len(self._pending_rows), 1)
+        self.table.setRowCount(len(self._pending_rows))
+        self.progress.setRange(0, total)
+        self.progress.setValue(0)
+        if not self._pending_rows:
+            self.progress.setFormat("Keine Dateien im Index")
+            self._list_summary.setText("Keine Dateien im Index.")
+            self._notify_index_loaded()
+            return
+        self.progress.setFormat("Index wird angezeigt…")
+        self.index_load_progress.emit(0, len(self._pending_rows), "Index wird angezeigt…")
+        QTimer.singleShot(0, lambda: self._fill_next_chunk(generation))
+
+    def _on_index_failed(self, generation: int, message: str) -> None:
+        if generation != self._load_generation:
+            return
+        self.progress.setRange(0, 1)
+        self.progress.setValue(0)
+        self.progress.setFormat("Index konnte nicht geladen werden")
+        self._list_summary.setText(message)
+        self.status_message.emit(f"Index: {message}")
+        self._notify_index_loaded()
+
+    def _fill_next_chunk(self, generation: int) -> None:
+        if generation != self._load_generation:
+            return
+        rows = self._pending_rows
+        start = self._fill_offset
+        if start >= len(rows):
+            self._finish_index_load()
+            return
+        end = min(start + _TABLE_FILL_CHUNK, len(rows))
+        self.table.setUpdatesEnabled(False)
+        self.table.blockSignals(True)
+        for index in range(start, end):
+            item = rows[index]
+            self._files[item.id] = item
+            self.table.setItem(index, 0, _locked_item(item.filename, item.id))
+            self.table.setItem(index, 1, _locked_item(item.file_kind, item.id))
+            self.table.setItem(index, 2, _locked_item(_format_captured(item), item.id))
+            self.table.setItem(index, 3, _locked_item(_format_gps(item), item.id))
+            self.table.setItem(index, 4, _locked_item(item.camera or "", item.id))
+        self.table.blockSignals(False)
+        self.table.setUpdatesEnabled(True)
+        self._fill_offset = end
+        total = len(rows)
+        self.progress.setMaximum(max(total, 1))
+        self.progress.setValue(end)
+        message = f"Index: {end} von {total} Dateien"
+        self.progress.setFormat(progress_bar_format(message))
+        self.index_load_progress.emit(end, total, message)
+        if end < total:
+            QTimer.singleShot(0, lambda: self._fill_next_chunk(generation))
+            return
+        self._finish_index_load()
+
+    def _finish_index_load(self) -> None:
+        total = len(self._pending_rows)
+        self._pending_rows = []
+        self.progress.setValue(self.progress.maximum())
+        self.progress.setFormat(f"{total} Dateien geladen")
+        self._list_summary.setText(
+            f"{total} Dateien in der Liste. Klick oder Mouseover zeigt Vorschau. "
+            "Doppelklick auf eine IGC-Datei setzt den DHV-Leonardo-Link."
+        )
+        self._notify_index_loaded()
+
+    def _notify_index_loaded(self) -> None:
+        self._index_loading = False
+        self._index_loader = None
+        self.index_load_finished.emit()
+        if self._emit_import_after_load:
+            self._emit_import_after_load = False
+            self.import_finished.emit()
 
     def _browse(self) -> None:
         directory = QFileDialog.getExistingDirectory(self, "Quellverzeichnis wählen")
@@ -205,12 +402,17 @@ class ImportView(QWidget):
         summary = (
             f"Import fertig: {result.indexed} neu, {result.updated} aktualisiert, "
             f"{result.skipped_unchanged} unverändert, {result.positions_matched} Positionen aus Track, "
+            f"{result.positions_unmatched} ohne Ort, "
             f"{result.thumbnails_written} Vorschaubilder, {result.errors} Fehler"
         )
         self.progress.setFormat(summary)
-        self.refresh()
-        self.import_finished.emit()
         self.status_message.emit(summary)
+        self._emit_import_after_load = True
+        QTimer.singleShot(0, self._apply_import_result)
+
+    def _apply_import_result(self) -> None:
+        self.refresh_summary()
+        self.load_index_async()
 
     def _on_failed(self, message: str) -> None:
         self._busy = False
@@ -223,37 +425,93 @@ class ImportView(QWidget):
 
     def _fill_table(self) -> None:
         rows = self.workspace.source_files()
-        urls = self.workspace.gps_track_urls()
+        self._files = {item.id: item for item in rows}
+        self._dhv_urls = self.workspace.gps_track_urls() if rows else {}
+        self._thumb_cache = None
         scroll = self.table.verticalScrollBar().value()
         current = self.table.currentRow()
         self.table.blockSignals(True)
         self.table.setUpdatesEnabled(False)
         self.table.setRowCount(len(rows))
         for index, item in enumerate(rows):
-            is_igc = Path(item.path).suffix.lower() == ".igc"
             self.table.setItem(index, 0, _locked_item(item.filename, item.id))
             self.table.setItem(index, 1, _locked_item(item.file_kind, item.id))
             self.table.setItem(index, 2, _locked_item(_format_captured(item), item.id))
             self.table.setItem(index, 3, _locked_item(_format_gps(item), item.id))
             self.table.setItem(index, 4, _locked_item(item.camera or "", item.id))
-            link = urls.get(item.id, "") if is_igc else ""
-            link_item = QTableWidgetItem(link)
-            link_item.setData(Qt.ItemDataRole.UserRole, item.id)
-            if is_igc:
-                link_item.setFlags(
-                    Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEditable
-                )
-            else:
-                link_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-            self.table.setItem(index, 5, link_item)
         self.table.setUpdatesEnabled(True)
         self.table.blockSignals(False)
         if 0 <= current < self.table.rowCount():
             self.table.selectRow(current)
         self.table.verticalScrollBar().setValue(scroll)
         self._list_summary.setText(
-            f"{len(rows)} Dateien in der Liste. Doppelklick auf eine IGC-Datei setzt den DHV-Leonardo-Link."
+            f"{len(rows)} Dateien in der Liste. Klick oder Mouseover zeigt Vorschau. "
+            "Doppelklick auf eine IGC-Datei setzt den DHV-Leonardo-Link."
         )
+        self._show_selected_preview()
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
+        if watched is self.table.viewport() and event.type() == QEvent.Type.Leave:
+            self._show_selected_preview()
+        return super().eventFilter(watched, event)
+
+    def _on_item_entered(self, item: QTableWidgetItem) -> None:
+        file_id = item.data(Qt.ItemDataRole.UserRole)
+        if isinstance(file_id, int):
+            self._show_file_preview(file_id)
+
+    def _on_selection_changed(self) -> None:
+        self._show_selected_preview()
+
+    def _show_selected_preview(self) -> None:
+        row = self.table.currentRow()
+        name = self.table.item(row, 0) if row >= 0 else None
+        file_id = name.data(Qt.ItemDataRole.UserRole) if name is not None else None
+        if isinstance(file_id, int):
+            self._show_file_preview(file_id)
+            return
+        self._preview_id = None
+        self._preview_image.setPixmap(QPixmap())
+        self._preview_image.setText("Keine Datei gewählt")
+        self._preview_meta.setText("Klick oder Mouseover auf eine Zeile zeigt Metadaten.")
+
+    def _show_file_preview(self, file_id: int) -> None:
+        item = self._files.get(file_id)
+        if item is None:
+            return
+        self._preview_id = file_id
+        pixmap = self._preview_pixmap(item)
+        if pixmap.isNull():
+            self._preview_image.setPixmap(QPixmap())
+            self._preview_image.setText("Kein Vorschaubild")
+        else:
+            self._preview_image.setText("")
+            self._preview_image.setPixmap(pixmap)
+        self._preview_meta.setText(file_preview_text(item, dhv_url=self._dhv_urls.get(file_id, "")))
+
+    def _preview_pixmap(self, item: SourceFile) -> QPixmap:
+        thumbs = self.workspace.thumbs_dir()
+        if thumbs is None:
+            return _placeholder_pixmap()
+        size = AppSettings().default_thumbnail_size
+        path = cached_thumbnail_path(thumbs, source_file_id=item.id, sha256=item.sha256, size=size)
+        key = str(path)
+        if self._thumb_cache is not None and self._thumb_cache[0] == key:
+            return self._thumb_cache[1]
+        if item.file_kind != FileKind.PHOTO.value or not path.is_file():
+            pixmap = _placeholder_pixmap()
+        else:
+            loaded = QPixmap(str(path))
+            if loaded.isNull():
+                pixmap = _placeholder_pixmap()
+            else:
+                pixmap = loaded.scaled(
+                    QSize(240, 240),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+        self._thumb_cache = (key, pixmap)
+        return pixmap
 
     def _on_row_double_clicked(self, item: QTableWidgetItem) -> None:
         row = item.row()
@@ -267,19 +525,11 @@ class ImportView(QWidget):
         if not isinstance(file_id, int):
             return
         pilot = self.table.item(row, 4).text() if self.table.item(row, 4) else ""
-        current = self.table.item(row, 5).text() if self.table.item(row, 5) else ""
+        current = self.workspace.gps_track_urls().get(file_id, "")
         dialog = FlightLinkDialog(name.text(), pilot, current, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         self._save_flight_url(file_id, dialog.url_value())
-
-    def _on_item_changed(self, item: QTableWidgetItem) -> None:
-        if item.column() != 5:
-            return
-        file_id = item.data(Qt.ItemDataRole.UserRole)
-        if not isinstance(file_id, int):
-            return
-        self._save_flight_url(file_id, item.text())
 
     def _save_flight_url(self, source_file_id: int, url: str) -> None:
         try:
@@ -327,6 +577,73 @@ def _format_gps(item: SourceFile) -> str:
         return "–"
     source = item.position_source or "?"
     return f"{item.gps_latitude:.5f}, {item.gps_longitude:.5f} ({source})"
+
+
+def file_preview_text(item: SourceFile, *, dhv_url: str = "") -> str:
+    """Human-readable metadata block for the Import preview pane."""
+
+    lines = [
+        item.filename,
+        item.path,
+        f"Typ: {item.file_kind} ({item.extension})",
+        f"Größe: {_format_size(item.size_bytes)}",
+        f"Aufnahme: {_format_captured(item)}",
+    ]
+    if item.captured_at_source:
+        lines.append(f"Zeitquelle: {item.captured_at_source}")
+    gps = _format_gps(item)
+    if gps != "–":
+        extra = ""
+        if item.gps_altitude is not None:
+            extra = f", {item.gps_altitude:.0f} m"
+        lines.append(f"GPS: {gps}{extra}")
+    heading = _format_heading(item)
+    if heading:
+        lines.append(heading)
+    if item.camera:
+        lines.append(f"Kamera: {item.camera}")
+    if item.lens:
+        lines.append(f"Objektiv: {item.lens}")
+    if item.focal_length is not None:
+        lines.append(f"Brennweite: {item.focal_length:g} mm")
+    if item.focal_length_35mm is not None:
+        lines.append(f"35-mm-äquivalent: {item.focal_length_35mm:g} mm")
+    if item.iso is not None:
+        lines.append(f"ISO: {item.iso}")
+    if item.exposure_time:
+        lines.append(f"Belichtung: {item.exposure_time}")
+    if item.aperture:
+        lines.append(f"Blende: {item.aperture}")
+    if item.width and item.height:
+        lines.append(f"Bildgröße: {item.width} × {item.height}")
+    if item.orientation is not None:
+        lines.append(f"Orientierung: {item.orientation}")
+    if dhv_url:
+        lines.append(f"DHV-Leonardo: {dhv_url}")
+    return "\n".join(lines)
+
+
+def _format_heading(item: SourceFile) -> str | None:
+    if item.heading_degrees is None:
+        return None
+    ref = "magnetisch" if (item.heading_ref or "").upper() == "M" else "geografisch Nord"
+    return f"Blickrichtung: {item.heading_degrees:.1f}° ({ref})"
+
+
+def _format_size(size_bytes: int) -> str:
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    if size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    if size_bytes < 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+    return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
+
+
+def _placeholder_pixmap() -> QPixmap:
+    pixmap = QPixmap(240, 180)
+    pixmap.fill(QColor("#243044"))
+    return pixmap
 
 
 def _locked_item(text: str, source_file_id: int) -> QTableWidgetItem:

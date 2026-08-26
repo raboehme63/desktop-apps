@@ -54,6 +54,28 @@ def test_exiftool_json_priority_and_signed_gps() -> None:
     assert metadata.width == 6000
 
 
+def test_exiftool_json_heading_and_35mm() -> None:
+    metadata = metadata_from_exiftool_json(
+        {
+            "GPSImgDirection": 45.0,
+            "GPSImgDirectionRef": "M",
+            "FocalLengthIn35mmFilm": 28,
+            "FocalLength": 6.7,
+        }
+    )
+    assert metadata.heading_degrees == 45.0
+    assert metadata.heading_ref == "M"
+    assert metadata.heading_source == "gps_img_direction"
+    assert metadata.focal_length == 6.7
+    assert metadata.focal_length_35mm == 28.0
+
+
+def test_exiftool_json_dest_bearing_fallback() -> None:
+    metadata = metadata_from_exiftool_json({"GPSDestBearing": 350.0, "GPSDestBearingRef": "T"})
+    assert metadata.heading_degrees == 350.0
+    assert metadata.heading_source == "gps_dest_bearing"
+
+
 def test_exiftool_json_video_creation_time() -> None:
     metadata = metadata_from_exiftool_json({"MediaCreateDate": "2025:05:15 08:20:00"})
     assert metadata.captured is not None

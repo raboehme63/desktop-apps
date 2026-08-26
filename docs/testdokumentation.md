@@ -88,6 +88,7 @@ Stand nach `pytest --collect-only`: **98 Tests** (18. August 2026). Neue Tests s
 | `test_raw_is_photo_for_metadata_later` | `test_file_types.py` | NEF als Foto klassifiziert |
 | `test_scan_finds_supported_files_recursively` | `test_scanner.py` | Rekursion, JPEG-Groß/Kleinschreibung, GPX, MD, ZIP außen vor |
 | `test_scan_finds_igc_flight_log` | `test_scanner.py` | IGC wird als GPS gefunden |
+| `test_scan_skips_thumbnail_jpegs` | `test_scanner.py` | `thumbnails/` und `cache/` nicht als Fotos |
 
 ### 4.2 Index, Hash, Fehler — FA-020 bis FA-024, FA-095
 
@@ -130,7 +131,9 @@ Stand nach `pytest --collect-only`: **98 Tests** (18. August 2026). Neue Tests s
 | `test_iso6709_iphone_location` | `test_gps_exif.py` | `+lat+lon+alt/` |
 | `test_gps_coordinates_decimal_pair` / `_dms_text` | `test_gps_exif.py` | alternative GPS-Texte |
 | `test_gps_and_camera_from_exif` | `test_pillow_provider.py` | JPEG: Koordinaten + „Canon EOS R6“ |
-| `test_indexer_reads_exif_time_and_gps` | `test_indexer.py` | End-to-End JPEG → SQLite |
+| `test_heading_and_35mm_from_exif` | `test_pillow_provider.py` | Blickrichtung und 35-mm-Brennweite |
+| `test_heading_prefers_img_direction` / `_falls_back_to_dest_bearing` | `test_gps_exif.py` | GPSImgDirection vor DestBearing |
+| `test_indexer_reads_exif_time_and_gps` | `test_indexer.py` | End-to-End JPEG → SQLite inkl. Heading/35 mm |
 | `test_exiftool_json_priority_and_signed_gps` | `test_exiftool_json.py` | JSON-Mapping, Vorzeichen |
 | `test_exiftool_json_video_creation_time` | `test_exiftool_json.py` | Video-Zeitfeld |
 | `test_exiftool_json_quicktime_gps_coordinates` | `test_exiftool_json.py` | QuickTime-Koordinaten |
@@ -190,6 +193,7 @@ Stand nach `pytest --collect-only`: **98 Tests** (18. August 2026). Neue Tests s
 | `test_indexer_prefers_gpx_over_igc` | `test_indexer.py` | GPX vor IGC |
 | `test_indexer_fills_gpx_source_file_position_and_time` | `test_indexer.py` | GPX-SourceFile: Mittelwert und Startzeit |
 | `test_indexer_gpx_reingest_updates_source_file_metadata` | `test_indexer.py` | Re-Import aktualisiert Position und Zeit |
+| `test_indexer_skips_unchanged_gpx_track_rewrite` | `test_indexer.py` | unveränderte GPX: keine neuen Punkt-IDs |
 | `test_indexer_untimed_gpx_sets_position_without_date` | `test_indexer.py` | GPX ohne Zeiten: Position, keine Startzeit |
 | `test_indexer_does_not_overwrite_exif_gps_with_gpx` | `test_indexer.py` | EXIF-GPS bleibt |
 | `test_corrupt_gpx_does_not_abort_import` | `test_indexer.py` | defekte GPX als `file_errors.stage=gpx` |
@@ -215,6 +219,9 @@ Stand nach `pytest --collect-only`: **98 Tests** (18. August 2026). Neue Tests s
 | `test_extract_largest_embedded_jpeg` | `test_thumbnails.py` | größtes eingebettetes JPEG |
 | `test_cached_thumbnail_path_uses_hash` | `test_thumbnails.py` | Cache-Dateiname enthält SHA-256 |
 | `test_indexer_writes_thumbnail_and_photo_row` | `test_indexer.py` | Cache + `photos`-Zeile |
+| `test_indexer_does_not_regenerate_thumbnails_on_reimport` | `test_indexer.py` | Re-Import schreibt vorhandene Thumbs nicht neu |
+| `test_indexer_does_not_count_thumbnails_when_source_is_project` | `test_indexer.py` | Projektordner als Quelle zählt Thumbs nicht als Fotos |
+| `test_indexer_drops_previously_indexed_thumbnails` | `test_indexer.py` | bereits indexierte Thumbs werden entfernt |
 | `test_indexer_can_defer_thumbnails` | `test_indexer.py` | Index ohne Thumbs, danach `build_previews` |
 | `test_indexer_writes_thumbnails_in_parallel` | `test_indexer.py` | vier Vorschaubilder per ProcessPool |
 | `test_gallery_lists_photos_in_capture_order` | `test_gallery.py` | chronologische Reihenfolge |
@@ -341,6 +348,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Schritt | Erwartung |
 | --- | --- |
 | Quelle mit mehr als 250 unterstützten Dateien | Tabellenzeilen = indexierte Dateien; Zähler und Fußzeile („N Dateien in der Liste“) stimmen überein |
+| Klick oder Mouseover auf eine Fotozeile | Rechts: Vorschaubild (nach Thumbnail-Lauf) und Metadaten inkl. GPS/Kamera |
 
 ### MT-05 Defekte Datei
 

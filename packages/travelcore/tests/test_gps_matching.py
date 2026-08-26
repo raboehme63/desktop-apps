@@ -42,6 +42,22 @@ def test_nearest_when_only_one_side_within_window() -> None:
     assert fix.time_delta_seconds == 60.0
 
 
+def test_match_position_accepts_pre_sorted_points() -> None:
+    before = _point(46.0, 11.0, 0)
+    after = _point(46.2, 11.2, 20)
+    moment = datetime(2025, 5, 15, 13, 32, 0, tzinfo=UTC)
+    unsorted = match_position(moment, [after, before], max_delta_seconds=120)
+    sorted_fix = match_position(
+        moment,
+        [before, after],
+        max_delta_seconds=120,
+        points_sorted=True,
+    )
+    assert unsorted is not None
+    assert sorted_fix is not None
+    assert abs(unsorted.latitude - sorted_fix.latitude) < 1e-9
+
+
 def test_no_match_outside_max_delta() -> None:
     point = _point(46.5, 11.3, 0)
     moment = datetime(2025, 5, 15, 13, 40, 0, tzinfo=UTC)
