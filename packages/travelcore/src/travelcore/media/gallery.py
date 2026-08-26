@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -53,10 +54,13 @@ def list_gallery_items(
     thumbs_dir: Path,
     *,
     size: int = 256,
+    source_file_ids: Sequence[int] | None = None,
 ) -> list[GalleryItem]:
     """Return photos, videos, and tracks in capture-time order with cache paths."""
 
-    rows = session.execute(
+    if source_file_ids is not None and not source_file_ids:
+        return []
+    query = (
         select(SourceFile, Photo)
         .outerjoin(Photo, Photo.source_file_id == SourceFile.id)
         .where(
@@ -67,6 +71,9 @@ def list_gallery_items(
         )
         .order_by(SourceFile.captured_at.asc().nulls_last(), SourceFile.filename.asc())
     )
+    if source_file_ids is not None:
+        query = query.where(SourceFile.id.in_(tuple(source_file_ids)))
+    rows = session.execute(query)
     items: list[GalleryItem] = []
     for source, photo in rows:
         rotation = normalize_rotation_degrees(source.rotation_degrees)

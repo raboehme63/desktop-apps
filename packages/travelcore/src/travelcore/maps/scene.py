@@ -156,8 +156,11 @@ def _photo_markers(
     thumbs_dir: Path,
     *,
     size: int,
+    source_file_ids: set[int] | None = None,
 ) -> list[MapMarker]:
-    rows = session.scalars(
+    if source_file_ids is not None and not source_file_ids:
+        return []
+    query = (
         select(SourceFile)
         .where(
             SourceFile.project_id == project_id,
@@ -169,6 +172,9 @@ def _photo_markers(
         )
         .order_by(SourceFile.captured_at.asc().nulls_last(), SourceFile.filename.asc())
     )
+    if source_file_ids is not None:
+        query = query.where(SourceFile.id.in_(source_file_ids))
+    rows = session.scalars(query)
     day_index: dict[str, int] = {}
     markers: list[MapMarker] = []
     for row in rows:

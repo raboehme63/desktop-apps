@@ -2,8 +2,8 @@
 
 | Feld | Inhalt |
 | --- | --- |
-| Version | 0.9 |
-| Stand | 26. August 2026 |
+| Version | 1.0 |
+| Stand | 27. August 2026 |
 | Bezugsversion Software | Phase 7 erweitert, Software **R1.0.0** |
 | Bezug | [pflichtenheft.md](pflichtenheft.md), [konzept.md](konzept.md) |
 
@@ -246,18 +246,28 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 | `test_effective_sort_status_prefers_stored_value` | `test_gallery.py` | gespeicherter `sort_status` vor Favoriten-Flag |
 | `test_effective_sort_status_falls_back_to_favorite_flag` | `test_gallery.py` | leerer Status plus Favorit gilt als Favorit |
 
-### 4.9 Karte — FA-050 bis FA-052
+### 4.9 Karte — FA-050 bis FA-053
 
 | Test | Datei | Prüft |
 | --- | --- | --- |
 | `test_downsample_keeps_endpoints` | `test_maps.py` | Trackpunkte werden ausgedünnt, Start/Ende bleiben |
 | `test_map_scene_has_track_and_photo` | `test_maps.py` | Übersicht ein Cover, Detail: Polylinie + Fotomarker |
 | `test_map_scene_includes_overnight_and_place` | `test_maps.py` | Übernachtung und Ort im Detail des Resttags |
-| `test_folium_overview_cover_uses_expand_url` | `test_maps.py` | rundes Cover, Expand-Bridge |
+| `test_folium_overview_cover_uses_expand_url` | `test_maps.py` | rundes Cover, Expand-Bridge, Zoom-Halt, Popup-Skript |
+| `test_timeline_js_cards_uses_relative_cover` | `test_maps.py` | Timeline-Karten relative Cover-Pfade |
+| `test_leaflet_payload_includes_source_file_id` | `test_maps.py` | Detail-Payload: `source_file_id`, Thumbnail-Popup |
 | `test_folium_backend_writes_html` | `test_maps.py` | Leaflet-HTML, `MapBackend` |
 | `test_offline_backend_omits_osm_tiles` | `test_maps.py` | `tiles=None` ohne OSM-URL |
 | `test_map_scene_includes_igc_flight` | `test_maps.py` | IGC-Polylinie, Pilot, DHV-Link, Zoom-Skript |
+| `test_map_cache_reuses_html_when_inputs_unchanged` | `test_maps.py` | Disk-Cache ohne Rebuild |
+| `test_map_cache_rebuilds_when_provider_or_force_changes` | `test_maps.py` | Cache-Invalidierung |
 | `test_pick_cover_item_uses_first_list_item_with_gps` | `test_maps.py` | ohne Titelbild erstes Listenelement mit GPS |
+| `test_parse_group_key_accepts_section_day_and_loose` | `test_maps.py` | `section:` / `day:` / `loose:` |
+| `test_build_map_timeline_cards_from_section` | `test_maps.py` | Leistenkarten aus Abschnitt |
+| `test_parse_map_bridge_url_reads_group_key` | `tests/test_gui_smoke.py` | Expand-URL und Konsolen-Bridge |
+| `test_map_view_refresh_uses_disk_cache_without_rebuild` | `tests/test_gui_smoke.py` | MapView zeigt Cache; Leiste unter dem WebView |
+| `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Leiste zentriert die erste Karte |
+| `test_inspector_map_opens_thumbnail_then_original_on_double_click` | `tests/test_gui_smoke.py` | Inspektor: Vorschau, Doppelklick Original |
 
 ### 4.10 Timeline und Tagebuch — FA-014, FA-060 bis FA-064, FA-080 bis FA-082
 
@@ -351,6 +361,10 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 | `test_inspector_allows_free_window_resize` | `tests/test_gui_smoke.py` | Ränder frei |
 | `test_media_inspector_zoom_arrows_and_fit` | `tests/test_gui_smoke.py` | Zoom und Einpassen |
 | `test_youtube_links_dialog_add_and_delete` | `tests/test_gui_smoke.py` | YouTube-Dialog |
+| `test_parse_map_bridge_url_reads_group_key` | `tests/test_gui_smoke.py` | Karten-Expand-Bridge |
+| `test_map_view_refresh_uses_disk_cache_without_rebuild` | `tests/test_gui_smoke.py` | Karten-Cache; Leiste unter dem WebView |
+| `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Timeline-Leiste zentriert |
+| `test_inspector_map_opens_thumbnail_then_original_on_double_click` | `tests/test_gui_smoke.py` | Vorschau, dann Original |
 | `test_normalize_timeline_media_tab` | `tests/test_workspace.py` | gültige Tab-Namen |
 | `test_timeline_media_tab_persists` | `tests/test_workspace.py` | `config.json` hält das Register |
 
@@ -374,7 +388,7 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 - Sortierstatus Favorit/Reserve/Aussortiert inkl. Fallback auf Favoriten-Flag
 - Import bricht bei einer defekten Datei (JPEG oder GPX) nicht ab
 - Projekt anlegen, Schema (Abschnitte, URLs, Cover, Drehung), Wiederöffnen, `settings.toml` und Pfad-Rebase
-- Karte: Titelbilder je Abschnitt/Resttag, Detail mit Tracklinie und Fotomarkern, offline ohne OSM
+- Karte: Titelbild-Kreise je Abschnitt/Resttag, Leiste darunter, Detail mit Tracklinie und Fotomarkern, Foto-Popup, offline ohne OSM
 - Timeline: Tage aus Aufnahmezeit, manuelle Texte bleiben, Ortsvorschläge, Übernachtungen, Tagebuch-Flags
 - Reiseabschnitte, Resttage, Pending-Vorschau, Eintrags-Titelbild (Foto und Track)
 - YouTube- und DHV-Leonardo-URL-Normalisierung
@@ -386,7 +400,7 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 
 | Lücke | FA | Grund / nächste Phase |
 | --- | --- | --- |
-| Visuelle Marker-Vorschau / Cluster in Qt | FA-050, FA-051 | Szene automatisiert in `test_maps.py`; visuell MT-12 |
+| Visuelle Marker-Vorschau / Bedienung in Qt | FA-050–FA-053 | Szene und Bridge in `test_maps.py` / `test_gui_smoke.py`; visuell MT-12 |
 | Timeline-/Tagebuch-Bedienung | FA-060–FA-069, FA-080 | Logik in `test_timeline*.py`; visuell MT-13, MT-18–MT-22 |
 | Galeriefilter in der UI | FA-101 | Logik der Liste automatisiert; Filter nur MT-09 |
 | Zuletzt verwendete Projekte in der UI | FA-091 | `recent.json` ohne Oberfläche; manuell nicht zwingend |
@@ -517,9 +531,14 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | ein Titelbild je Abschnitt oder Resttag; ohne gesetztes Titelbild das erste Listenelement mit GPS |
-| Klick auf ein Titelbild | Fotos, Videos und Tracks dieses Eintrags; **Reiseabschnitt schließen** stellt Zoom und Ausschnitt wieder her |
-| Klick auf ein viereckiges Thumbnail | Medieninspektor wie in der Timeline (Blättern, Zoom, Drehen) |
+| Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | ein runder Kreis je Abschnitt oder Resttag; ohne gesetztes Titelbild das erste Listenelement mit GPS; darunter die Timeline-Leiste mit denselben Einträgen |
+| Leiste nach links/rechts ziehen oder Mausrad | Karten verschieben sich horizontal; Klick trifft die Karte, nicht die OSM-Kacheln |
+| Hineinzoomen, dann eine Leistenkarte anklicken | die Karte schwenkt auf diesen Eintrag, **Zoom bleibt** |
+| Doppelklick auf eine Leistenkarte oder in die freie (nicht belegte) Kartenfläche | Übersicht: alle Kreise im Ausschnitt |
+| Klick auf einen Kreis | Detailansicht: Fotos, Videos und Tracks dieses Eintrags, Ausschnitt angepasst; **Reiseabschnitt schließen** stellt Zoom und Ausschnitt der Übersicht wieder her |
+| Freie Karte: offene Hand (Verschieben); über einem Kreis: Zeiger (Auswahl) | der Kreis-Klick öffnet das Detail, startet kein Zoomen |
+| Klick auf ein viereckiges Foto-Symbol im Detail | kleines Thumbnail-Popup auf der Karte (nicht sofort der Inspektor) |
+| Doppelklick auf das Thumbnail (oder das Foto-Symbol) | Medieninspektor mit dem **Original**, Blättern/Zoom/Drehen wie in der Timeline |
 | Übernachtung im Tagebuch mit GPS anlegen | erscheint nach Klick auf den Resttag; ohne Medien als Fallback-Titelbild |
 | Bestätigter Ort | erscheint im Detail des Resttags |
 
@@ -595,6 +614,7 @@ Diese Fälle werden mit der jeweiligen Phase verbindlich.
 | Jede Codeänderung an `travelcore.metadata` oder Import | `pytest` vollständig |
 | HEIC-/GPS-Parser | zusätzlich `test_heic_gps.py`, `test_indexer.py`, manuell MT-03 |
 | Timeline / Tagebuch / Abschnitte | `test_timeline.py`, `test_timeline_sections.py`, manuell MT-13 |
+| Karte / Leiste / Kreis-Detail | `test_maps.py`, `tests/test_gui_smoke.py` (Map-Fälle), manuell MT-12 |
 | Inspektor / Drehung / Register | `test_orientation.py`, `tests/test_gui_smoke.py`, manuell MT-18–MT-21 |
 | UI-Importliste | MT-04 |
 | Vor Phasenabschluss | pytest grün + manuelle Fälle der Phase + Ruff |
@@ -607,6 +627,7 @@ Ein Phasenabschluss ohne grüne Automatisierung gilt als nicht abgenommen.
 
 | Datum | Kommando | Ergebnis |
 | --- | --- | --- |
+| 27.08.2026 | `python -m pytest` im Projekt-venv | 238 bestanden |
 | 26.08.2026 | `python -m pytest` im Projekt-venv | 222 bestanden |
 | 18.08.2026 | `python -m pytest` im Projekt-venv | 98 bestanden |
 

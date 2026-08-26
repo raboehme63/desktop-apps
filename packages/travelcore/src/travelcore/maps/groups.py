@@ -10,7 +10,16 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from travelcore.database.models import OvernightStay, Place, Project, SourceFile
+from travelcore.database.models import (
+    OvernightStay,
+    Place,
+    Project,
+    SectionMember,
+    SourceFile,
+    Trip,
+    TripDay,
+    TripSection,
+)
 from travelcore.maps.scene import (
     MapMarker,
     MapScene,
@@ -23,7 +32,8 @@ from travelcore.media.orientation import normalize_rotation_degrees
 from travelcore.media.thumbnails import cached_thumbnail_path
 from travelcore.media.types import FileKind
 from travelcore.timeline.build import load_timeline
-from travelcore.timeline.sections import KIND_MOVEMENT, format_section_span
+from travelcore.timeline.links import parse_youtube_urls
+from travelcore.timeline.sections import KIND_MOVEMENT, claimed_source_ids, format_section_span
 from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelinePhoto, TimelineSection
 
 
@@ -89,10 +99,12 @@ def build_map_group_detail(
     thumbs_dir: Path,
     *,
     size: int = 256,
+    resolved: MapGroupRef | None = None,
 ) -> MapScene:
     """Photos, videos, tracks, stays and places that belong to one overview entry."""
 
-    resolved = resolve_map_group(session, project_id, group_key, thumbs_dir, size=size)
+    if resolved is None:
+        resolved = resolve_map_group(session, project_id, group_key, thumbs_dir, size=size)
     if resolved is None:
         return MapScene()
     wanted = set(resolved.source_ids)
@@ -113,40 +125,52 @@ def resolve_map_group(
 ) -> MapGroupRef | None:
     """Ordered source-file ids, leftover day id and YouTube links for one overview entry."""
 
+    del thumbs_dir, size
     kind, raw_id = parse_group_key(group_key)
     if kind is None:
         return None
-    project = session.get(Project, project_id)
-    snapshot = load_timeline(session, project, thumbs_dir=thumbs_dir, size=size) if project else None
-    if kind == "section" and snapshot is not None:
-        section = next((item for item in snapshot.sections if item.id == raw_id), None)
-        if section is None:
-            return None
-        return MapGroupRef(
-            source_ids=[item.source_file_id for item in section.items],
-            youtube_urls=tuple(section.youtube_urls),
-        )
-    if kind == "day" and snapshot is not None:
-        leftover = next(
-            (
-                entry.leftover_day
-                for entry in snapshot.entries
-                if entry.leftover_day is not None and entry.leftover_day.id == raw_id
-            ),
-            None,
-        )
-        if leftover is None:
-            leftover = next((day for day in snapshot.days if day.id == raw_id), None)
-        if leftover is None:
-            return None
-        return MapGroupRef(
-            source_ids=[item.source_file_id for item in leftover.photos],
-            day_id=leftover.id,
-            youtube_urls=tuple(leftover.youtube_urls),
-        )
+    if kind == "section":
+        return _resolve_section_group(session, project_id, int(raw_id))
+    if kind == "day":
+        return _resolve_day_group(session, project_id, int(raw_id))
     if kind == "loose":
         return MapGroupRef(source_ids=list(_source_ids_for_loose_day(session, project_id, str(raw_id))))
     return None
+
+
+def _resolve_section_group(session: Session, project_id: int, section_id: int) -> MapGroupRef | None:
+    section = session.get(TripSection, section_id)
+    if section is None:
+        return None
+    trip = session.get(Trip, section.trip_id)
+    if trip is None or trip.project_id != project_id:
+        return None
+    ids = list(
+        session.scalars(
+            select(SectionMember.source_file_id)
+            .where(SectionMember.section_id == section.id)
+            .order_by(SectionMember.sort_index.asc(), SectionMember.id.asc())
+        )
+    )
+    return MapGroupRef(
+        source_ids=ids,
+        youtube_urls=parse_youtube_urls(section.youtube_urls),
+    )
+
+
+def _resolve_day_group(session: Session, project_id: int, day_id: int) -> MapGroupRef | None:
+    day = session.get(TripDay, day_id)
+    if day is None:
+        return None
+    trip = session.get(Trip, day.trip_id)
+    if trip is None or trip.project_id != project_id:
+        return None
+    claimed = claimed_source_ids(session, trip.id)
+    return MapGroupRef(
+        source_ids=_leftover_source_ids_for_day(session, project_id, day, claimed),
+        day_id=day.id,
+        youtube_urls=parse_youtube_urls(day.youtube_urls),
+    )
 
 
 def parse_group_key(group_key: str) -> tuple[str | None, int | str | None]:
@@ -433,12 +457,30 @@ def _photo_markers_for_ids(
     size: int,
     source_ids: set[int],
 ) -> list[MapMarker]:
-    if not source_ids:
-        return []
+    return _photo_markers(
+        session, project_id, thumbs_dir, size=size, source_file_ids=source_ids
+    )
+
+
+def _leftover_source_ids_for_day(
+    session: Session,
+    project_id: int,
+    day: TripDay,
+    claimed: set[int],
+) -> list[int]:
+    day_key = _day_key(day.date)
+    rows = session.execute(
+        select(SourceFile.id, SourceFile.captured_at)
+        .where(
+            SourceFile.project_id == project_id,
+            SourceFile.file_kind.in_((FileKind.PHOTO.value, FileKind.VIDEO.value, FileKind.GPS.value)),
+        )
+        .order_by(SourceFile.captured_at.asc().nulls_last(), SourceFile.filename.asc())
+    )
     return [
-        marker
-        for marker in _photo_markers(session, project_id, thumbs_dir, size=size)
-        if marker.source_file_id in source_ids
+        source_id
+        for source_id, captured_at in rows
+        if source_id not in claimed and _day_key(captured_at) == day_key
     ]
 
 

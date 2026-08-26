@@ -2,7 +2,7 @@
 
 Produktanforderungen: [pflichtenheft.md](pflichtenheft.md). Leitkonzept: [konzept.md](konzept.md). Tests: [testdokumentation.md](testdokumentation.md).
 
-Stand: **Phase 7 erweitert**, Software **R1.0.0**.
+Stand: **Phase 7 erweitert**, Software **R1.0.0** (27. August 2026).
 
 ## Prinzip
 
@@ -113,15 +113,27 @@ nur per Klick, nicht durch Mausrad.
 
 ## Karte
 
-`build_map_scene` baut die Übersicht: ein Titelbild je Reiseabschnitt oder Resttag
-(gespeichertes `cover_source_file_id`, sonst das erste Listenelement mit GPS).
-Position ist die Cover-GPS, sonst der Schwerpunkt der geotaggten Mitglieder.
-Folium schreibt `cache/map.html`; ein Klick auf das runde Titelbild zeigt
-Fotos, Videos, Tracks, Übernachtungen und Orte dieses Eintrags.
+`build_map_scene` (delegiert an `build_map_overview`) und `build_map_timeline`
+in `travelcore.maps.groups` bauen die Übersicht: ein Titelbild je gespeichertem
+Reiseabschnitt oder Resttag
+(`cover_source_file_id`, sonst das erste Listenelement mit GPS). Position ist
+die Cover-GPS, sonst der Schwerpunkt der geotaggten Mitglieder. Unsaved
+Pending-Abschnitte erscheinen nicht auf der Karte.
+
+Folium schreibt `cache/map.html` (`MAP_CACHE_VERSION` im Stamp). Qt WebEngine
+zeigt die Datei; die kompakte Leiste (`MapTimelineStrip`) sitzt **unter** dem
+WebView, nicht als Overlay über Chromium — sonst verschluckt die Karte Klicks.
+Klick auf eine Leistenkarte ruft `traveljournalFocusCover` auf: Schwenken bei
+**unverändertem Zoom**. Klick auf einen Kreis (`group_key`) öffnet die
+Detailansicht (`traveljournalShowDetail`): Fotos, Videos, GPX-Linien,
+IGC-Flugtracks ab Zoom 10 (Start/Landung immer sichtbar), Übernachtungen und
+Orte. `resolve_map_group` liest nur den angeklickten Eintrag, nicht die ganze
+Timeline. Klick auf ein Foto im Detail öffnet ein Leaflet-Popup mit Thumbnail;
+Doppelklick öffnet den Medieninspektor mit dem Original (wie Timeline).
+
 Online-Kacheln kommen von `tile.openstreetmap.de` (deutsche Namen, sonst
 lateinische Umschrift statt Landesschrift). `map_provider=offline` setzt
-`tiles=None` (keine OSM-Kacheln). Qt WebEngine zeigt die Datei; fehlt das
-Add-on, bleibt der Pfad sichtbar.
+`tiles=None` (keine OSM-Kacheln). Fehlt Qt WebEngine, bleibt der Pfad sichtbar.
 
 ## Austauschbare Schnittstellen
 
@@ -140,9 +152,9 @@ Bereits in Phase 1 angelegt, schrittweise gefüllt:
   Cachepfad enthält `_r90` bei nicht-null `rotation_degrees`
 - `VideoMetadataProvider` – ffprobe-Adapter (noch nicht aktiv)
 - `Exporter` – HTML, PDF, LaTeX, CEWE (Implementierung ab Phase 8)
-- `MapBackend` – Folium/Leaflet, Übersicht als Titelbilder je Abschnitt/Resttag,
-  Detail mit GPX-Polylinien, IGC-Flugtracks ab Zoom 10 (Start/Landung immer sichtbar),
-  Fotos/Videos, Übernachtungen und Orte
+- `MapBackend` – Folium/Leaflet, Übersicht als Titelbild-Kreise je Abschnitt/Resttag,
+  Qt-Leiste unter der Karte, Detail mit GPX-Polylinien, IGC-Flugtracks ab Zoom 10
+  (Start/Landung immer sichtbar), Foto-Popup und Inspektor, Übernachtungen und Orte
 - Timeline in `travelcore.timeline` – Tage, Abschnitte, Resttage, Cover, Links;
   keine Ortsnamen an Foto-/Trackpositionen
 - KML/GeoJSON in `travelcore.gps` – Parser für Vorschauen, kein Ingest in `gps_tracks`

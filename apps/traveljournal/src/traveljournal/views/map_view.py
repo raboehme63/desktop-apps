@@ -125,6 +125,12 @@ MAP_PAGE_SETUP_JS = """
     if (!key) {
       return;
     }
+    var now = Date.now();
+    if (key === window._tjExpandKey && now - (window._tjExpandAt || 0) < 250) {
+      return;
+    }
+    window._tjExpandKey = key;
+    window._tjExpandAt = now;
     if (window.tjBridge && window.tjBridge.expand) {
       window.tjBridge.expand(key);
     }
@@ -318,6 +324,7 @@ class MapView(QWidget):
         self._last_media_id = 0
         self._last_media_at = 0.0
         self._detail_items: list[GalleryItem] = []
+        self._detail_group_key = ""
         self._pending_focus = ""
 
         root = QVBoxLayout(self)
@@ -379,6 +386,7 @@ class MapView(QWidget):
         self._preparing = False
         self._shown_html = None
         self._detail_items = []
+        self._detail_group_key = ""
         self._pending_focus = ""
         self._youtube.set_urls(())
         self._timeline.set_cards(())
@@ -573,7 +581,8 @@ class MapView(QWidget):
         self._last_expand_at = now
         try:
             payload = self.workspace.map_group_detail(group_key)
-            self._detail_items = self.workspace.map_group_gallery_items(group_key)
+            self._detail_group_key = group_key
+            self._detail_items = []
         except Exception as exc:  # noqa: BLE001 - show load errors in the status bar
             self.status_message.emit(f"Karte: {exc}")
             return
@@ -586,6 +595,7 @@ class MapView(QWidget):
 
     def _on_section_closed(self) -> None:
         self._detail_items = []
+        self._detail_group_key = ""
         self._last_expand_key = ""
         self._youtube.set_urls(())
         key = self._timeline.focused_key()
@@ -607,13 +617,12 @@ class MapView(QWidget):
                     inspector.activateWindow()
                     return
         items = list(self._detail_items)
+        if not items and self._detail_group_key:
+            items = self.workspace.map_group_gallery_items(self._detail_group_key)
+            self._detail_items = items
         current = next((item for item in items if item.source_file_id == source_file_id), None)
         if current is None:
-            fallback = [
-                item
-                for item in self.workspace.gallery_items()
-                if item.source_file_id == source_file_id
-            ]
+            fallback = self.workspace.gallery_items_for_ids([source_file_id])
             if not fallback:
                 self.status_message.emit("Karte: Medium nicht gefunden")
                 return

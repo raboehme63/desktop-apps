@@ -2,8 +2,8 @@
 
 | Feld | Inhalt |
 | --- | --- |
-| Version | 0.5 |
-| Stand | 26. August 2026 |
+| Version | 0.6 |
+| Stand | 27. August 2026 |
 | Status | Leitkonzept; Phase 7 erweitert, Software **R1.0.0** |
 | Bezug | [pflichtenheft.md](pflichtenheft.md), [architecture.md](architecture.md) |
 
@@ -80,8 +80,8 @@ Das Grundgerüst entsteht **automatisch nach dem Import**, nicht als zweite Wahr
 - **Ortsvorschläge** entstehen aus GPS-Fotos desselben Tages: greedy Cluster mit Haversine, Radius 150 m (`stay_radius_meters`). Sie bleiben unbestätigt (`origin=auto`), bis der Benutzer sie benennt, bestätigt oder löscht. Hat ein Tag bereits Orte, legt der Abgleich keine zweiten Auto-Orte an.
 - **Übernachtungen** sind bewusst manuell (Tagebuch: Name, Ort, optional GPS, Beschreibung). Es gibt keine automatische Hotelerkennung.
 - **Manuelle Daten überleben den Re-Sync:** Titel, Tagesetext, bestätigte Orte, Favoriten, Sortierstatus, Titelbild und Tagebuch-Häkchen tragen `origin=manual`. Die Automatik überschreibt sie nicht. Anzeigedrehung (`rotation_degrees`) überlebt den Re-Import.
-- **Timeline und Tagebuch** zeigen denselben Snapshot. Die Timeline mischt Abschnitte und Resttage, setzt Bewertungen und Eintrags-Titelbilder (Foto oder Track), speichert YouTube erst mit Speichern und DHV-Leonardo-Links an gespeicherten Einträgen sofort. Das Tagebuch schreibt Texte, setzt Fotos ins Buch und legt Übernachtungen an. Die Karte zeigt dieselben Einträge als Titelbilder; Detailansicht liest dieselben Orte und Übernachtungen.
-- **Medieninspektor:** Doppelklick öffnet ein eigenes Fenster. Blättern in der Sequenz des Tags/Abschnitts, Zoom, freie Fenstergröße, Vollbild mit schwarzen Rändern, Anzeigedrehung ohne Originalschreiben.
+- **Timeline und Tagebuch** zeigen denselben Snapshot. Die Timeline mischt Abschnitte und Resttage, setzt Bewertungen und Eintrags-Titelbilder (Foto oder Track), speichert YouTube erst mit Speichern und DHV-Leonardo-Links an gespeicherten Einträgen sofort. Das Tagebuch schreibt Texte, setzt Fotos ins Buch und legt Übernachtungen an. Die Karte zeigt dieselben Einträge als runde Titelbilder plus eine Leiste darunter; die Detailansicht liest dieselben Orte und Übernachtungen.
+- **Medieninspektor:** In der Timeline öffnet ein Doppelklick ein eigenes Fenster mit dem Original. Auf der Karte zeigt ein Klick auf ein Foto zuerst ein kleines Thumbnail-Popup; Doppelklick auf das Thumbnail öffnet denselben Inspektor. Blättern in der Sequenz des Tags/Abschnitts, Zoom, freie Fenstergröße, Vollbild mit schwarzen Rändern, Anzeigedrehung ohne Originalschreiben.
 
 ### 3.4 PhotoInspector (später)
 
@@ -98,7 +98,7 @@ Linke Navigation, rechts der Arbeitsbereich. Sieben Seiten von Anfang an, auch w
 | **Projekt** | Behälter: Name, Ordner, Öffnen/Anlegen. Keine Medienbearbeitung. |
 | **Import** | Brücke zur Außenwelt. Einzige Stelle, die das Quellverzeichnis scannt. |
 | **Timeline** | Chronologische Wahrheit: Resttage und Reiseabschnitte, Bewertungen, Eintrags-Titelbild, YouTube/DHV-Leonardo, Medieninspektor. |
-| **Karte** | Geografische Wahrheit: ein Titelbild je Reiseabschnitt oder Resttag; Klick zeigt Fotos, Videos, Tracks, Orte und Übernachtungen dieses Eintrags. Ohne Eintrags-Titelbild das erste Listenelement mit GPS. Backend austauschbar. |
+| **Karte** | Geografische Wahrheit: ein runder Kreis je Reiseabschnitt oder Resttag; Klick auf den Kreis zeigt Fotos, Videos, Tracks, Orte und Übernachtungen dieses Eintrags. Die Leiste unter der Karte folgt dem Reiseverlauf — Klick zentriert bei gleichem Zoom. Ohne Eintrags-Titelbild das erste Listenelement mit GPS. Backend austauschbar. |
 | **Fotos** | Medienarbeit: Galerie, Filter, Bewertungen, Inspektor. Qualität und Dubletten folgen später. |
 | **Tagebuch** | Narrative Fassung: Titel, Text, Fotos ins Buch, Reise-Titelbild, Übernachtungen, Links. Abschnitte bleiben in der Timeline. |
 | **Export** | Ausgabe, keine Analyse. Phase 8: HTML. |
@@ -251,4 +251,4 @@ Nicht das ganze Polarsteps-Abbild auf einmal. Jede Phase bleibt startbar und tes
 | 8 | Die Reise verlässt die App. |
 | 9–10 | Die Auswahl wird begründet (Qualität, Dubletten). |
 
-Aktueller Konzeptstand: **Phase 7 erweitert**, Software **R1.0.0** (Timeline mit Abschnitten, Bewertungen, Inspektor, Track-Vorschauen). HTML-Export folgt in Phase 8.
+Aktueller Konzeptstand: **Phase 7 erweitert**, Software **R1.0.0** (Timeline mit Abschnitten, Bewertungen, Inspektor, Track-Vorschauen, Karten-Leiste und Kreis-Detail). HTML-Export folgt in Phase 8.

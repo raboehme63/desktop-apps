@@ -235,7 +235,12 @@ class Workspace:
                 session, opened.project_id, group_key, thumbs, size=size
             )
             scene = build_map_group_detail(
-                session, opened.project_id, group_key, thumbs, size=size
+                session,
+                opened.project_id,
+                group_key,
+                thumbs,
+                size=size,
+                resolved=resolved,
             )
         payload = leaflet_payload(scene, html_path)
         payload["youtube_urls"] = list(resolved.youtube_urls) if resolved is not None else []
@@ -267,14 +272,22 @@ class Workspace:
             return build_map_timeline(session, opened.project_id, thumbs, size=size)
 
     def gallery_items_for_ids(self, source_ids: list[int]) -> list[GalleryItem]:
-        wanted = {item_id for item_id in source_ids if item_id}
+        wanted = [item_id for item_id in source_ids if item_id]
         if not wanted:
             return []
-        by_id = {
-            item.source_file_id: item
-            for item in self.gallery_items()
-            if item.source_file_id in wanted
-        }
+        opened = self._require_open()
+        thumbs, size = self._thumbs_and_size()
+        from travelcore.media.gallery import list_gallery_items
+
+        with opened.session_factory() as session:
+            found = list_gallery_items(
+                session,
+                opened.project_id,
+                thumbs,
+                size=size,
+                source_file_ids=wanted,
+            )
+        by_id = {item.source_file_id: item for item in found}
         return [by_id[item_id] for item_id in source_ids if item_id in by_id]
 
     def sync_timeline(self) -> TimelineSnapshot:

@@ -4,7 +4,7 @@
 | --- | --- |
 | Produkt | Reisetagebuch (Windows-Desktop) |
 | Version | 1.0 (Software **R1.0.0**) |
-| Stand | 26. August 2026 |
+| Stand | 27. August 2026 |
 | Status | verbindlich für die Umsetzung; Phase 7 erweitert, Software R1.0.0 |
 | Bezug | Auftraggeber-Prompt „Reise-Tagebuch-Anwendung für Windows“ |
 | Begleitdokumente | [konzept.md](konzept.md), [architecture.md](architecture.md), [testdokumentation.md](testdokumentation.md), [dependencies.md](dependencies.md) |
@@ -51,8 +51,8 @@ Punkt 5 ist für **manuelle Reiseabschnitte** (Aufenthalt / Transfer) in der Tim
 - Ortsnamen-Auflösung (Reverse-Geocoding) — nur lokal oder nach ausdrücklicher Freigabe
 - KI-Embeddings (z. B. CLIP) für Ähnlichkeit
 - Videoinhaltsanalyse über reine Metadaten und Vorschaubilder hinaus
-- Interaktive Karte mit Marker-Clustern und Fotovorschau
-- Kompakte Timeline-Karten (Titelbild + Titel + Zeitraum)
+- Interaktive Karte mit Titelbild-Kreisen, Detailansicht und Fotovorschau
+- Kompakte Timeline-Karten unter der Karte (Titelbild + Titel + Zeitraum)
 
 ### 1.3 Abgrenzungskriterien
 
@@ -180,9 +180,10 @@ Oberflächen-Einstellungen (zuletzt verwendeter Projekte-Ordner, Timeline-Medien
 
 | ID | Prio | Anforderung | Stand |
 | --- | --- | --- | --- |
-| FA-050 | Muss | Interaktive Karte: Track als Linie, Fotos als Marker, Übernachtungen, Abschnitte, Tagesgruppen. | umgesetzt (Übersicht: ein Titelbild je Abschnitt/Resttag; ohne Eintrags-Titelbild das erste Listenelement mit GPS. Klick zeigt Fotos, Videos, Tracks, Übernachtungen und Orte dieses Eintrags. IGC-Flugtracks im Detail ab Zoom 10 mit Start/Landung) |
-| FA-051 | Soll | Klick auf Fotomarker zeigt Vorschau; nahe Marker können clustern. | umgesetzt |
+| FA-050 | Muss | Interaktive Karte: Track als Linie, Fotos als Marker, Übernachtungen, Abschnitte, Tagesgruppen. | umgesetzt (Übersicht: ein runder Kreis je Abschnitt/Resttag; ohne Eintrags-Titelbild das erste Listenelement mit GPS. Klick auf den Kreis öffnet die Detailansicht mit Fotos, Videos, Tracks, Übernachtungen und Orten dieses Eintrags und passt den Ausschnitt daran an. IGC-Flugtracks im Detail ab Zoom 10 mit Start/Landung. **Reiseabschnitt schließen** oder Doppelklick in die freie Karte stellt Übersicht, Zoom und Ausschnitt wieder her) |
+| FA-051 | Soll | Klick auf Fotomarker zeigt Vorschau; nahe Marker können clustern. | umgesetzt (im Detail: Klick öffnet ein kleines Thumbnail-Popup auf der Karte; Doppelklick auf Thumbnail oder Foto-Symbol öffnet den Medieninspektor mit dem Original wie in der Timeline. Übersicht clustert nicht — ein Kreis je Eintrag) |
 | FA-052 | Muss | Kartenbackend hinter `MapBackend` austauschbar; erste Version Folium/Leaflet. | umgesetzt |
+| FA-053 | Muss | Unter der Karte eine horizontale Leiste mit kompakten Timeline-Karten (Titelbild, Titel, Zeitraum) in Reise-Reihenfolge. Ziehen und Mausrad blättern seitlich. Klick zentriert den Eintrag **ohne Zoomänderung**. Doppelklick auf eine Karte oder in die freie Karte zeigt alle Kreise. | umgesetzt (Qt-Leiste unter dem WebView, nicht als Overlay über den Kacheln) |
 
 ### 4.6 Timeline, Orte, Übernachtungen
 
@@ -241,7 +242,7 @@ Auswahlmodell in der Timeline: erster und letzter Klick füllen den Bereich dazw
 | --- | --- | --- | --- |
 | FA-100 | Muss | Performante Übersicht über gecachte Thumbnails, nicht über Originale. HEIC-Vorschauen über Windows-Shell/WIC oder eingebettetes JPEG. | umgesetzt (Fotos, RAW, Video, GPX/IGC/KML/GeoJSON; Texte ohne Thumbnail) |
 | FA-101 | Soll | Filter: Datum, Ort, Typ, Bewertung, Dubletten, Qualität, Favoriten, im Tagebuch verwendet / nicht verwendet. | teilweise (Dateiname, Jahr, mit/ohne Ort, JPEG/HEIC/PNG/RAW/Video/Tracks, Favoriten, nicht im Tagebuch; Qualität/Dubletten später) |
-| FA-102 | Muss | Doppelklick auf ein Vorschaubild öffnet den **Medieninspektor**: eigenes nicht-modales Fenster mit Original bzw. bester Vorschau (EXIF-Orientierung plus Anzeigedrehung). Bewertungs-Chips; GPS-Tracks ohne Bewertung. Blättern durch die Bilder des Tags/Abschnitts (Pfeiltasten, Klick in den linken/rechten Rand, weiße Hover-Pfeile). Mausrad zoomt; Doppelklick in die Bildmitte setzt auf fensterfüllend (Einpassen). Ecke unten rechts: proportionales Vergrößern; Fensterränder: frei breiter/höher. Vollbild/Maximieren passt das Foto ein (schwarze Ränder). Drehen 90° (↺/↻, Tasten L/R oder `[`/`]`) speichert `rotation_degrees` sofort, Originale unverändert. Ein zweites Panel (`extra_host`) bleibt für spätere Dublettenarbeit reserviert. | umgesetzt |
+| FA-102 | Muss | Doppelklick auf ein Vorschaubild öffnet den **Medieninspektor**: eigenes nicht-modales Fenster mit Original bzw. bester Vorschau (EXIF-Orientierung plus Anzeigedrehung). Bewertungs-Chips; GPS-Tracks ohne Bewertung. Blättern durch die Bilder des Tags/Abschnitts (Pfeiltasten, Klick in den linken/rechten Rand, weiße Hover-Pfeile). Mausrad zoomt; Doppelklick in die Bildmitte setzt auf fensterfüllend (Einpassen). Ecke unten rechts: proportionales Vergrößern; Fensterränder: frei breiter/höher. Vollbild/Maximieren passt das Foto ein (schwarze Ränder). Drehen 90° (↺/↻, Tasten L/R oder `[`/`]`) speichert `rotation_degrees` sofort, Originale unverändert. Ein zweites Panel (`extra_host`) bleibt für spätere Dublettenarbeit reserviert. Auf der **Karte** öffnet ein Klick auf ein Foto zuerst das Thumbnail-Popup; Doppelklick dort startet denselben Inspektor. | umgesetzt |
 | FA-103 | Muss | In Timeline und Tagebuch liegen **Medien** (Fotos, Videos) und **Tracks** (GPX/IGC/KML/GeoJSON) in getrennten Galerien. Die Abschnitt-Auswahl umfasst beide. GPS-Dateien gehören nicht zu den Foto-Häkchen und nicht zu „Alle ins Tagebuch“. | umgesetzt |
 | FA-104 | Soll | Track-Vorschauen zeigen die Spur rot auf einem OSM-/Leaflet-Kartenausschnitt (`cache/map_tiles`). `map_provider=offline` lädt keine Kacheln (schwarzer Hintergrund, rote Spur). Fehlgeschlagene Abrufe ebenso. | umgesetzt |
 | FA-105 | Soll | Globales Timeline-Register **Alle / Favoriten / Reserve / Aussortiert** neben „Neuen Reiseabschnitt erstellen“ gilt für alle Karten und bleibt in `config.json` als `timeline_media_tab` (auch beim Verlassen der Seite). Karten-Register bleiben synchron. Reiter wechseln **nur per Klick**, nicht durch Mausrad oder Mouseover beim Scrollen. | umgesetzt |
@@ -313,8 +314,8 @@ Mindestens zu speichernde Informationen — Details im Datenbankschema:
 | --- | --- | --- |
 | Projekt | Name, Ordnerpfad, Anlegen, Öffnen, Speichern, Einstellungen (`settings.toml`); Fenstertitel mit Version R1.0.0 | plus zuletzt verwendete Projekte in der UI |
 | Import | Pfadwahl, Analyse, Fortschritt, Zähler, vollständige Dateitabelle, Vorschau aller Galerie-Typen außer Text | unverändert |
-| Timeline | Resttage und Abschnitte gemischt, Mehrfachauswahl, Anlegen/Auflösen, Medien vs. Tracks, Register nur per Klick, Bewertungen, T-Titelbild (Foto und Track), ⋯-Menü YouTube/DHV-Leonardo, Medieninspektor (Blättern, Zoom, Drehen) | plus kompakte Karten, Ereignis-Reihenfolge |
-| Karte | Titelbilder je Abschnitt/Resttag, Klick öffnet Fotos/Tracks, offline ohne OSM | unverändert |
+| Timeline | Resttage und Abschnitte gemischt, Mehrfachauswahl, Anlegen/Auflösen, Medien vs. Tracks, Register nur per Klick, Bewertungen, T-Titelbild (Foto und Track), ⋯-Menü YouTube/DHV-Leonardo, Medieninspektor (Blättern, Zoom, Drehen) | plus verdichtete Timeline-Karten auf der Timeline-Seite, Ereignis-Reihenfolge |
+| Karte | Runde Titelbild-Kreise, Leiste darunter, Klick Kreis → Detail, Klick Leistenkarte → zentrieren bei gleichem Zoom, Foto-Popup dann Inspektor, offline ohne OSM | unverändert |
 | Fotos | Galerie, Filter (Jahr/Ort/Typ inkl. Video/Tracks/Favorit/nicht im Tagebuch), Bewertungen, Inspektor | plus Qualität, Dubletten |
 | Tagebuch | Titel, Text, Fotos zu/ab, Reise-Titelbild, Übernachtungen, Tracks getrennt, YouTube/DHV-Leonardo | plus Abschnitte, Bildunterschriften |
 | Export | Platzhalter | HTML, PDF, LaTeX, CEWE (CEWE zunächst inaktiv) |
@@ -343,7 +344,7 @@ Das MVP ist erfüllt, wenn alle folgenden Punkte demonstrabel sind:
 16. Das Projekt kann geschlossen und wieder geöffnet werden.
 17. Ein einfacher HTML-Reisebericht kann exportiert werden.
 
-**Aktueller Abnahmestand (Phase 7 erweitert, Software R1.0.0):** Punkte 1–16 plus manuelle Reiseabschnitte, Bewertungen, Eintrags-Titelbild (Foto und Track), Medieninspektor mit Blättern/Zoom/Drehen, Track-Vorschauen, Fenstertitel mit Version. Punkt 17 folgt in Phase 8.
+**Aktueller Abnahmestand (Phase 7 erweitert, Software R1.0.0):** Punkte 1–16 plus manuelle Reiseabschnitte, Bewertungen, Eintrags-Titelbild (Foto und Track), Medieninspektor mit Blättern/Zoom/Drehen, Track-Vorschauen, Karten-Leiste und Kreis-Detail, Fenstertitel mit Version. Punkt 17 folgt in Phase 8.
 
 ---
 
@@ -378,6 +379,6 @@ Nach jeder Phase: Anwendung startbar, bestehende Tests grün, keine ungenutzten 
 | OP-06 | Zuletzt verwendete Projekte | `recent.json` existiert; UI-Liste offen |
 | OP-07 | Foto einem anderen Tag zuordnen | Aufnahmezeit bleibt maßgeblich; explizite Korrektur nicht spezifiziert |
 | OP-08 | KML/GeoJSON-Ingest | Parser und Thumbnails da; Zuordnung und Kartenlinie bewusst nicht |
-| OP-09 | Reiseabschnitte auf der Karte | umgesetzt (Titelbild-Übersicht, Detail per Klick) |
-| OP-10 | Kompakte Timeline-Karten | Cover + Titel + Zeit als verdichtete Ansicht später |
+| OP-09 | Reiseabschnitte auf der Karte | umgesetzt (Kreis-Übersicht, Detail per Klick, Leiste unter der Karte) |
+| OP-10 | Kompakte Timeline-Karten | auf der **Karten**-Seite umgesetzt (Leiste); verdichtete Karten in der Timeline-Seite später |
 | OP-11 | Abschnitte im Tagebuch | Redaktion der Abschnitte liegt in der Timeline |
