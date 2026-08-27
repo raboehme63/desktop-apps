@@ -7,7 +7,7 @@
 | Stand | 27. August 2026 |
 | Status | verbindlich für die Umsetzung; Phase 7 erweitert, Software R1.0.0 |
 | Bezug | Auftraggeber-Prompt „Reise-Tagebuch-Anwendung für Windows“ |
-| Begleitdokumente | [konzept.md](konzept.md), [architecture.md](architecture.md), [testdokumentation.md](testdokumentation.md), [dependencies.md](dependencies.md) |
+| Begleitdokumente | [konzept.md](konzept.md), [architecture.md](architecture.md), [testdokumentation.md](testdokumentation.md), [dependencies.md](dependencies.md), [packaging/README.md](../packaging/README.md) |
 
 Dieses Pflichtenheft beschreibt **was** das System leisten muss. Das **wie** steht im Konzept und in der Architektur.
 
@@ -66,6 +66,7 @@ Nicht Bestandteil des Produkts und ausdrücklich **nicht** zu implementieren:
 - Videoinhaltsanalyse (Schnitt, Objekterkennung)
 - automatisches Löschen von Originaldateien
 - jede Änderung an Originaldateien
+- macOS- oder Linux-Installer (Produktziel ist Windows 10/11)
 
 ---
 
@@ -87,11 +88,12 @@ Lokale Nachbereitung privater oder beruflicher Reisen: Fotos, Videos, GPS-Tracks
 
 | Merkmal | Anforderung |
 | --- | --- |
-| Plattform | Windows 10/11 |
-| Laufzeit | Python 3.12, lokale Installation |
+| Plattform | Windows 10/11, 64-bit |
+| Laufzeit | **Entwicklung:** Python 3.12 im Projekt-venv. **Endnutzer:** gebündelte `Reisetagebuch.exe` (kein separates Python). |
+| Verteilung | Portable Zip bzw. Ordner `dist/Reisetagebuch/`; optional Inno-Setup-EXE (pro Benutzer nach `%LOCALAPPDATA%\Programs\Reisetagebuch`, ohne Administratorrecht). Siehe [packaging/README.md](../packaging/README.md). |
 | Netz | nicht erforderlich; Standardbetrieb speichert alles lokal. OSM-Kacheln (Karte und Track-Vorschauen) und YouTube-Vorschaubilder werden nur geladen, wenn der jeweilige Anbieter aktiv ist bzw. Links angezeigt werden. Es gibt keinen Upload von Fotos, GPS oder Reisedaten. |
 | Hardware | handelsüblicher PC; Import großer Fotoarchive darf die GUI nicht blockieren |
-| Rechte | Lesezugriff auf das Quellverzeichnis; Schreibzugriff nur auf den Projektordner und `%LOCALAPPDATA%\TravelJournal` |
+| Rechte | Lesezugriff auf das Quellverzeichnis; Schreibzugriff nur auf den Projektordner und `%LOCALAPPDATA%\TravelJournal`. Die optionale Setup-EXE schreibt zusätzlich nach `%LOCALAPPDATA%\Programs\Reisetagebuch`. |
 
 ---
 
@@ -274,6 +276,20 @@ Auswahlmodell in der Timeline: erster und letzter Klick füllen den Bereich dazw
 | FA-130 | Soll | Separate Windows-App für Dubletten, Ähnlichkeit, Unschärfe, Belichtung, Qualität, Auswahl. | geplant |
 | FA-131 | Muss | Bildanalyse, Metadaten, Hashing, Similarity, Thumbnails, Qualität enthalten **kein** PySide6. | umgesetzt (Architekturregel) |
 
+### 4.14 Verteilung (Windows)
+
+Die Fachlogik unter `apps/` und `packages/` bleibt davon unberührt. Build-Skripte liegen unter `packaging/`.
+
+| ID | Prio | Anforderung | Stand |
+| --- | --- | --- | --- |
+| FA-140 | Muss | Endnutzer starten Reisetagebuch unter Windows **ohne** eigene Python-Installation (gebündelte EXE). | umgesetzt (PyInstaller-onedir `dist/Reisetagebuch/`, Zip `dist/Reisetagebuch-{Version}-windows.zip`) |
+| FA-141 | Soll | Ein optionales Setup (Inno Setup 6) installiert pro Benutzer nach `%LOCALAPPDATA%\Programs\Reisetagebuch`, legt einen Startmenüeintrag an und optional eine Desktop-Verknüpfung. Kein Administratorrecht. | teilweise (Skript `packaging/installer.iss`; Setup-EXE nur, wenn Inno Setup auf dem Build-Rechner installiert ist) |
+| FA-142 | Kann | Authenticode-Signatur der EXE, damit SmartScreen die Weitergabe nicht blockiert. | geplant |
+| FA-143 | Muss | ExifTool, HEIF Image Extensions und FFmpeg/ffprobe bleiben **optional** und sind **nicht** Bestandteil des Installationspakets. | umgesetzt (wie in der Entwicklungsumgebung) |
+| FA-144 | Muss | Das Paket enthält LICENSE und einen LGPL-Hinweis zu PySide6/Qt (`NOTICE.txt`). | umgesetzt |
+
+macOS ist **kein** Lieferziel: HEIC-/Video-Vorschauen nutzen die Windows-Shell/WIC, App-Einstellungen liegen unter `%LOCALAPPDATA%\TravelJournal`.
+
 ---
 
 ## 5. Nichtfunktionale Anforderungen
@@ -288,8 +304,10 @@ Auswahlmodell in der Timeline: erster und letzter Klick füllen den Bereich dazw
 | NFA-030 | Muss | Bevorzugte Lizenzen: MIT, BSD, Apache-2.0, LGPL bei Einhaltung der Bedingungen. | umgesetzt, siehe dependencies.md |
 | NFA-031 | Muss | Jede direkte Abhängigkeit ist mit Version, Lizenz und Zweck dokumentiert. | umgesetzt |
 | NFA-040 | Muss | Logging über das Standardmodul `logging`; Importfehler zusätzlich in `file_errors`. | umgesetzt |
-| NFA-050 | Muss | `.gitignore` schließt Originale, DBs, Thumbnails, Cache, Exporte, Logs, venv aus. Keine persönlichen GPS-Testdaten im Repo. | umgesetzt |
+| NFA-050 | Muss | `.gitignore` schließt Originale, DBs, Thumbnails, Cache, Exporte, Logs, venv, `dist/` und `build/` aus. Keine persönlichen GPS-Testdaten im Repo. | umgesetzt |
 | NFA-060 | Soll | Import von mehreren tausend Dateien bleibt in der UI nachvollziehbar (Fortschritt, Abbruch später). | teilweise (Fortschritt ja) |
+| NFA-070 | Muss | Windows-Paketierung ändert die Anwendung unter `apps/` und `packages/` nicht. Frozen-Einstieg ist `packaging/entry.py` (`multiprocessing.freeze_support` für den ProcessPool). | umgesetzt |
+| NFA-071 | Soll | Das Frozen-Paket ist **onedir** (Ordner mit EXE), nicht eine einzelne Datei — zuverlässiger für Qt WebEngine und den ProcessPool. | umgesetzt |
 
 ---
 
@@ -344,7 +362,7 @@ Das MVP ist erfüllt, wenn alle folgenden Punkte demonstrabel sind:
 16. Das Projekt kann geschlossen und wieder geöffnet werden.
 17. Ein einfacher HTML-Reisebericht kann exportiert werden.
 
-**Aktueller Abnahmestand (Phase 7 erweitert, Software R1.0.0):** Punkte 1–16 plus manuelle Reiseabschnitte, Bewertungen, Eintrags-Titelbild (Foto und Track), Medieninspektor mit Blättern/Zoom/Drehen, Track-Vorschauen, Karten-Leiste und Kreis-Detail, Fenstertitel mit Version. Punkt 17 folgt in Phase 8.
+**Aktueller Abnahmestand (Phase 7 erweitert, Software R1.0.0):** Punkte 1–16 plus manuelle Reiseabschnitte, Bewertungen, Eintrags-Titelbild (Foto und Track), Medieninspektor mit Blättern/Zoom/Drehen, Track-Vorschauen, Karten-Leiste und Kreis-Detail, Fenstertitel mit Version. Windows-Endnutzerpaket (onedir/Zip) ist baubar (FA-140); die Setup-EXE braucht Inno Setup 6 auf dem Build-Rechner (FA-141). Punkt 17 folgt in Phase 8.
 
 ---
 
@@ -365,6 +383,8 @@ Nach jeder Phase: Anwendung startbar, bestehende Tests grün, keine ungenutzten 
 | 9 | Qualitätsanalyse | offen |
 | 10 | Dublettenerkennung | offen |
 
+Windows-Paketierung (`packaging/`) ist **keine eigene Fachphase**. Sie liefert Phase 7 als EXE/Zip (und optional Setup) an Endnutzer, ohne die Phasenfolge zu ändern. Build-Anleitung: [packaging/README.md](../packaging/README.md).
+
 ---
 
 ## 10. Offene Punkte
@@ -382,3 +402,5 @@ Nach jeder Phase: Anwendung startbar, bestehende Tests grün, keine ungenutzten 
 | OP-09 | Reiseabschnitte auf der Karte | umgesetzt (Kreis-Übersicht, Detail per Klick, Leiste unter der Karte) |
 | OP-10 | Kompakte Timeline-Karten | auf der **Karten**-Seite umgesetzt (Leiste); verdichtete Karten in der Timeline-Seite später |
 | OP-11 | Abschnitte im Tagebuch | Redaktion der Abschnitte liegt in der Timeline |
+| OP-12 | Code-Signatur | FA-142; ohne Signatur kann SmartScreen die EXE beim ersten Start blockieren |
+| OP-13 | Inno Setup auf CI/Build-Rechner | Setup-EXE entsteht nur, wenn ISCC.exe verfügbar ist; Zip reicht als portable Lieferung |

@@ -51,6 +51,20 @@ werden. Das ist keine Rechtsberatung.
 | pytest | 9.1.1 | MIT | Tests |
 | ruff | 0.16.3 | MIT | Linting und Formatierung |
 
+## Paketierung (nur Build, nicht Laufzeit der App)
+
+Diese Werkzeuge installiert `packaging/build.ps1` bzw. der Build-Rechner. Sie
+gehören **nicht** zu den pip-Abhängigkeiten von `traveljournal` / `travelcore`.
+
+| Werkzeug | Version / Hinweis | Lizenz | Zweck |
+| --- | --- | --- | --- |
+| PyInstaller | ≥ 6.11, < 7 (ins venv beim Build) | GPL-2.0-or-later mit Ausnahme für das erzeugte Bundle | Frozen onedir `Reisetagebuch.exe` |
+| Inno Setup 6 | optional, [jrsoftware.org](https://jrsoftware.org/isinfo.php) | Inno Setup License | Setup-EXE mit Startmenü |
+
+Das erzeugte Paket enthält weiterhin PySide6 (LGPL-3.0, dynamisch gelinkt) plus
+`LICENSE` und `packaging/NOTICE.txt`. Qt WebEngine macht das Bundle groß
+(typisch mehrere hundert MB unkomprimiert).
+
 ## Bewusst noch nicht installiert
 
 Diese Bibliotheken sind für spätere Phasen vorgesehen. Sie werden erst
@@ -78,6 +92,6 @@ hinter einer austauschbaren `PdfRenderer`-Schnittstelle.
 
 | Werkzeug | Geplante Phase | Hinweis |
 | --- | --- | --- |
-| HEIF Image Extensions (Windows) | 5 | optional; Explorer-/WIC-Vorschau für HEIC ohne eingebettetes JPEG |
-| FFmpeg / ffprobe | Video-Metadaten | über gekapselten Adapter, nicht im MVP |
-| ExifTool | 3 | optional; füllt Lücken in HEIC/RAW, nie aus der GUI aufgerufen |
+| HEIF Image Extensions (Windows) | 5 | optional; Explorer-/WIC-Vorschau für HEIC ohne eingebettetes JPEG; **nicht** im Installer |
+| FFmpeg / ffprobe | Video-Metadaten | über gekapselten Adapter, nicht im MVP; **nicht** im Installer |
+| ExifTool | 3 | optional; füllt Lücken in HEIC/RAW, nie aus der GUI aufgerufen; **nicht** im Installer |

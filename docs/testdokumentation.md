@@ -5,7 +5,7 @@
 | Version | 1.0 |
 | Stand | 27. August 2026 |
 | Bezugsversion Software | Phase 7 erweitert, Software **R1.0.0** |
-| Bezug | [pflichtenheft.md](pflichtenheft.md), [konzept.md](konzept.md) |
+| Bezug | [pflichtenheft.md](pflichtenheft.md), [konzept.md](konzept.md), [packaging/README.md](../packaging/README.md) |
 
 Diese Dokumentation beschreibt **Teststrategie, Automatisierung, manuelle Prüfung und Abdeckungslücken**. Sie ist die Testdoku zum Pflichtenheft, kein Ersatz für pytest-Ausgaben.
 
@@ -27,6 +27,7 @@ Diese Dokumentation beschreibt **Teststrategie, Automatisierung, manuelle Prüfu
 | Unit | `packages/travelcore/tests/` | pytest | Typen, Hash, Zeit, GPS, Provider, HEIC-Container, GPX/IGC/KML, Interpolation, ExifTool-JSON, Thumbnails, Orientierung, Timeline, Abschnitte |
 | Integration | `packages/travelcore/tests/test_indexer.py`, `test_database.py`, `test_timeline.py`; `tests/integration/` | pytest | Projektordner, Schema, Index → SQLite, Timeline-Sync, Re-Open |
 | GUI-Rauch | `tests/test_gui_smoke.py` | pytest + Qt offscreen | Hauptfenster, sieben Seiten, Inspektor, Register, Titel mit Version |
+| Paketierung | `packaging/` | manuell nach `build.ps1` | Frozen-EXE startet, Alembic/Karte, kein Python nötig (MT-22) |
 | Manuell | dieses Dokument, Abschnitt 7 | Windows-Desktop | Import echter HEIC/JPEG, Liste, Timeline, Abschnitte, Tagebuch, Karte, Inspektor |
 | Statisch | Repository-Wurzel | Ruff, später pyright | Stil, Imports, grundlegende Typen |
 
@@ -42,6 +43,8 @@ Nicht eingeführt (geplant): pytest-qt für Interaktion, visuelle Galerie-/Karte
 - Python 3.12 im Projekt-venv (nicht eine fremde `python.exe` auf dem PATH)
 - Installierte Editables: `travelcore`, `traveljournal`
 - pytest (und ruff für die statische Prüfung)
+
+MT-22 (Windows-Paket) braucht zusätzlich das Ergebnis von `packaging/build.ps1`, nicht das venv.
 
 ExifTool ist **kein** Testdependency. HEIC- und Provider-Tests müssen ohne das Binary bestehen. ExifTool wird nur über fest verdrahtete JSON-Fixtures geprüft.
 
@@ -401,7 +404,8 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 | Lücke | FA | Grund / nächste Phase |
 | --- | --- | --- |
 | Visuelle Marker-Vorschau / Bedienung in Qt | FA-050–FA-053 | Szene und Bridge in `test_maps.py` / `test_gui_smoke.py`; visuell MT-12 |
-| Timeline-/Tagebuch-Bedienung | FA-060–FA-069, FA-080 | Logik in `test_timeline*.py`; visuell MT-13, MT-18–MT-22 |
+| Timeline-/Tagebuch-Bedienung | FA-060–FA-069, FA-080 | Logik in `test_timeline*.py`; visuell MT-13, MT-18–MT-21 |
+| Windows-Endnutzerpaket | FA-140–FA-144 | kein pytest; manuell MT-22 nach `packaging/build.ps1` |
 | Galeriefilter in der UI | FA-101 | Logik der Liste automatisiert; Filter nur MT-09 |
 | Zuletzt verwendete Projekte in der UI | FA-091 | `recent.json` ohne Oberfläche; manuell nicht zwingend |
 | HTML-/PDF-/LaTeX-Ausgabe | FA-121–FA-123 | Phase 8 |
@@ -438,7 +442,7 @@ Schweregrade für manuelle Funde:
 
 ---
 
-## 7. Manuelle Testfälle (Phase 3 bis 7, Software R1.0.0)
+## 7. Manuelle Testfälle (Phase 3 bis 7, Software R1.0.0, inkl. Windows-Paket)
 
 Voraussetzung: App starten mit
 
@@ -594,6 +598,20 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | App ohne Projekt | Titelleiste `Reisetagebuch R1.0.0` |
 | Projekt öffnen | `Reisetagebuch R1.0.0 - {Projekttitel}` |
 
+### MT-22 Windows-Paket (FA-140–FA-144)
+
+Voraussetzung: `packaging/build.ps1` erfolgreich; optional Inno Setup 6 für die Setup-EXE.
+
+| Schritt | Erwartung |
+| --- | --- |
+| `dist/Reisetagebuch/Reisetagebuch.exe` starten (ohne venv, ohne `python` auf dem PATH) | Fenster `Reisetagebuch R1.0.0`; kein Python-Fehlerdialog |
+| Neues Projekt anlegen, JPEG-Ordner importieren | Index und Thumbnails wie in der Entwicklungsumgebung; Originale unverändert |
+| Seite **Karte** | WebEngine zeigt die Karte (nicht nur den HTML-Pfad) |
+| `%LOCALAPPDATA%\TravelJournal` | `config.json` / `recent.json` wie bisher, nicht im Programmordner |
+| `_internal/NOTICE.txt` und `_internal/LICENSE` | vorhanden |
+| Optional: Setup-EXE, Installation ohne Admin | Programm unter `%LOCALAPPDATA%\Programs\Reisetagebuch`, Startmenüeintrag |
+| SmartScreen beim ersten Start | dokumentiertes Verhalten ohne Signatur (FA-142); „Trotzdem ausführen“ erlaubt den Start |
+
 ## 8. Manuelle Fälle ab Phase 8 (Vorschau)
 
 Diese Fälle werden mit der jeweiligen Phase verbindlich.
@@ -616,6 +634,7 @@ Diese Fälle werden mit der jeweiligen Phase verbindlich.
 | Timeline / Tagebuch / Abschnitte | `test_timeline.py`, `test_timeline_sections.py`, manuell MT-13 |
 | Karte / Leiste / Kreis-Detail | `test_maps.py`, `tests/test_gui_smoke.py` (Map-Fälle), manuell MT-12 |
 | Inspektor / Drehung / Register | `test_orientation.py`, `tests/test_gui_smoke.py`, manuell MT-18–MT-21 |
+| Windows-Paket (`packaging/`) | manuell MT-22 (kein pytest) |
 | UI-Importliste | MT-04 |
 | Vor Phasenabschluss | pytest grün + manuelle Fälle der Phase + Ruff |
 

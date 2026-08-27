@@ -1,6 +1,6 @@
 # Architektur
 
-Produktanforderungen: [pflichtenheft.md](pflichtenheft.md). Leitkonzept: [konzept.md](konzept.md). Tests: [testdokumentation.md](testdokumentation.md).
+Produktanforderungen: [pflichtenheft.md](pflichtenheft.md). Leitkonzept: [konzept.md](konzept.md). Tests: [testdokumentation.md](testdokumentation.md). Windows-Paket: [packaging/README.md](../packaging/README.md).
 
 Stand: **Phase 7 erweitert**, Software **R1.0.0** (27. August 2026).
 
@@ -176,6 +176,39 @@ SQLAlchemy 2, Alembic, eine SQLite-Datei je Projekt. Migrationen:
 - `010_entry_cover` – `cover_source_file_id` an Tag und Abschnitt
 - `011_rotation_degrees` – `source_files.rotation_degrees` (Anzeigedrehung)
 
+## Windows-Paketierung
+
+Die Anwendung unter `apps/` und `packages/` bleibt unverändert. Build-Skripte
+liegen in `packaging/`. Ergebnis ist ein **onedir**-Ordner
+`dist/Reisetagebuch/` (plus Zip; optional Inno-Setup-EXE). `dist/` und `build/`
+sind gitignored.
+
+| Datei | Rolle |
+| --- | --- |
+| `packaging/entry.py` | Frozen-Einstieg: `multiprocessing.freeze_support`, dann `traveljournal.main` |
+| `packaging/traveljournal.spec` | PyInstaller: Qt-WebEngine-Hooks, Folium/Alembic-Daten, Migrationen als Dateien |
+| `packaging/build.ps1` | pip-installiert PyInstaller ins venv, friert ein, schreibt Zip, ruft optional ISCC auf |
+| `packaging/installer.iss` | Inno Setup 6, Installation nach `%LOCALAPPDATA%\Programs\Reisetagebuch` |
+| `packaging/NOTICE.txt` | LGPL-Hinweis PySide6/Qt im Paket |
+
+Alembic braucht die Migrationsdateien **auf der Platte** (`Path(__file__).parent / "migrations"`).
+PyInstaller legt sie nach `_internal/travelcore/database/migrations/`. Qt WebEngine
+liegt als `QtWebEngineProcess.exe` unter `_internal/PySide6/`.
+
+Drei Pfade bleiben getrennt:
+
+| Ort | Inhalt |
+| --- | --- |
+| Installationsordner bzw. entpacktes Zip | Programm, Qt, Python-Laufzeit |
+| `%LOCALAPPDATA%\TravelJournal` | `config.json`, `recent.json` |
+| Benutzer-Projektordner | `project.sqlite`, Thumbnails, Cache — Originale bleiben in der Quellwurzel |
+
+ProcessPool nutzt `spawn`. Ohne `freeze_support` im Frozen-Hauptmodul würden Worker
+die EXE erneut als GUI starten. Deshalb der Extra-Einstieg, nicht eine Änderung
+an `traveljournal.main`.
+
+macOS ist kein Ziel (WIC-Vorschauen, AppData-Pfade).
+
 ## Phasen
 
 1. Projektstruktur und travelcore
@@ -186,6 +219,7 @@ SQLAlchemy 2, Alembic, eine SQLite-Datei je Projekt. Migrationen:
 6. Karte
 7. Timeline und manuelle Bearbeitung  ← aktueller Stand, Software R1.0.0
    (Abschnitte, Bewertungen, Inspektor, Track-Vorschauen, Anzeigedrehung)
+   Windows-Endnutzerpaket: `packaging/` (keine eigene Fachphase)
 8. HTML-Export
 9. Qualitätsanalyse
 10. Dublettenerkennung

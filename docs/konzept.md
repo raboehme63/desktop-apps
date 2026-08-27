@@ -2,10 +2,10 @@
 
 | Feld | Inhalt |
 | --- | --- |
-| Version | 0.6 |
+| Version | 0.7 |
 | Stand | 27. August 2026 |
 | Status | Leitkonzept; Phase 7 erweitert, Software **R1.0.0** |
-| Bezug | [pflichtenheft.md](pflichtenheft.md), [architecture.md](architecture.md) |
+| Bezug | [pflichtenheft.md](pflichtenheft.md), [architecture.md](architecture.md), [packaging/README.md](../packaging/README.md) |
 
 Dieses Dokument beschreibt die **Idee, den Ablauf und die technische Leitlinie**. Verbindliche Soll-Aussagen stehen im Pflichtenheft.
 
@@ -202,6 +202,23 @@ Persistenz: SQLAlchemy 2, Alembic, eine SQLite-Datei je Projekt. Migrationen sin
 
 Nebenläufigkeit: Progress-Callbacks in `travelcore`, Qt-Threads nur in der App. CPU-Pools in der Bibliothek, SQLite seriell.
 
+### 7.1 Verteilung an Endnutzer
+
+Zwei Betriebsarten, dieselbe Fachlogik:
+
+| Wer | Start |
+| --- | --- |
+| Entwicklung | Python 3.12-venv, `python -m traveljournal` |
+| Endnutzer (Windows) | `Reisetagebuch.exe` aus dem Frozen-Ordner, dem Zip oder dem optionalen Inno-Setup |
+
+Das Frozen-Paket ist **onedir** (Ordner plus EXE), nicht eine einzige Datei: Qt WebEngine (Karte) und der ProcessPool (`spawn`) sind so zuverlässiger. Der Frozen-Einstieg `packaging/entry.py` ruft `multiprocessing.freeze_support` auf, **ohne** `traveljournal.main` zu ändern — sonst würden Worker-Prozesse weitere GUI-Fenster öffnen.
+
+Die Installation (Setup) schreibt nur nach `%LOCALAPPDATA%\Programs\Reisetagebuch`. Reiseprojekte bleiben eigene Ordner; App-Einstellungen bleiben unter `%LOCALAPPDATA%\TravelJournal`. Originale liegen weiterhin außerhalb des Installationsordners.
+
+**Nicht** im Paket: ExifTool, HEIF Image Extensions, FFmpeg. **Nicht** vorgesehen: macOS (WIC-Vorschauen, `%LOCALAPPDATA%`). PySide6 bleibt dynamisch gelinkt (LGPL); `NOTICE.txt` liegt im Paket. Eine Code-Signatur fehlt noch — SmartScreen kann die unsignierte EXE beim ersten Start beanstanden.
+
+Build: [packaging/README.md](../packaging/README.md).
+
 ---
 
 ## 8. Exportkonzept
@@ -232,7 +249,7 @@ Ranking aggregiert Qualität, Schärfe, Auflösung, Einzigartigkeit und eine Dub
 
 Standard: alles lokal. Kartenkacheln kommen optional von OpenStreetMap (`leaflet` in den Projekteinstellungen, Kacheln von openstreetmap.de mit deutschen bzw. lateinischen Namen). `offline` zeichnet nur Track und Marker, ohne Kacheln. Reverse-Geocoding bleibt OP-01.
 
-Abhängigkeiten: MIT/BSD/Apache bevorzugt, PySide6 unter LGPL mit dynamischem Linken. Jede direkte Bibliothek steht in [dependencies.md](dependencies.md). Persönliche GPS-Koordinaten gehören nicht ins Git-Repository; Tests verwenden synthetische Werte (z. B. Bozen als dokumentiertes Beispiel ohne Bezug zu echten Nutzerfotos).
+Abhängigkeiten: MIT/BSD/Apache bevorzugt, PySide6 unter LGPL mit dynamischem Linken. Das Windows-Endnutzerpaket enthält LICENSE und `NOTICE.txt`. Jede direkte Bibliothek steht in [dependencies.md](dependencies.md). Persönliche GPS-Koordinaten gehören nicht ins Git-Repository; Tests verwenden synthetische Werte (z. B. Bozen als dokumentiertes Beispiel ohne Bezug zu echten Nutzerfotos). Build-Artefakte (`dist/`, `build/`) gehören nicht ins Git.
 
 ---
 
@@ -251,4 +268,4 @@ Nicht das ganze Polarsteps-Abbild auf einmal. Jede Phase bleibt startbar und tes
 | 8 | Die Reise verlässt die App. |
 | 9–10 | Die Auswahl wird begründet (Qualität, Dubletten). |
 
-Aktueller Konzeptstand: **Phase 7 erweitert**, Software **R1.0.0** (Timeline mit Abschnitten, Bewertungen, Inspektor, Track-Vorschauen, Karten-Leiste und Kreis-Detail). HTML-Export folgt in Phase 8.
+Aktueller Konzeptstand: **Phase 7 erweitert**, Software **R1.0.0** (Timeline mit Abschnitten, Bewertungen, Inspektor, Track-Vorschauen, Karten-Leiste und Kreis-Detail). Windows-Endnutzerpaket (onedir/Zip, optional Inno-Setup) ist baubar und keine eigene Fachphase. HTML-Export folgt in Phase 8.

@@ -1,0 +1,18 @@
+Reisetagebuch — Hinweise zu Drittsoftware
+========================================
+
+Diese Anwendung (MIT-Lizenz, siehe LICENSE) bindet Qt for Python (PySide6)
+dynamisch ein. PySide6 unterliegt der LGPL-3.0 (alternativ GPL oder eine
+kommerzielle Qt-Lizenz). Der Lizenztext der LGPL-3.0 ist bei Qt / PyPI
+veröffentlicht: https://doc.qt.io/qtforpython-6/licenses.html
+
+Die dynamischen Qt-Bibliotheken liegen im Installationsordner. Eine
+Weitergabe muss die LGPL-Hinweispflichten einhalten. Dies ist keine
+Rechtsberatung.
+
+Optional, nicht Bestandteil dieses Pakets
+-----------------------------------------
+- ExifTool (Metadaten für HEIC/RAW), wenn im PATH oder an den üblichen
+  Windows-Pfaden gefunden
+- HEIF Image Extensions (Microsoft Store) für Explorer-/WIC-HEIC-Vorschauen
+- FFmpeg / ffprobe (Video-Metadaten, geplant)

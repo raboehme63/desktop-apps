@@ -37,6 +37,18 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m traveljournal
 ```
 
+## Windows-Installer
+
+Ein Setup für Endnutzer (ohne Python) wird mit Build-Skripten unter
+`packaging/` erzeugt, ohne die Anwendung selbst zu ändern:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File packaging\build.ps1
+```
+
+Details, Zip-Variante und Inno Setup: [packaging/README.md](packaging/README.md).
+macOS ist kein Ziel.
+
 ## Tests ausführen
 
 ```powershell
@@ -57,6 +69,7 @@ Linting:
 - [Architektur](docs/architecture.md) — Schichten, Projektordner, Phasen
 - [Testdokumentation](docs/testdokumentation.md) — Strategie, Automatisierung, manuelle Fälle
 - [Abhängigkeiten](docs/dependencies.md) — Bibliotheken, Versionen, Lizenzen
+- [Windows-Paketierung](packaging/README.md) — Installer, Zip, PyInstaller, Inno Setup
 
 ## Datenschutz
 
