@@ -27,6 +27,7 @@ from travelcore.maps.scene import (
     StayLink,
     build_map_scene,
     downsample_points,
+    photo_fov_degrees,
     stay_link_visible,
 )
 from travelcore.maps.static import render_leaflet_excerpt
@@ -53,6 +54,7 @@ __all__ = [
     "leaflet_payload",
     "map_cache_identity",
     "parse_group_key",
+    "photo_fov_degrees",
     "read_cached_map",
     "render_leaflet_excerpt",
     "stay_link_visible",

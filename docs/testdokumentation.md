@@ -257,11 +257,14 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 | `test_downsample_keeps_endpoints` | `test_maps.py` | Trackpunkte werden ausgedünnt, Start/Ende bleiben |
 | `test_map_scene_has_track_and_photo` | `test_maps.py` | Übersicht ein Cover, Detail: Polylinie + Fotomarker |
 | `test_map_scene_includes_place` | `test_maps.py` | Ort im Detail des Tags |
-| `test_folium_overview_cover_uses_expand_url` | `test_maps.py` | rundes Cover, Expand-Bridge, Zoom-Halt, Popup-Skript, Aufenthaltslinien, Layer-Menü Karte/Gelände/Satellit |
-| `test_overview_offline_omits_satellite` | `test_maps.py` | ohne Kacheln kein Layer-Umschalter |
+| `test_folium_overview_cover_uses_expand_url` | `test_maps.py` | rundes Cover, Expand-Bridge, Zoom-Halt, Popup-Skript, Aufenthaltslinien, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad |
+| `test_overview_offline_omits_satellite` | `test_maps.py` | ohne Kacheln kein Layer-Umschalter, Zahnrad bleibt |
 | `test_timeline_js_cards_uses_relative_cover` | `test_maps.py` | Timeline-Karten relative Cover-Pfade |
-| `test_leaflet_payload_includes_source_file_id` | `test_maps.py` | Detail-Payload: `source_file_id`, Thumbnail-Popup |
-| `test_detail_stacks_nearby_photos_until_zoom_17` | `test_maps.py` | Stapel bis Zoom 16, Anzahl, ab 17 einzeln; Orte ungestapelt |
+| `test_leaflet_payload_includes_source_file_id` | `test_maps.py` | Detail-Payload: `source_file_id`, Thumbnail-Popup, Blickrichtung |
+| `test_detail_stacks_nearby_photos_until_zoom_17` | `test_maps.py` | Stapel bis Zoom 16, Anzahl, ab 17 einzeln mit Rotation; Orte ungestapelt |
+| `test_pick_cover_item_skips_rejected` | `test_maps.py` | Aussortierte Cover fallen raus |
+| `test_photo_fov_degrees_from_35mm` | `test_maps.py` | Kegelwinkel aus 35-mm-Brennweite |
+| `test_map_detail_omits_rejected_photo` | `test_maps.py` | Aussortierte Fotos nicht im Detail; Heading/FOV am Marker |
 | `test_folium_backend_writes_html` | `test_maps.py` | Leaflet-HTML, `MapBackend` |
 | `test_offline_backend_omits_osm_tiles` | `test_maps.py` | `tiles=None` ohne OSM-URL |
 | `test_map_scene_includes_igc_flight` | `test_maps.py` | IGC-Polylinie, Pilot, DHV-Link, Zoom-Skript |
@@ -416,7 +419,7 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 - Sortierstatus Favorit/Reserve/Aussortiert inkl. Fallback auf Favoriten-Flag
 - Import bricht bei einer defekten Datei (JPEG oder GPX) nicht ab
 - Projekt anlegen, Schema (Abschnitte, URLs, Cover, Drehung), Wiederöffnen, `settings.toml` und Pfad-Rebase
-- Karte: Titelbild-Kreise je Abschnitt/Resttag, Verbindungslinien zwischen Tag- und Aufenthaltskreisen, Layer-Menü Karte/Gelände/Satellit, Leiste darunter, Detail mit Tracklinie und Fotomarkern (Stapel naher Fotos bis Zoom 16), Foto-Popup, offline ohne OSM
+- Karte: Titelbild-Kreise je Abschnitt/Resttag, Verbindungslinien zwischen Tag- und Aufenthaltskreisen, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad (Fotokegel, Reserve), Leiste darunter, Detail mit Tracklinie und Fotomarkern (Stapel naher Fotos bis Zoom 16), Foto-Popup, offline ohne OSM
 - Timeline: Tage aus Aufnahmezeit, manuelle Texte bleiben, Ortsvorschläge, `used_in_journal`
 - Reiseabschnitte, Resttage, Pending-Vorschau, Eintrags-Titelbild (Foto und Track)
 - YouTube- und DHV-Leonardo-URL-Normalisierung
@@ -532,7 +535,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | --- | --- |
 | Projekt → Einstellungen: GPS-Zeitfenster, Standardzeitzone, Kartenanbieter, Verbindungslinien-Farbe | Werte in `settings.toml`; Originale unverändert; Standardfarbe der Linien weiß |
 | Wurzelverzeichnis auf einen verschobenen Ordner setzen | Index-Pfade umgeschrieben, Dateien selbst nicht bewegt |
-| Kartenanbieter `offline` | Karte ohne OSM-, Gelände- und Satellitenkacheln, Track und Marker bleiben |
+| Kartenanbieter `offline` | Karte ohne OSM-, Topo- und Satellitenkacheln, Track und Marker bleiben |
 
 ### MT-09 Galeriefilter und Favoriten
 
@@ -561,9 +564,10 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | ein runder Kreis je Tag, Transfer oder Aufenthalt; zwischen **Tag- und Aufenthaltskreisen** in Timeline-Reihenfolge eine Verbindungslinie mit Richtungsmarker; Layer-Symbol oben rechts mit Karte / Gelände / Satellit; ohne gesetztes Titelbild das erste Foto mit GPS, sonst der erste GPS-Track; darunter die Timeline-Leiste mit denselben Einträgen; **Übersicht aller Kreise** im Ausschnitt |
-| Layer-Symbol: **Karte**, **Gelände**, **Satellit** | wechselt OSM, OpenTopoMap und Esri World Imagery; Kreise und Linien bleiben; Quellenangabe je Anbieter; `offline` ohne Symbol |
-
+| Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | ein runder Kreis je Tag, Transfer oder Aufenthalt; zwischen **Tag- und Aufenthaltskreisen** in Timeline-Reihenfolge eine Verbindungslinie mit Richtungsmarker; Layer-Symbol oben rechts mit Straßenkarte / Topo / Satellit; Zahnrad unter den Zoom-Buttons; ohne gesetztes Titelbild das erste Foto mit GPS, sonst der erste GPS-Track; darunter die Timeline-Leiste mit denselben Einträgen; **Übersicht aller Kreise** im Ausschnitt |
+| Layer-Symbol: **Straßenkarte**, **Topo**, **Satellit** | wechselt OSM, OpenTopoMap und Esri World Imagery; Kreise und Linien bleiben; Quellenangabe je Anbieter; `offline` ohne Symbol |
+| Zahnrad: **Fotokegel anzeigen** | ab Zoom 17 ein Kegel an Fotos mit Blickrichtung und Brennweite; Mouseover über ein Foto blendet die anderen Fotos und Kegel aus |
+| Zahnrad: **Reserve-Elemente anzeigen** aus | Reserve-Medien unsichtbar; Aussortierte nie auf der Karte |
 | Nach Änderungen in der Timeline Seite **Karte** öffnen | Karte erscheint ohne extra **Karte aktualisieren**, Übersicht aller Kreise |
 | **Karte aktualisieren** | Karte lädt neu und zeigt wieder die Übersicht aller Kreise |
 | Leiste: Tag-Karte | Kalendersymbol oben rechts |
@@ -577,11 +581,11 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Zwei nahe Tag-/Aufenthaltskreise, weit herausgezoomt | Verbindungslinie unsichtbar, sobald sich die Kreise überdecken |
 | Zwei entfernte Tag- oder Aufenthaltskreise | Linie mit Pfeil in Timeline-Richtung; in der Detailansicht keine Linie |
 | Doppelklick in die freie (nicht belegte) Kartenfläche | Übersicht: alle Kreise im Ausschnitt |
-| Klick auf einen Kreis | Detailansicht: Fotos, Videos und Tracks dieses Eintrags, Ausschnitt angepasst; **Reiseabschnitt schließen** stellt Zoom und Ausschnitt der Übersicht wieder her |
+| Klick auf einen Kreis | Detailansicht: Fotos, Videos und Tracks dieses Eintrags, Ausschnitt angepasst; **Reiseabschnitt schließen** rechts neben dem Zoom-Plus stellt Zoom und Ausschnitt der Übersicht wieder her |
 | Freie Karte: offene Hand (Verschieben); über einem Kreis: Zeiger (Auswahl) | der Kreis-Klick öffnet das Detail, startet kein Zoomen |
 | Klick auf ein viereckiges Foto-Symbol im Detail | kleines Thumbnail-Popup auf der Karte (nicht sofort der Inspektor) |
 | Mehrere Fotos fast am selben Ort, Zoom unter 17 | ein Stapel-Marker mit der Anzahl |
-| Hineinzoomen auf Zoom 17 oder höher | Stapel löst sich auf, auch wenn Marker übereinander liegen |
+| Hineinzoomen auf Zoom 17 oder höher | Stapel löst sich auf; liegen Marker noch übereinander, rotiert der Stapel (Datum sichtbar); Mouseover auf das gewünschte Foto blendet die anderen aus |
 | Doppelklick auf das Thumbnail (oder das Foto-Symbol) | Medieninspektor mit dem **Original**, Blättern/Zoom/Drehen wie in der Timeline |
 | Bestätigter Ort | erscheint im Detail des Tags |
 
@@ -685,7 +689,7 @@ Ein Phasenabschluss ohne grüne Automatisierung gilt als nicht abgenommen.
 
 | Datum | Kommando | Ergebnis |
 | --- | --- | --- |
-| 27.08.2026 | `python -m pytest` im Projekt-venv | 261 bestanden |
+| 27.08.2026 | `python -m pytest` im Projekt-venv | 264 bestanden |
 | 26.08.2026 | `python -m pytest` im Projekt-venv | 222 bestanden |
 | 18.08.2026 | `python -m pytest` im Projekt-venv | 98 bestanden |
 

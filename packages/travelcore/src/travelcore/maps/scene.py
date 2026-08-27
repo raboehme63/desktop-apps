@@ -5,13 +5,14 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
-from math import ceil
+from math import atan, ceil, degrees
 from pathlib import Path
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from travelcore.database.models import GpsPoint, GpsTrack, Place, SourceFile, Trip, TripDay
+from travelcore.database.models import GpsPoint, GpsTrack, Photo, Place, SourceFile, Trip, TripDay
+from travelcore.media.gallery import SORT_REJECTED, effective_sort_status
 from travelcore.media.orientation import normalize_rotation_degrees
 from travelcore.media.thumbnails import cached_thumbnail_path
 from travelcore.media.types import FileKind
@@ -20,6 +21,8 @@ MAX_TRACK_DISPLAY_POINTS = 2500
 MAX_FLIGHT_DISPLAY_POINTS = 1200
 FLIGHT_LINE_MIN_ZOOM = 10
 PHOTO_STACK_DISABLE_ZOOM = 17
+PHOTO_CONE_MIN_ZOOM = 17
+DEFAULT_PHOTO_FOV_DEGREES = 63.0
 COVER_ICON_PX = 54
 COVER_LINE_INSET_PX = 23
 STAY_LINK_STYLE_STRAIGHT = "straight"
@@ -49,6 +52,9 @@ class MapMarker:
     subtitle: str | None = None
     group_key: str | None = None
     source_file_id: int | None = None
+    sort_status: str | None = None
+    heading_degrees: float | None = None
+    fov_degrees: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +66,8 @@ class MapPolyline:
     min_zoom: int = 0
     pilot: str | None = None
     external_url: str | None = None
+    source_file_id: int | None = None
+    sort_status: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,9 +158,15 @@ def track_polylines(
             current = started.get(track.id)
             if current is None or point.recorded_at < current:
                 started[track.id] = point.recorded_at
+    statuses = _sort_status_map(
+        session, {track.source_file_id for track in meta.values() if track.source_file_id}
+    )
     lines: list[MapPolyline] = []
     for key, coords in grouped.items():
         track = meta[key[0]]
+        status = statuses.get(track.source_file_id) if track.source_file_id else None
+        if status == SORT_REJECTED:
+            continue
         is_flight = track.track_format == "igc"
         sampled = downsample_points(
             coords,
@@ -170,6 +184,8 @@ def track_polylines(
                 min_zoom=FLIGHT_LINE_MIN_ZOOM if is_flight else 0,
                 pilot=track.pilot,
                 external_url=track.external_url,
+                source_file_id=track.source_file_id,
+                sort_status=status,
             )
         )
     return lines
@@ -187,6 +203,7 @@ def _photo_markers(
         return []
     query = (
         select(SourceFile)
+        .options(selectinload(SourceFile.photo))
         .where(
             SourceFile.project_id == project_id,
             SourceFile.file_kind.in_((FileKind.PHOTO.value, FileKind.VIDEO.value, FileKind.GPS.value)),
@@ -203,6 +220,13 @@ def _photo_markers(
     for row in rows:
         if row.gps_latitude is None or row.gps_longitude is None:
             continue
+        photo = row.photo
+        status = effective_sort_status(
+            photo.sort_status if photo is not None else None,
+            bool(photo.is_favorite) if photo is not None else False,
+        )
+        if status == SORT_REJECTED:
+            continue
         day_key = _day_key(row.captured_at)
         if day_key not in day_index:
             day_index[day_key] = len(day_index)
@@ -213,6 +237,8 @@ def _photo_markers(
             kind = "video"
         else:
             kind = "track"
+        heading = row.heading_degrees if kind == "photo" else None
+        fov = photo_fov_degrees(row.focal_length_35mm, row.focal_length) if heading is not None else None
         markers.append(
             MapMarker(
                 latitude=row.gps_latitude,
@@ -230,6 +256,9 @@ def _photo_markers(
                 color=color,
                 subtitle=row.filename,
                 source_file_id=row.id,
+                sort_status=status,
+                heading_degrees=heading,
+                fov_degrees=fov,
             )
         )
     return markers
@@ -263,6 +292,31 @@ def _day_key(value: datetime | None) -> str:
     if value is None:
         return "Ohne Datum"
     return value.date().isoformat()
+
+
+def photo_fov_degrees(focal_35mm: float | None, focal_mm: float | None = None) -> float:
+    """Horizontal field of view from 35 mm equivalent (full-frame width 36 mm)."""
+
+    fl = None
+    if focal_35mm is not None and focal_35mm > 0:
+        fl = focal_35mm
+    elif focal_mm is not None and focal_mm > 0:
+        fl = focal_mm
+    if fl is None:
+        return DEFAULT_PHOTO_FOV_DEGREES
+    fov = 2 * degrees(atan(18.0 / fl))
+    return max(8.0, min(fov, 140.0))
+
+
+def _sort_status_map(session: Session, source_ids: set[int]) -> dict[int, str | None]:
+    if not source_ids:
+        return {}
+    rows = session.execute(
+        select(Photo.source_file_id, Photo.sort_status, Photo.is_favorite).where(
+            Photo.source_file_id.in_(source_ids)
+        )
+    )
+    return {source_id: effective_sort_status(status, favorite) for source_id, status, favorite in rows}
 
 
 def _center(

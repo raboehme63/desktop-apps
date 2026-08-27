@@ -142,13 +142,16 @@ Timeline. Klick auf ein Foto im Detail öffnet ein Leaflet-Popup mit Thumbnail;
 Doppelklick öffnet den Medieninspektor mit dem Original (wie Timeline).
 Nahe Foto-, Video- und Track-Marker werden bis Zoom 16 gestapelt
 (`PHOTO_STACK_DISABLE_ZOOM` = 17); der Stapel-Marker zeigt die Anzahl.
-Ab Zoom 17 liegen sie einzeln, auch übereinander. Orte bleiben ungestapelt.
+Ab Zoom 17 liegen sie einzeln, auch übereinander; überlappende Marker rotieren, Mouseover blendet die übrigen Fotos aus. Orte bleiben ungestapelt.
 Übersichtstitelbilder clustern nicht.
 
 Online-Kacheln kommen von `tile.openstreetmap.de` (deutsche Namen, sonst
 lateinische Umschrift statt Landesschrift). Ein Layer-Symbol oben rechts öffnet
-Karte (OSM), Gelände (OpenTopoMap) und Satellit (Esri World Imagery); die Wahl
-bleibt in `localStorage`. `map_provider=offline` setzt
+Straßenkarte (OSM), Topo (OpenTopoMap) und Satellit (Esri World Imagery); die Wahl
+bleibt in `localStorage`. Ein Zahnrad unter den Zoom-Buttons schaltet Fotokegel
+(ab Zoom 17, aus `heading_degrees` und 35-mm-Brennweite; Mouseover über ein Foto
+blendet die übrigen Fotos und Kegel aus) und Reserve-Medien;
+Aussortierte Medien kommen nicht auf die Karte. `map_provider=offline` setzt
 `tiles=None` (keine OSM-, OpenTopoMap- oder Satellitenkacheln, kein Umschalter). Fehlt Qt WebEngine, bleibt der Pfad sichtbar.
 
 ## Austauschbare Schnittstellen
@@ -168,7 +171,7 @@ Bereits in Phase 1 angelegt, schrittweise gefüllt:
   Cachepfad enthält `_r90` bei nicht-null `rotation_degrees`
 - `VideoMetadataProvider` – ffprobe-Adapter (noch nicht aktiv)
 - `Exporter` – HTML, PDF, LaTeX, CEWE (Implementierung ab Phase 8)
-- `MapBackend` – Folium/Leaflet, Übersicht als Titelbild-Kreise je Tag/Transfer/Aufenthalt, Layer-Menü Karte/Gelände/Satellit,
+- `MapBackend` – Folium/Leaflet, Übersicht als Titelbild-Kreise je Tag/Transfer/Aufenthalt, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad für Fotokegel (Mouseover blendet fremde Fotos und Kegel aus, überlappende Stapel rotieren ab Zoom 17) und Reserve,
   Verbindungslinien zwischen Tag- und Aufenthaltskreisen (Richtungsmarker, Zoom-Überdeckung),
   Qt-Leiste unter der Karte (Tag mit Kalender, Transfer als liegendes Sechseck), Detail mit GPX-Polylinien, IGC-Flugtracks ab Zoom 10
   (Start/Landung immer sichtbar), Foto-Popup und Inspektor, Orte

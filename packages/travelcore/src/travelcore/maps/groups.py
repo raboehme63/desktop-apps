@@ -29,6 +29,7 @@ from travelcore.maps.scene import (
     _photo_markers,
     track_polylines,
 )
+from travelcore.media.gallery import SORT_REJECTED
 from travelcore.media.orientation import normalize_rotation_degrees
 from travelcore.media.thumbnails import cached_thumbnail_path
 from travelcore.media.types import FileKind
@@ -200,15 +201,16 @@ def parse_group_key(group_key: str) -> tuple[str | None, int | str | None]:
 
 
 def pick_cover_item(items: list[TimelinePhoto], cover_id: int | None) -> TimelinePhoto | None:
-    """Stored cover, else first GPS photo, else first GPS track."""
+    """Stored cover, else first GPS photo, else first GPS track. Rejected media never count."""
 
-    by_id = {item.source_file_id: item for item in items}
+    visible = [item for item in items if item.sort_status != SORT_REJECTED]
+    by_id = {item.source_file_id: item for item in visible}
     if cover_id is not None and cover_id in by_id:
         return by_id[cover_id]
-    for item in items:
+    for item in visible:
         if item.file_kind == FileKind.PHOTO.value and _item_has_gps(item):
             return item
-    for item in items:
+    for item in visible:
         if item.file_kind == FileKind.GPS.value:
             return item
     return None
@@ -227,7 +229,9 @@ def position_for_cover(
     coords = [
         (item.gps_latitude, item.gps_longitude)
         for item in items
-        if item.gps_latitude is not None and item.gps_longitude is not None
+        if item.sort_status != SORT_REJECTED
+        and item.gps_latitude is not None
+        and item.gps_longitude is not None
     ]
     if not coords:
         return None

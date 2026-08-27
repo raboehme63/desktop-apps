@@ -115,8 +115,9 @@ class SettingsDialog(QDialog):
         extra_form.addRow("Tagebuchsprache", self.language_edit)
         note = QLabel(
             "leaflet: OpenStreetMap-Kacheln mit lateinischen bzw. deutschen Namen "
-            "(Netzwerk, openstreetmap.de). Kartenansicht, Gelände (OpenTopoMap) und Satellit (Esri) "
+            "(Netzwerk, openstreetmap.de). Straßenkarte, Topo (OpenTopoMap) und Satellit (Esri) "
             "schaltet man auf der Karte über das Layer-Symbol um. "
+            "Fotokegel und Reserve-Anzeige stehen im Zahnrad-Menü unter den Zoom-Buttons. "
             "offline: nur Track und Marker, ohne Umschalter. "
             "Verbindungslinien zwischen Tag- und Aufenthaltskreisen (Standard weiß). "
             "Tagebuchsprache folgt in einer späteren Phase."

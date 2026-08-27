@@ -244,6 +244,16 @@ class PhotosView(QWidget):
         self._apply_filters()
         self.rating_changed.emit(item)
 
+    def apply_media_rating(self, item: object) -> None:
+        """Take a rating from the map or Timeline into the already loaded gallery."""
+
+        if not isinstance(item, GalleryItem):
+            return
+        self._items = [
+            item if existing.source_file_id == item.source_file_id else existing for existing in self._items
+        ]
+        self._apply_filters()
+
     def _refresh_thumbs(self) -> None:
         if self.workspace.current is None:
             QMessageBox.information(self, "Medien", "Bitte zuerst ein Projekt öffnen.")

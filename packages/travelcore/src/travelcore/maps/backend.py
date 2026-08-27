@@ -15,7 +15,9 @@ from travelcore.maps.groups import MapTimelineCard
 from travelcore.maps.scene import (
     COVER_ICON_PX,
     COVER_LINE_INSET_PX,
+    DEFAULT_PHOTO_FOV_DEGREES,
     FLIGHT_LINE_MIN_ZOOM,
+    PHOTO_CONE_MIN_ZOOM,
     PHOTO_STACK_DISABLE_ZOOM,
     MapMarker,
     MapPolyline,
@@ -46,7 +48,22 @@ _LAYERS_ICON_SVG = (
     '<polyline points="2 17 12 22 22 17"/>'
     "</svg>"
 )
+_GEAR_ICON_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" '
+    'fill="none" stroke="#333" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" '
+    'aria-hidden="true">'
+    '<circle cx="12" cy="12" r="11"/>'
+    '<circle cx="12" cy="12" r="2.15"/>'
+    '<path d="M11.03 6.94 10.66 4.98 13.34 4.98 12.97 6.94 14.89 7.74 16.02 6.09 17.91 7.98 '
+    "16.26 9.11 17.06 11.03 19.02 10.66 19.02 13.34 17.06 12.97 16.26 14.89 17.91 16.02 "
+    "16.02 17.91 14.89 16.26 12.97 17.06 13.34 19.02 10.66 19.02 11.03 17.06 9.11 16.26 "
+    "7.98 17.91 6.09 16.02 7.74 14.89 6.94 12.97 4.98 13.34 4.98 10.66 6.94 11.03 7.74 9.11 "
+    '6.09 7.98 7.98 6.09 9.11 7.74Z"/>'
+    "</svg>"
+)
 PHOTO_STACK_RADIUS_PX = 48
+PHOTO_OVERLAP_PX = 40
+PHOTO_ROTATE_MS = 1400
 _STACK_ICON_JS = """
 function (cluster) {
   var n = cluster.getChildCount();
@@ -185,13 +202,15 @@ class FoliumMapBackend:
         extra = _add_extra_basemaps(fmap) if self.tiles else None
         folium.LayerControl(collapsed=False).add_to(fmap)
         fmap.get_root().header.add_child(folium.Element(_STACK_CSS))
+        fmap.get_root().header.add_child(folium.Element(_BASEMAP_CSS))
         if has_flights:
             fmap.get_root().html.add_child(
                 folium.Element(_zoom_script(fmap, flight_layer, FLIGHT_LINE_MIN_ZOOM))
             )
         if extra is not None:
-            fmap.get_root().header.add_child(folium.Element(_BASEMAP_CSS))
             fmap.get_root().html.add_child(folium.Element(_standalone_basemap_script(fmap, extra)))
+        else:
+            fmap.get_root().html.add_child(folium.Element(_standalone_settings_script(fmap)))
         if scene.center is None and scene.empty:
             fmap.location = [50.0, 10.0]
         output_html.parent.mkdir(parents=True, exist_ok=True)
@@ -275,7 +294,7 @@ def _add_extra_basemaps(fmap: folium.Map) -> ExtraBasemaps:
     topo = _tile_layer(
         OPENTOPO_TILES,
         attr=OPENTOPO_ATTR,
-        name="Gelände",
+        name="Topo",
         max_zoom=17,
         subdomains="abc",
     )
@@ -319,7 +338,7 @@ def _basemap_toggle_js() -> str:
         }});
       }}
       var choices = {{karte: osmLayer, topo: topoLayer, satellit: satLayer}};
-      var labels = {{karte: 'Karte', topo: 'Gelände', satellit: 'Satellit'}};
+      var labels = {{karte: 'Straßenkarte', topo: 'Topo', satellit: 'Satellit'}};
       var menuLinks = {{}};
       function applyBasemap(kind) {{
         if (!choices[kind]) {{
@@ -349,8 +368,8 @@ def _basemap_toggle_js() -> str:
         var box = L.DomUtil.create('div', 'leaflet-bar tj-basemap');
         var btn = L.DomUtil.create('a', 'tj-basemap-btn', box);
         btn.href = '#';
-        btn.title = 'Kartenansicht';
-        btn.setAttribute('aria-label', 'Kartenansicht');
+        btn.title = 'Kartentyp';
+        btn.setAttribute('aria-label', 'Kartentyp');
         btn.innerHTML = {icon};
         var menu = L.DomUtil.create('div', 'tj-basemap-menu', box);
         ['karte', 'topo', 'satellit'].forEach(function(kind) {{
@@ -392,6 +411,306 @@ def _basemap_toggle_js() -> str:
     """
 
 
+def _map_settings_js() -> str:
+    """Uses ``map`` from the enclosing script. Optional ``traveljournalApplyMapSettings``."""
+
+    icon = json.dumps(_GEAR_ICON_SVG, ensure_ascii=True)
+    return f"""
+    function readMapFlag(key) {{
+      try {{
+        return window.localStorage.getItem(key) === '1';
+      }} catch (err) {{
+        return false;
+      }}
+    }}
+    function writeMapFlag(key, on) {{
+      try {{
+        window.localStorage.setItem(key, on ? '1' : '0');
+      }} catch (err) {{}}
+    }}
+    window.traveljournalShowPhotoCones = function() {{
+      return readMapFlag('traveljournal-photo-cones');
+    }};
+    window.traveljournalShowReserve = function() {{
+      return readMapFlag('traveljournal-show-reserve');
+    }};
+    function installMapSettings() {{
+      if (window.traveljournalMapSettingsReady) {{
+        return;
+      }}
+      window.traveljournalMapSettingsReady = true;
+      var ctl = L.control({{position: 'topleft'}});
+      ctl.onAdd = function() {{
+        var box = L.DomUtil.create('div', 'leaflet-bar tj-settings');
+        var btn = L.DomUtil.create('a', 'tj-settings-btn', box);
+        btn.href = '#';
+        btn.title = 'Karteneinstellungen';
+        btn.setAttribute('aria-label', 'Karteneinstellungen');
+        btn.innerHTML = {icon};
+        var menu = L.DomUtil.create('div', 'tj-settings-menu', box);
+        function addCheck(id, label, key) {{
+          var row = L.DomUtil.create('label', '', menu);
+          var boxEl = L.DomUtil.create('input', '', row);
+          boxEl.type = 'checkbox';
+          boxEl.id = id;
+          boxEl.checked = readMapFlag(key);
+          row.appendChild(document.createTextNode(label));
+          L.DomEvent.on(boxEl, 'change', function(event) {{
+            L.DomEvent.stop(event);
+            writeMapFlag(key, boxEl.checked);
+            if (window.traveljournalApplyMapSettings) {{
+              window.traveljournalApplyMapSettings();
+            }}
+          }});
+        }}
+        addCheck('tj-opt-cones', 'Fotokegel anzeigen', 'traveljournal-photo-cones');
+        addCheck('tj-opt-reserve', 'Reserve-Elemente anzeigen', 'traveljournal-show-reserve');
+        L.DomEvent.disableClickPropagation(box);
+        L.DomEvent.on(btn, 'click', function(event) {{
+          L.DomEvent.stop(event);
+          if (L.DomUtil.hasClass(box, 'tj-settings-open')) {{
+            L.DomUtil.removeClass(box, 'tj-settings-open');
+          }} else {{
+            L.DomUtil.addClass(box, 'tj-settings-open');
+          }}
+        }});
+        return box;
+      }};
+      ctl.addTo(map);
+      L.DomEvent.on(document, 'click', function() {{
+        var el = ctl.getContainer && ctl.getContainer();
+        if (el) {{
+          L.DomUtil.removeClass(el, 'tj-settings-open');
+        }}
+      }});
+    }}
+"""
+
+
+def _photo_cone_js() -> str:
+    return f"""
+    var coneLayer = L.layerGroup().addTo(map);
+    var coneSpecs = [];
+    var photoEntries = [];
+    var focusedPhotoId = null;
+    var photoRotateTimer = null;
+    var photoRotateTick = 0;
+    var lastDetailPayload = null;
+    var CONE_MIN_ZOOM = {PHOTO_CONE_MIN_ZOOM};
+    var CONE_RANGE_M = 80;
+    var DEFAULT_FOV = {DEFAULT_PHOTO_FOV_DEGREES};
+    var PHOTO_OVERLAP_PX = {PHOTO_OVERLAP_PX};
+    var PHOTO_ROTATE_MS = {PHOTO_ROTATE_MS};
+    function itemVisible(item) {{
+      if (item.sort_status === 'rejected') {{
+        return false;
+      }}
+      if (item.sort_status === 'reserve' && window.traveljournalShowReserve
+          && !window.traveljournalShowReserve()) {{
+        return false;
+      }}
+      return true;
+    }}
+    function destination(latlng, headingDeg, meters) {{
+      var R = 6378137;
+      var lat1 = latlng.lat * Math.PI / 180;
+      var lon1 = latlng.lng * Math.PI / 180;
+      var brng = headingDeg * Math.PI / 180;
+      var ang = meters / R;
+      var lat2 = Math.asin(Math.sin(lat1) * Math.cos(ang) +
+        Math.cos(lat1) * Math.sin(ang) * Math.cos(brng));
+      var lon2 = lon1 + Math.atan2(
+        Math.sin(brng) * Math.sin(ang) * Math.cos(lat1),
+        Math.cos(ang) - Math.sin(lat1) * Math.sin(lat2)
+      );
+      return L.latLng(lat2 * 180 / Math.PI, lon2 * 180 / Math.PI);
+    }}
+    function updatePhotoCones() {{
+      coneLayer.clearLayers();
+      if (!savedView) {{
+        return;
+      }}
+      if (!window.traveljournalShowPhotoCones || !window.traveljournalShowPhotoCones()) {{
+        return;
+      }}
+      if (map.getZoom() < CONE_MIN_ZOOM) {{
+        return;
+      }}
+      coneSpecs.forEach(function(spec) {{
+        if (focusedPhotoId != null && String(spec.id) !== String(focusedPhotoId)) {{
+          return;
+        }}
+        var origin = L.latLng(spec.lat, spec.lon);
+        var half = (spec.fov || DEFAULT_FOV) / 2;
+        var left = spec.heading - half;
+        var right = spec.heading + half;
+        var pts = [origin];
+        var steps = 8;
+        for (var i = 0; i <= steps; i++) {{
+          pts.push(destination(origin, left + (right - left) * (i / steps), CONE_RANGE_M));
+        }}
+        L.polygon(pts, {{
+          color: '#2eb8a0',
+          weight: 1,
+          opacity: 0.85,
+          fillColor: '#2eb8a0',
+          fillOpacity: 0.22,
+          interactive: false,
+          className: 'tj-photo-cone'
+        }}).addTo(coneLayer);
+      }});
+    }}
+    window.traveljournalApplyMapSettings = function() {{
+      if (lastDetailPayload && savedView) {{
+        renderDetail(lastDetailPayload, true);
+      }} else {{
+        updatePhotoCones();
+      }}
+    }};
+    map.on('zoomend', function() {{
+      updatePhotoCones();
+      syncPhotoStack();
+    }});
+    map.on('moveend', function() {{
+      if (savedView) {{
+        syncPhotoStack();
+      }}
+    }});
+    function markerNode(marker) {{
+      return (marker.getElement && marker.getElement()) || marker._icon || marker._path;
+    }}
+    function setEntryVisible(entry, show) {{
+      var el = markerNode(entry.marker);
+      if (el) {{
+        el.style.visibility = show ? '' : 'hidden';
+        el.style.pointerEvents = show ? '' : 'none';
+      }}
+    }}
+    function applyPhotoVisibility() {{
+      photoEntries.forEach(function(entry) {{
+        var show = focusedPhotoId == null || String(entry.id) === String(focusedPhotoId);
+        setEntryVisible(entry, show);
+        if (!show && entry.marker.closeTooltip) {{
+          entry.marker.closeTooltip();
+        }}
+      }});
+    }}
+    function overlapPhotoGroups() {{
+      var n = photoEntries.length;
+      if (n < 2 || map.getZoom() < {PHOTO_STACK_DISABLE_ZOOM}) {{
+        return [];
+      }}
+      var pts = [];
+      var parent = [];
+      var i;
+      var j;
+      for (i = 0; i < n; i++) {{
+        pts.push(map.latLngToContainerPoint(photoEntries[i].marker.getLatLng()));
+        parent[i] = i;
+      }}
+      function find(x) {{
+        while (parent[x] !== x) {{
+          parent[x] = parent[parent[x]];
+          x = parent[x];
+        }}
+        return x;
+      }}
+      var r2 = PHOTO_OVERLAP_PX * PHOTO_OVERLAP_PX;
+      for (i = 0; i < n; i++) {{
+        for (j = i + 1; j < n; j++) {{
+          var dx = pts[i].x - pts[j].x;
+          var dy = pts[i].y - pts[j].y;
+          if ((dx * dx) + (dy * dy) <= r2) {{
+            parent[find(i)] = find(j);
+          }}
+        }}
+      }}
+      var buckets = {{}};
+      for (i = 0; i < n; i++) {{
+        var root = find(i);
+        if (!buckets[root]) {{
+          buckets[root] = [];
+        }}
+        buckets[root].push(photoEntries[i]);
+      }}
+      var groups = [];
+      Object.keys(buckets).forEach(function(key) {{
+        if (buckets[key].length > 1) {{
+          groups.push(buckets[key]);
+        }}
+      }});
+      return groups;
+    }}
+    function stopPhotoRotate() {{
+      if (photoRotateTimer) {{
+        window.clearInterval(photoRotateTimer);
+        photoRotateTimer = null;
+      }}
+    }}
+    function applyOverlapRotation() {{
+      var groups = overlapPhotoGroups();
+      var rotating = {{}};
+      groups.forEach(function(group) {{
+        var idx = photoRotateTick % group.length;
+        group.forEach(function(entry, i) {{
+          rotating[entry.id] = true;
+          var on = i === idx;
+          setEntryVisible(entry, on);
+          if (on && entry.marker.getTooltip && entry.marker.getTooltip()) {{
+            entry.marker.openTooltip();
+          }} else if (entry.marker.closeTooltip) {{
+            entry.marker.closeTooltip();
+          }}
+        }});
+      }});
+      photoEntries.forEach(function(entry) {{
+        if (!rotating[entry.id]) {{
+          setEntryVisible(entry, true);
+        }}
+      }});
+    }}
+    function syncPhotoStack() {{
+      if (focusedPhotoId != null) {{
+        stopPhotoRotate();
+        applyPhotoVisibility();
+        return;
+      }}
+      if (!overlapPhotoGroups().length) {{
+        stopPhotoRotate();
+        photoEntries.forEach(function(entry) {{
+          setEntryVisible(entry, true);
+        }});
+        return;
+      }}
+      applyOverlapRotation();
+      if (!photoRotateTimer) {{
+        photoRotateTimer = window.setInterval(function() {{
+          if (focusedPhotoId != null) {{
+            return;
+          }}
+          photoRotateTick += 1;
+          applyOverlapRotation();
+        }}, PHOTO_ROTATE_MS);
+      }}
+    }}
+    function focusPhoto(entryId) {{
+      focusedPhotoId = entryId || null;
+      stopPhotoRotate();
+      applyPhotoVisibility();
+      updatePhotoCones();
+    }}
+    function clearPhotoFocus() {{
+      if (focusedPhotoId == null) {{
+        return;
+      }}
+      focusedPhotoId = null;
+      applyPhotoVisibility();
+      updatePhotoCones();
+      syncPhotoStack();
+    }}
+"""
+
+
 def _standalone_basemap_script(fmap: folium.Map, extra: ExtraBasemaps) -> str:
     map_name = fmap.get_name()
     sat_name = extra.satellite.get_name()
@@ -408,6 +727,8 @@ def _standalone_basemap_script(fmap: folium.Map, extra: ExtraBasemaps) -> str:
       return;
     }}
     {inner}
+    {_map_settings_js()}
+    installMapSettings();
     installBasemapToggle();
   }}
   function wait(tries) {{
@@ -415,6 +736,36 @@ def _standalone_basemap_script(fmap: folium.Map, extra: ExtraBasemaps) -> str:
       if (typeof {map_name} !== 'undefined'
           && typeof {sat_name} !== 'undefined'
           && typeof {topo_name} !== 'undefined') {{
+        boot();
+        return;
+      }}
+    }} catch (err) {{}}
+    if (tries > 0) {{
+      setTimeout(function() {{ wait(tries - 1); }}, 50);
+    }}
+  }}
+  wait(120);
+}})();
+</script>
+"""
+
+
+def _standalone_settings_script(fmap: folium.Map) -> str:
+    map_name = fmap.get_name()
+    return f"""
+<script>
+(function() {{
+  function boot() {{
+    var map = {map_name};
+    if (!map) {{
+      return;
+    }}
+    {_map_settings_js()}
+    installMapSettings();
+  }}
+  function wait(tries) {{
+    try {{
+      if (typeof {map_name} !== 'undefined') {{
         boot();
         return;
       }}
@@ -449,6 +800,9 @@ def leaflet_payload(scene: MapScene, html_path: Path) -> dict[str, Any]:
             "popup_html": _popup_body(marker, html_path),
             "preview": _thumb_href(html_path, marker.preview_path) or "",
             "source_file_id": marker.source_file_id,
+            "sort_status": marker.sort_status,
+            "heading": marker.heading_degrees,
+            "fov": marker.fov_degrees,
         }
         for marker in scene.markers
     ]
@@ -461,6 +815,7 @@ def leaflet_payload(scene: MapScene, html_path: Path) -> dict[str, Any]:
             "weight": 3.5 if line.kind == "flight" else 3,
             "external_url": line.external_url or "",
             "pilot": line.pilot or "",
+            "sort_status": line.sort_status,
         }
         for line in scene.polylines
     ]
@@ -535,6 +890,67 @@ _BASEMAP_RULES = """
   background: #2eb8a0 !important;
   color: #fff !important;
 }
+.tj-settings {
+  position: relative;
+}
+.tj-settings-btn {
+  width: 26px !important;
+  height: 26px !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  line-height: 26px !important;
+}
+.tj-settings-btn svg {
+  display: block;
+}
+.tj-settings-menu {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 34px;
+  min-width: 230px;
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 1px 5px rgba(0,0,0,.4);
+  z-index: 1000;
+  overflow: hidden;
+}
+.tj-settings-open .tj-settings-menu {
+  display: block;
+}
+.tj-settings-menu label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin: 0;
+  color: #333;
+  font: 12px/1.3 "Segoe UI", sans-serif;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tj-settings-menu label:hover {
+  background: #f3f3f3;
+}
+.tj-photo-cone {
+  pointer-events: none !important;
+}
+.leaflet-left .leaflet-control.tj-close-section {
+  position: absolute;
+  left: 36px;
+  top: 0;
+  margin-top: 10px;
+  margin-left: 8px;
+  clear: none;
+  z-index: 1000;
+}
+.tj-close-section a {
+  width: auto !important;
+  padding: 0 8px !important;
+  line-height: 26px !important;
+  white-space: nowrap;
+}
 """
 
 
@@ -591,6 +1007,37 @@ _COVER_CSS = (
   margin-top: 6px;
   cursor: pointer;
   pointer-events: auto;
+}
+.tj-rate {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.tj-rate-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid #c5c5c5;
+  border-radius: 4px;
+  background: #f4f4f4;
+  color: #444;
+  font: 700 13px/26px "Segoe UI", sans-serif;
+  cursor: pointer;
+}
+.tj-rate-btn.tj-rate-on[data-status="favorite"] {
+  background: #2eb8a0;
+  border-color: #2eb8a0;
+  color: #06231e;
+}
+.tj-rate-btn.tj-rate-on[data-status="reserve"] {
+  background: #5b8def;
+  border-color: #5b8def;
+  color: #fff;
+}
+.tj-rate-btn.tj-rate-on[data-status="rejected"] {
+  background: #c45c6a;
+  border-color: #c45c6a;
+  color: #fff;
 }
 .tj-stay-arrow {
   background: none !important;
@@ -720,6 +1167,8 @@ def _overview_script(
     link_color = json.dumps(normalize_stay_link_color(color), ensure_ascii=True)
     basemap_js = _basemap_toggle_js() if extra is not None else ""
     basemap_boot = "installBasemapToggle();" if extra is not None else ""
+    settings_js = _map_settings_js()
+    cone_js = _photo_cone_js()
     return f"""
 <script>
 (function() {{
@@ -835,6 +1284,9 @@ def _overview_script(
     map.on('zoomend', drawStayLinks);
     map.on('moveend', drawStayLinks);
     {basemap_js}
+    {settings_js}
+    {cone_js}
+    installMapSettings();
     var closeCtl = null;
     function setCloseVisible(show) {{
       var el = closeCtl && closeCtl.getContainer && closeCtl.getContainer();
@@ -880,9 +1332,103 @@ def _overview_script(
       }}
       console.info('traveljournal:media:' + id);
     }};
+    function payloadStatus(sourceId) {{
+      var found = null;
+      function scan(items) {{
+        (items || []).forEach(function(item) {{
+          if (item.source_file_id === sourceId && found === null) {{
+            found = item.sort_status || null;
+          }}
+        }});
+      }}
+      if (lastDetailPayload) {{
+        scan(lastDetailPayload.markers);
+        if (found === null) {{
+          scan(lastDetailPayload.polylines);
+        }}
+      }}
+      return found;
+    }}
+    function setPayloadSort(sourceId, status) {{
+      var next = status || null;
+      function patch(item) {{
+        if (item.source_file_id === sourceId) {{
+          item.sort_status = next;
+        }}
+      }}
+      if (!lastDetailPayload) {{
+        return;
+      }}
+      (lastDetailPayload.markers || []).forEach(patch);
+      (lastDetailPayload.polylines || []).forEach(patch);
+    }}
+    function sortHides(status) {{
+      if (status === 'rejected') {{
+        return true;
+      }}
+      if (status === 'reserve' && window.traveljournalShowReserve
+          && !window.traveljournalShowReserve()) {{
+        return true;
+      }}
+      return false;
+    }}
+    function syncRateButtons(sourceId, status) {{
+      var wraps = document.querySelectorAll('.tj-rate[data-source-id="' + sourceId + '"]');
+      wraps.forEach(function(wrap) {{
+        var buttons = wrap.querySelectorAll('.tj-rate-btn');
+        for (var i = 0; i < buttons.length; i++) {{
+          var btn = buttons[i];
+          if (btn.getAttribute('data-status') === status) {{
+            L.DomUtil.addClass(btn, 'tj-rate-on');
+          }} else {{
+            L.DomUtil.removeClass(btn, 'tj-rate-on');
+          }}
+        }}
+      }});
+    }}
+    function notifySort(sourceId, status) {{
+      var text = status || '';
+      if (window.tjBridge && window.tjBridge.setSortStatus) {{
+        window.tjBridge.setSortStatus(sourceId, text);
+        return;
+      }}
+      console.info('traveljournal:sort:' + sourceId + ':' + text);
+    }}
+    window.traveljournalApplySort = function(sourceId, status) {{
+      var id = parseInt(sourceId, 10);
+      if (!id || !savedView) {{
+        return;
+      }}
+      setPayloadSort(id, status || null);
+      renderDetail(lastDetailPayload, true);
+    }};
+    window.traveljournalRate = function(sourceId, status) {{
+      var id = parseInt(sourceId, 10);
+      if (!id || !status) {{
+        return;
+      }}
+      var current = payloadStatus(id);
+      var next = current === status ? null : status;
+      setPayloadSort(id, next);
+      notifySort(id, next);
+      if (sortHides(current) || sortHides(next)) {{
+        if (map.closePopup) {{
+          map.closePopup();
+        }}
+        renderDetail(lastDetailPayload, true);
+        return;
+      }}
+      syncRateButtons(id, next);
+    }};
     window.traveljournalCloseSection = function() {{
       enableDrag();
       detail.clearLayers();
+      coneLayer.clearLayers();
+      coneSpecs = [];
+      focusedPhotoId = null;
+      photoEntries = [];
+      stopPhotoRotate();
+      lastDetailPayload = null;
       if (!map.hasLayer(covers)) {{
         map.addLayer(covers);
       }}
@@ -900,6 +1446,12 @@ def _overview_script(
       window.traveljournalKeepFocus = true;
       if (savedView) {{
         detail.clearLayers();
+        coneLayer.clearLayers();
+        coneSpecs = [];
+        focusedPhotoId = null;
+        photoEntries = [];
+        stopPhotoRotate();
+        lastDetailPayload = null;
         if (!map.hasLayer(covers)) {{
           map.addLayer(covers);
         }}
@@ -942,15 +1494,28 @@ def _overview_script(
       }} catch (err) {{}}
     }};
     window.traveljournalShowDetail = function(payload) {{
-      enableDrag();
-      savedView = {{center: map.getCenter(), zoom: map.getZoom()}};
-      drawStayLinks();
-      if (map.hasLayer(covers)) {{
-        map.removeLayer(covers);
+      renderDetail(payload, false);
+    }};
+    function renderDetail(payload, refresh) {{
+      lastDetailPayload = payload;
+      if (!refresh) {{
+        enableDrag();
+        savedView = {{center: map.getCenter(), zoom: map.getZoom()}};
+        drawStayLinks();
+        if (map.hasLayer(covers)) {{
+          map.removeLayer(covers);
+        }}
       }}
       detail.clearLayers();
+      coneSpecs = [];
+      focusedPhotoId = null;
+      photoEntries = [];
+      stopPhotoRotate();
       var cluster = photoClusterGroup();
       (payload.markers || []).forEach(function(item) {{
+        if (!itemVisible(item)) {{
+          return;
+        }}
         var latlng = [item.latitude, item.longitude];
         var marker;
         if (item.preview) {{
@@ -976,7 +1541,7 @@ def _overview_script(
           }});
         }}
         if (item.label) {{
-          marker.bindTooltip(item.label);
+          marker.bindTooltip(item.label, {{direction: 'top', opacity: 0.95}});
         }}
         if (item.popup_html) {{
           marker.bindPopup(item.popup_html, {{maxWidth: 260}});
@@ -985,6 +1550,27 @@ def _overview_script(
           marker.on('dblclick', function(event) {{
             L.DomEvent.stop(event);
             window.traveljournalOpenMedia(item.source_file_id);
+          }});
+        }}
+        if (item.kind !== 'place') {{
+          var entryId = item.source_file_id != null ? item.source_file_id : ('m' + photoEntries.length);
+          photoEntries.push({{marker: marker, item: item, id: entryId}});
+          if (item.kind === 'photo') {{
+            marker.on('mouseover', function() {{
+              focusPhoto(entryId);
+            }});
+            marker.on('mouseout', function() {{
+              clearPhotoFocus();
+            }});
+          }}
+        }}
+        if (item.kind === 'photo' && typeof item.heading === 'number') {{
+          coneSpecs.push({{
+            id: item.source_file_id || null,
+            lat: item.latitude,
+            lon: item.longitude,
+            heading: item.heading,
+            fov: item.fov || DEFAULT_FOV
           }});
         }}
         if (cluster && item.kind !== 'place') {{
@@ -997,6 +1583,9 @@ def _overview_script(
         cluster.addTo(detail);
       }}
       (payload.polylines || []).forEach(function(line) {{
+        if (!itemVisible(line)) {{
+          return;
+        }}
         var layer = L.polyline(line.points, {{
           color: line.color || '#2eb8a0',
           weight: line.weight || 3,
@@ -1024,29 +1613,32 @@ def _overview_script(
         }}
         layer.addTo(detail);
       }});
-      setCloseVisible(true);
-      try {{
-        var bounds = L.featureGroup(detail.getLayers()).getBounds();
-        if (bounds && bounds.isValid()) {{
-          var pad = window.traveljournalOverlayPad || 0;
-          map.fitBounds(bounds, {{
-            paddingTopLeft: [32, 32],
-            paddingBottomRight: [32, 32 + pad],
-            maxZoom: 15
-          }});
-        }}
-      }} catch (err) {{}}
-    }};
+      if (!refresh) {{
+        setCloseVisible(true);
+        try {{
+          var bounds = L.featureGroup(detail.getLayers()).getBounds();
+          if (bounds && bounds.isValid()) {{
+            var pad = window.traveljournalOverlayPad || 0;
+            map.fitBounds(bounds, {{
+              paddingTopLeft: [32, 32],
+              paddingBottomRight: [32, 32 + pad],
+              maxZoom: 15
+            }});
+          }}
+        }} catch (err) {{}}
+      }}
+      updatePhotoCones();
+      syncPhotoStack();
+    }}
     closeCtl = L.control({{position: 'topleft'}});
     closeCtl.onAdd = function() {{
-      var box = L.DomUtil.create('div', 'leaflet-bar');
+      var box = L.DomUtil.create('div', 'leaflet-bar tj-close-section');
       var link = L.DomUtil.create('a', '', box);
       link.href = '#';
       link.title = 'Reiseabschnitt schließen';
+      link.setAttribute('aria-label', 'Reiseabschnitt schließen');
       link.innerHTML = 'Reiseabschnitt schließen';
-      link.style.width = 'auto';
-      link.style.padding = '0 8px';
-      link.style.lineHeight = '26px';
+      L.DomEvent.disableClickPropagation(box);
       L.DomEvent.on(link, 'click', function(event) {{
         L.DomEvent.stop(event);
         window.traveljournalCloseSection();
@@ -1079,6 +1671,12 @@ def _overview_script(
       window.traveljournalKeepFocus = false;
       if (savedView) {{
         detail.clearLayers();
+        coneLayer.clearLayers();
+        coneSpecs = [];
+        focusedPhotoId = null;
+        photoEntries = [];
+        stopPhotoRotate();
+        lastDetailPayload = null;
         if (!map.hasLayer(covers)) {{
           map.addLayer(covers);
         }}
@@ -1101,22 +1699,44 @@ def _overview_script(
     }});
     map.on('popupopen', function(event) {{
       var root = event.popup && event.popup.getElement && event.popup.getElement();
-      var img = root && root.querySelector
-        ? root.querySelector('.tj-popup-thumb[data-source-id]')
-        : null;
-      if (!img || img._tjBound) {{
+      if (!root) {{
         return;
       }}
-      img._tjBound = true;
-      L.DomEvent.on(img, 'dblclick', function(ev) {{
-        L.DomEvent.stop(ev);
-        window.traveljournalOpenMedia(img.getAttribute('data-source-id'));
-      }});
+      var img = root.querySelector
+        ? root.querySelector('.tj-popup-thumb[data-source-id]')
+        : null;
+      if (img && !img._tjBound) {{
+        img._tjBound = true;
+        L.DomEvent.on(img, 'dblclick', function(ev) {{
+          L.DomEvent.stop(ev);
+          window.traveljournalOpenMedia(img.getAttribute('data-source-id'));
+        }});
+      }}
+      var buttons = root.querySelectorAll ? root.querySelectorAll('.tj-rate-btn') : [];
+      for (var i = 0; i < buttons.length; i++) {{
+        var btn = buttons[i];
+        if (btn._tjBound) {{
+          continue;
+        }}
+        btn._tjBound = true;
+        L.DomEvent.on(btn, 'click', function(ev) {{
+          L.DomEvent.stop(ev);
+          var node = ev.currentTarget || ev.target;
+          var wrap = node && node.closest ? node.closest('.tj-rate') : null;
+          var sid = wrap && wrap.getAttribute('data-source-id');
+          var kind = node && node.getAttribute && node.getAttribute('data-status');
+          if (sid && kind) {{
+            window.traveljournalRate(sid, kind);
+          }}
+        }});
+      }}
     }});
     map.on('dblclick', function(event) {{
       var target = event.originalEvent && event.originalEvent.target;
       if (target && target.closest && target.closest(
-        '.tj-cover, .tj-cover-icon, .tj-thumb, .tj-popup-thumb, .leaflet-popup, .tj-stack-icon, .tj-stack'
+        '.tj-cover, .tj-cover-icon, .tj-thumb, .tj-popup-thumb, .leaflet-popup, '
+        + '.tj-stack-icon, .tj-stack, .tj-photo-cone, .tj-settings, .tj-rate, '
+        + '.tj-close-section'
       )) {{
         L.DomEvent.stop(event);
         return;
@@ -1266,7 +1886,30 @@ def _popup_body(marker: MapMarker, html_path: Path) -> str:
         parts.append(
             f'<img class="tj-popup-thumb" src="{html.escape(href, quote=True)}" width="180" alt=""{sid}>'
         )
+    parts.append(_rating_bar_html(marker))
     return "<div style='min-width:160px'>" + "".join(parts) + "</div>"
+
+
+_RATE_CHIPS = (
+    ("favorite", "★", "Favorit"),
+    ("reserve", "R", "Reserve"),
+    ("rejected", "×", "Aussortiert"),
+)
+
+
+def _rating_bar_html(marker: MapMarker) -> str:
+    if not marker.source_file_id or marker.kind == "place":
+        return ""
+    current = marker.sort_status or ""
+    sid = int(marker.source_file_id)
+    buttons: list[str] = []
+    for status, label, title in _RATE_CHIPS:
+        on = " tj-rate-on" if current == status else ""
+        buttons.append(
+            f'<button type="button" class="tj-rate-btn{on}" data-status="{status}" '
+            f'title="{html.escape(title, quote=True)}">{label}</button>'
+        )
+    return f'<div class="tj-rate" data-source-id="{sid}">' + "".join(buttons) + "</div>"
 
 
 def _flight_end_markers(line: MapPolyline, group: folium.FeatureGroup) -> None:

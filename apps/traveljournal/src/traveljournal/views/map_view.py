@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from time import monotonic
 from urllib.parse import parse_qs, unquote, urlparse
@@ -19,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from travelcore.maps import MapRenderResult
-from travelcore.media.gallery import GalleryItem
+from travelcore.media.gallery import SORT_FAVORITE, SORT_STATUSES, GalleryItem
 from traveljournal.services.workers import MapRenderRunnable
 from traveljournal.services.workspace import Workspace
 from traveljournal.widgets.entry_links import YouTubeThumbsRow
@@ -38,6 +39,8 @@ except ImportError:  # pragma: no cover - optional Qt WebEngine
 
 _EXPAND_CONSOLE_PREFIX = "traveljournal:expand:"
 _MEDIA_CONSOLE_PREFIX = "traveljournal:media:"
+_SORT_CONSOLE_PREFIX = "traveljournal:sort:"
+_SORT_STATUSES = frozenset({"favorite", "reserve", "rejected"})
 
 
 def parse_map_expand_console(message: str) -> str | None:
@@ -64,6 +67,52 @@ def parse_map_media_console(message: str) -> int | None:
     except ValueError:
         return None
     return value if value > 0 else None
+
+
+def parse_map_sort_console(message: str) -> tuple[int, str] | None:
+    """Return source id and status from ``traveljournal:sort:id:status``."""
+
+    text = message.strip()
+    idx = text.find(_SORT_CONSOLE_PREFIX)
+    if idx < 0:
+        return None
+    rest = text[idx + len(_SORT_CONSOLE_PREFIX) :]
+    raw_id, sep, status = rest.partition(":")
+    if not sep:
+        return None
+    try:
+        source_id = int(raw_id)
+    except ValueError:
+        return None
+    if source_id <= 0 or status not in _SORT_STATUSES and status != "":
+        return None
+    return source_id, status
+
+
+def parse_map_sort_url(url: str) -> tuple[int, str] | None:
+    """Return source id and status from a sort-bridge URL, else None."""
+
+    parsed = urlparse(url)
+    if parsed.scheme == "traveljournal" and parsed.netloc == "sort":
+        query = parse_qs(parsed.query)
+    elif parsed.scheme in {"http", "https"} and parsed.netloc == "traveljournal.local":
+        path = parsed.path.rstrip("/") or "/"
+        if path != "/sort":
+            return None
+        query = parse_qs(parsed.query)
+    else:
+        return None
+    ids = query.get("id") or []
+    if not ids:
+        return None
+    try:
+        source_id = int(unquote(ids[0]))
+    except ValueError:
+        return None
+    status = unquote((query.get("status") or [""])[0])
+    if source_id <= 0 or status not in _SORT_STATUSES and status != "":
+        return None
+    return source_id, status
 
 
 def parse_map_bridge_url(url: str) -> str | None:
@@ -300,6 +349,7 @@ def publish_map_display(html_path: Path, seq: int) -> Path:
 class MapJsBridge(QObject):
     expand_requested = Signal(str)
     media_requested = Signal(int)
+    sort_status_requested = Signal(int, str)
     section_closed = Signal()
 
     @Slot(str)
@@ -311,6 +361,11 @@ class MapJsBridge(QObject):
     def openMedia(self, source_file_id: int) -> None:
         if source_file_id:
             self.media_requested.emit(int(source_file_id))
+
+    @Slot(int, str)
+    def setSortStatus(self, source_file_id: int, status: str) -> None:
+        if source_file_id:
+            self.sort_status_requested.emit(int(source_file_id), status or "")
 
     @Slot()
     def sectionClosed(self) -> None:
@@ -340,6 +395,7 @@ if QWebEnginePage is not None:
     class MapEnginePage(QWebEnginePage):
         expand_requested = Signal(str)
         media_requested = Signal(int)
+        sort_status_requested = Signal(int, str)
 
         def acceptNavigationRequest(self, url, nav_type, is_main_frame):  # type: ignore[no-untyped-def]
             key = parse_map_bridge_url(url.toString())
@@ -349,6 +405,10 @@ if QWebEnginePage is not None:
             media_id = parse_map_media_url(url.toString())
             if media_id is not None:
                 self.media_requested.emit(media_id)
+                return False
+            sort_hit = parse_map_sort_url(url.toString())
+            if sort_hit is not None:
+                self.sort_status_requested.emit(sort_hit[0], sort_hit[1])
                 return False
             if is_main_frame:
                 parsed = urlparse(url.toString())
@@ -366,6 +426,10 @@ if QWebEnginePage is not None:
             if media_id is not None:
                 self.media_requested.emit(media_id)
                 return
+            sort_hit = parse_map_sort_console(message)
+            if sort_hit is not None:
+                self.sort_status_requested.emit(sort_hit[0], sort_hit[1])
+                return
             super().javaScriptConsoleMessage(level, message, lineNumber, sourceID)
 
 else:  # pragma: no cover
@@ -375,6 +439,7 @@ else:  # pragma: no cover
 class MapView(QWidget):
     status_message = Signal(str)
     open_in_timeline = Signal(str)
+    rating_changed = Signal(object)
 
     def __init__(self, workspace: Workspace, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -613,11 +678,13 @@ class MapView(QWidget):
             page = MapEnginePage(self._web)
             page.expand_requested.connect(self._on_expand_group)
             page.media_requested.connect(self._on_open_media)
+            page.sort_status_requested.connect(self._on_sort_status)
             self._web.setPage(page)
             if QWebChannel is not None:
                 self._bridge = MapJsBridge(page)
                 self._bridge.expand_requested.connect(self._on_expand_group)
                 self._bridge.media_requested.connect(self._on_open_media)
+                self._bridge.sort_status_requested.connect(self._on_sort_status)
                 self._bridge.section_closed.connect(self._on_section_closed)
                 channel = QWebChannel(page)
                 channel.registerObject("tjBridge", self._bridge)
@@ -854,9 +921,59 @@ class MapView(QWidget):
             workspace=self.workspace,
             parent=host,
         )
+        window.rating_changed.connect(self._on_inspector_rating)
         window.show()
         window.raise_()
         window.activateWindow()
+
+    def apply_media_rating(self, item: object) -> None:
+        """Keep the open detail view in sync with ratings from Medien or Timeline."""
+
+        if not isinstance(item, GalleryItem) or not self._detail_group_key:
+            return
+        self._detail_items = [
+            item if existing.source_file_id == item.source_file_id else existing for existing in self._detail_items
+        ]
+        status = json.dumps(item.sort_status or "")
+        self._run_js(
+            f"if (window.traveljournalApplySort) traveljournalApplySort({int(item.source_file_id)}, {status});"
+        )
+
+    def _on_sort_status(self, source_file_id: int, status: str) -> None:
+        next_status = status if status in SORT_STATUSES else None
+        try:
+            self.workspace.set_sort_status(source_file_id, next_status)
+        except Exception as error:  # noqa: BLE001
+            self.status_message.emit(f"Karte: {error}")
+            return
+        updated = self._rated_detail_item(source_file_id, next_status)
+        if updated is not None:
+            self.rating_changed.emit(updated)
+
+    def _on_inspector_rating(self, item: object) -> None:
+        if not isinstance(item, GalleryItem):
+            return
+        self._detail_items = [
+            item if existing.source_file_id == item.source_file_id else existing for existing in self._detail_items
+        ]
+        self.rating_changed.emit(item)
+        status = json.dumps(item.sort_status or "")
+        self._run_js(
+            f"if (window.traveljournalApplySort) traveljournalApplySort({int(item.source_file_id)}, {status});"
+        )
+
+    def _rated_detail_item(self, source_file_id: int, status: str | None) -> GalleryItem | None:
+        current = next((item for item in self._detail_items if item.source_file_id == source_file_id), None)
+        if current is None:
+            found = self.workspace.gallery_items_for_ids([source_file_id])
+            current = found[0] if found else None
+        if current is None:
+            return None
+        updated = replace(current, sort_status=status, is_favorite=status == SORT_FAVORITE)
+        self._detail_items = [
+            updated if item.source_file_id == source_file_id else item for item in self._detail_items
+        ]
+        return updated
 
     def _show_busy(self, text: str) -> None:
         self.status_message.emit(text)

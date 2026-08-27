@@ -26,13 +26,15 @@ from travelcore.maps import (
     build_map_timeline,
     downsample_points,
     ensure_map_cache,
+    photo_fov_degrees,
     stay_link_visible,
     stay_links_from_entries,
 )
 from travelcore.maps.cache import map_html_path, map_stamp_path
 from travelcore.maps.groups import parse_group_key, pick_cover_item
+from travelcore.media.gallery import SORT_REJECTED, SORT_RESERVE
 from travelcore.media.indexer import FileIndexer
-from travelcore.timeline import KIND_MOVEMENT, KIND_STAY, create_section, sync_timeline
+from travelcore.timeline import KIND_MOVEMENT, KIND_STAY, create_section, set_photo_sort_status, sync_timeline
 from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelinePhoto, TimelineSection
 
 
@@ -158,6 +160,7 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
     assert "tj-thumb" in text
     assert "Reiseabschnitt schließen" in text
     assert "traveljournalCloseSection" in text
+    assert "tj-close-section" in text
     assert "traveljournalOpenMedia" in text
     assert "dblclick" in text
     assert "bindPopup" in text
@@ -206,15 +209,29 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
     assert "if (savedView)" in text
     assert "[[46.0, 11.0], [47.5, 12.2]]" in text or "[[46.0, 11.0],[47.5, 12.2]]" in text
     assert "Satellit" in text
-    assert "Gelände" in text
+    assert "Topo" in text
+    assert "Straßenkarte" in text
+    assert "Gelände" not in text
     assert "opentopomap" in text
     assert "World_Imagery" in text
     assert "tj-basemap" in text
     assert "tj-basemap-menu" in text
     assert "tj-basemap-btn" in text
-    assert "Kartenansicht" in text
+    assert "Kartentyp" in text
     assert "traveljournalSetBasemap" in text
     assert "traveljournal-basemap" in text
+    assert "tj-settings" in text
+    assert "Fotokegel anzeigen" in text
+    assert "Reserve-Elemente anzeigen" in text
+    assert "traveljournal-photo-cones" in text
+    assert "traveljournal-show-reserve" in text
+    assert "tj-photo-cone" in text
+    assert "focusPhoto" in text
+    assert "clearPhotoFocus" in text
+    assert "syncPhotoStack" in text
+    assert "overlapPhotoGroups" in text
+    assert "Karteneinstellungen" in text
+    assert 'r=\\"11\\"' in text
 
 
 def test_overview_offline_omits_satellite(tmp_path: Path) -> None:
@@ -235,6 +252,8 @@ def test_overview_offline_omits_satellite(tmp_path: Path) -> None:
     assert "arcgisonline" not in text.lower()
     assert "opentopomap" not in text.lower()
     assert "traveljournalSetBasemap" not in text
+    assert "Fotokegel anzeigen" in text
+    assert "Karteneinstellungen" in text
 
 
 def test_timeline_js_cards_uses_relative_cover(tmp_path: Path) -> None:
@@ -291,6 +310,25 @@ def test_leaflet_payload_includes_source_file_id(tmp_path: Path) -> None:
     assert "tj-popup-thumb" in html
     assert 'data-source-id="7"' in html
     assert 'width="180"' in html
+    heading_scene = MapScene(
+        markers=(
+            MapMarker(
+                latitude=46.0,
+                longitude=11.0,
+                label="foto",
+                kind="photo",
+                source_file_id=7,
+                heading_degrees=90.0,
+                fov_degrees=63.0,
+                sort_status="reserve",
+            ),
+        ),
+        center=(46.0, 11.0),
+    )
+    headed = leaflet_payload(heading_scene, html_path)["markers"][0]
+    assert headed["heading"] == 90.0
+    assert headed["fov"] == 63.0
+    assert headed["sort_status"] == "reserve"
 
 
 def test_detail_stacks_nearby_photos_until_zoom_17(tmp_path: Path) -> None:
@@ -311,6 +349,9 @@ def test_detail_stacks_nearby_photos_until_zoom_17(tmp_path: Path) -> None:
     assert "photoClusterGroup" in text
     assert f"disableClusteringAtZoom: {PHOTO_STACK_DISABLE_ZOOM}" in text
     assert "spiderfyOnMaxZoom: false" in text
+    assert "syncPhotoStack" in text
+    assert "overlapPhotoGroups" in text
+    assert "PHOTO_ROTATE_MS" in text
     assert "getChildCount" in text
     assert "tj-stack" in text
     assert "item.kind !== 'place'" in text
@@ -358,10 +399,12 @@ def test_folium_backend_writes_html(tmp_path: Path) -> None:
     assert "tile.openstreetmap.de" in text
     assert "World_Imagery" in text
     assert "Satellit" in text
-    assert "Gelände" in text
+    assert "Topo" in text
+    assert "Straßenkarte" in text
     assert "opentopomap" in text
     assert "tj-basemap-menu" in text
     assert "traveljournalSetBasemap" in text
+    assert "Karteneinstellungen" in text
     assert isinstance(FoliumMapBackend(), MapBackend)
 
 
@@ -568,6 +611,7 @@ def _timeline_photo(
     latitude: float | None,
     longitude: float | None = 11.0,
     file_kind: str = "photo",
+    sort_status: str | None = None,
 ) -> TimelinePhoto:
     return TimelinePhoto(
         source_file_id=file_id,
@@ -581,6 +625,7 @@ def _timeline_photo(
         gps_latitude=latitude,
         gps_longitude=longitude if latitude is not None else None,
         file_kind=file_kind,
+        sort_status=sort_status,
     )
 
 
@@ -626,6 +671,69 @@ def test_pick_cover_item_prefers_stored_cover() -> None:
     chosen = pick_cover_item(items, 2)
     assert chosen is not None
     assert chosen.filename == "zwei.jpg"
+
+
+def test_pick_cover_item_skips_rejected() -> None:
+    items = [
+        _timeline_photo("weg.jpg", file_id=1, latitude=46.0, sort_status=SORT_REJECTED),
+        _timeline_photo("ok.jpg", file_id=2, latitude=46.5),
+        _timeline_photo("reserve.jpg", file_id=3, latitude=47.0, sort_status=SORT_RESERVE),
+    ]
+    chosen = pick_cover_item(items, 1)
+    assert chosen is not None
+    assert chosen.filename == "ok.jpg"
+
+
+def test_photo_fov_degrees_from_35mm() -> None:
+    wide = photo_fov_degrees(24.0)
+    tele = photo_fov_degrees(200.0)
+    assert wide > tele
+    assert 70 < wide < 90
+    assert photo_fov_degrees(None) == 63.0
+
+
+def test_map_detail_omits_rejected_photo(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "keep.jpg",
+        datetime_original="2025:05:15 15:32:00",
+        offset_original="+02:00",
+        latitude=(46.0, 0.0, 0.0),
+        longitude=(11.0, 0.0, 0.0),
+        heading=90.0,
+        heading_ref="T",
+        focal_length_35mm=24,
+    )
+    write_jpeg_with_exif(
+        source / "drop.jpg",
+        datetime_original="2025:05:15 15:33:00",
+        offset_original="+02:00",
+        latitude=(46.01, 0.0, 0.0),
+        longitude=(11.01, 0.0, 0.0),
+    )
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        FileIndexer().index(session, project, source, project_dir=open_project.directory)
+        dropped = session.scalar(select(SourceFile).where(SourceFile.filename == "drop.jpg"))
+        assert dropped is not None
+        set_photo_sort_status(session, dropped.id, SORT_REJECTED)
+        session.commit()
+
+    thumbs = open_project.directory / "thumbnails"
+    with open_project.session_factory() as session:
+        overview = build_map_scene(session, open_project.project_id, thumbs)
+        covers = [item for item in overview.markers if item.kind == "cover"]
+        assert len(covers) == 1
+        detail = build_map_group_detail(session, open_project.project_id, covers[0].group_key, thumbs)
+    names = {item.subtitle for item in detail.markers if item.kind == "photo"}
+    assert names == {"keep.jpg"}
+    keep = next(item for item in detail.markers if item.subtitle == "keep.jpg")
+    assert keep.heading_degrees is not None
+    assert abs(keep.heading_degrees - 90.0) < 1e-6
+    assert keep.fov_degrees is not None
+    assert keep.fov_degrees > 70
 
 
 def test_parse_group_key_accepts_section_day_and_loose() -> None:
