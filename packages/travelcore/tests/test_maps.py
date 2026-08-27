@@ -31,7 +31,7 @@ from travelcore.maps import (
     stay_links_from_entries,
 )
 from travelcore.maps.cache import map_html_path, map_stamp_path
-from travelcore.maps.groups import parse_group_key, pick_cover_item
+from travelcore.maps.groups import MapTimelineCard, count_card_media, parse_group_key, pick_cover_item
 from travelcore.media.gallery import SORT_REJECTED, SORT_RESERVE
 from travelcore.media.indexer import FileIndexer
 from travelcore.timeline import KIND_MOVEMENT, KIND_STAY, create_section, set_photo_sort_status, sync_timeline
@@ -225,11 +225,18 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
     assert "Reserve-Elemente anzeigen" in text
     assert "traveljournal-photo-cones" in text
     assert "traveljournal-show-reserve" in text
+    assert "saveMapSettings" in text
+    assert "traveljournalApplyStoredMapFlags" in text
+    assert "traveljournalMapFlags" in text
+    assert "setShowReserve" in text
     assert "tj-photo-cone" in text
     assert "focusPhoto" in text
     assert "clearPhotoFocus" in text
     assert "syncPhotoStack" in text
     assert "overlapPhotoGroups" in text
+    assert "tj-photo-date" in text
+    assert "tooltipAnchor: [0, 26]" in text or "tooltipAnchor:[0,26]" in text
+    assert "leaflet-tooltip-bottom.tj-photo-date" in text
     assert "Karteneinstellungen" in text
     assert 'r=\\"11\\"' in text
 
@@ -354,6 +361,7 @@ def test_detail_stacks_nearby_photos_until_zoom_17(tmp_path: Path) -> None:
     assert "PHOTO_ROTATE_MS" in text
     assert "getChildCount" in text
     assert "tj-stack" in text
+    assert "tj-photo-date" in text
     assert "item.kind !== 'place'" in text
     assert "cluster.addTo(detail)" in text
 
@@ -684,6 +692,46 @@ def test_pick_cover_item_skips_rejected() -> None:
     assert chosen.filename == "ok.jpg"
 
 
+def test_count_card_media_splits_reserve_and_skips_rejected() -> None:
+    items = [
+        _timeline_photo("ok.jpg", file_id=1, latitude=46.0),
+        _timeline_photo("reserve.jpg", file_id=2, latitude=46.0, sort_status=SORT_RESERVE),
+        _timeline_photo("weg.jpg", file_id=3, latitude=46.0, sort_status=SORT_REJECTED),
+        _timeline_photo("clip.mp4", file_id=4, latitude=46.0, file_kind="video"),
+        _timeline_photo("route.gpx", file_id=5, latitude=46.0, file_kind="gps"),
+        _timeline_photo("spare.gpx", file_id=6, latitude=46.0, file_kind="gps", sort_status=SORT_RESERVE),
+        _timeline_photo("flight.igc", file_id=7, latitude=46.0, file_kind="gps"),
+        _timeline_photo("spare.igc", file_id=8, latitude=46.0, file_kind="gps", sort_status=SORT_RESERVE),
+        _timeline_photo("weg.igc", file_id=9, latitude=46.0, file_kind="gps", sort_status=SORT_REJECTED),
+    ]
+    photos, photo_reserve, tracks, track_reserve, igc, igc_reserve, youtube = count_card_media(
+        items, ["https://youtu.be/aaaaaaaaaaa"]
+    )
+    assert (photos, photo_reserve, tracks, track_reserve, igc, igc_reserve, youtube) == (
+        2,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+    )
+    card = MapTimelineCard(
+        group_key="section:1",
+        title="Bozen",
+        time_label="am 15.05.2025",
+        photo_count=photos,
+        photo_reserve_count=photo_reserve,
+        track_count=tracks,
+        track_reserve_count=track_reserve,
+        igc_count=igc,
+        igc_reserve_count=igc_reserve,
+        youtube_count=youtube,
+    )
+    assert card.visible_counts(show_reserve=False) == (2, 1, 1, 1)
+    assert card.visible_counts(show_reserve=True) == (3, 2, 2, 1)
+
+
 def test_photo_fov_degrees_from_35mm() -> None:
     wide = photo_fov_degrees(24.0)
     tele = photo_fov_degrees(200.0)
@@ -771,7 +819,15 @@ def test_build_map_timeline_cards_from_section(open_project: OpenProject, tmp_pa
         assert project is not None
         snapshot = sync_timeline(session, project, thumbs_dir=thumbs)
         ids = [photo.source_file_id for photo in snapshot.days[0].photos]
-        create_section(session, snapshot.trip_id, ids, kind=KIND_STAY, title="Bozen")
+        create_section(
+            session,
+            snapshot.trip_id,
+            ids,
+            kind=KIND_STAY,
+            title="Bozen",
+            notes="Ankunft am Abend.",
+            youtube_urls=["https://youtu.be/dQw4w9WgXcQ"],
+        )
         session.commit()
         cards = build_map_timeline(session, open_project.project_id, thumbs)
     assert len(cards) == 1
@@ -784,6 +840,15 @@ def test_build_map_timeline_cards_from_section(open_project: OpenProject, tmp_pa
     assert card.longitude == 11.0
     assert card.cover_path is not None
     assert card.card_kind == KIND_STAY
+    assert card.notes == "Ankunft am Abend."
+    assert card.stored_title == "Bozen"
+    assert card.youtube_urls == ("https://youtu.be/dQw4w9WgXcQ",)
+    assert card.photo_count == 2
+    assert card.photo_reserve_count == 0
+    assert card.track_count == 0
+    assert card.igc_count == 0
+    assert card.youtube_count == 1
+    assert card.visible_counts(show_reserve=False) == (2, 0, 0, 1)
 
 
 def _stay_entry(section_id: int, latitude: float | None, longitude: float = 11.0) -> TimelineEntry:

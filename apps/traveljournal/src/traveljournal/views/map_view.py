@@ -9,21 +9,29 @@ from time import monotonic
 from urllib.parse import parse_qs, unquote, urlparse
 
 from PySide6.QtCore import QFile, QIODevice, QObject, QThreadPool, QTimer, QUrl, Signal, Slot
-from PySide6.QtGui import QDesktopServices, QResizeEvent, QShowEvent
+from PySide6.QtGui import QDesktopServices, QHideEvent, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QMessageBox,
+    QPlainTextEdit,
     QPushButton,
+    QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from travelcore.maps import MapRenderResult
+from travelcore.maps.groups import parse_group_key
 from travelcore.media.gallery import SORT_FAVORITE, SORT_STATUSES, GalleryItem
 from traveljournal.services.workers import MapRenderRunnable
 from traveljournal.services.workspace import Workspace
-from traveljournal.widgets.entry_links import YouTubeThumbsRow
+from traveljournal.widgets.entry_links import (
+    MAP_YOUTUBE_THUMB_COLUMNS,
+    MAP_YOUTUBE_THUMB_SIZE,
+    YouTubeThumbsRow,
+)
 from traveljournal.widgets.map_timeline import MapTimelineStrip
 from traveljournal.widgets.media_inspector import MediaInspectorWindow
 
@@ -351,6 +359,8 @@ class MapJsBridge(QObject):
     media_requested = Signal(int)
     sort_status_requested = Signal(int, str)
     section_closed = Signal()
+    reserve_changed = Signal(bool)
+    map_settings_changed = Signal(bool, bool)
 
     @Slot(str)
     def expand(self, group_key: str) -> None:
@@ -371,6 +381,26 @@ class MapJsBridge(QObject):
     def sectionClosed(self) -> None:
         self.section_closed.emit()
 
+    @Slot(bool)
+    def setShowReserve(self, show: bool) -> None:
+        self.reserve_changed.emit(bool(show))
+
+    @Slot(bool, bool)
+    def saveMapSettings(self, photo_cones: bool, show_reserve: bool) -> None:
+        self.map_settings_changed.emit(bool(photo_cones), bool(show_reserve))
+
+
+def _map_flags_bootstrap_js(workspace: Workspace) -> str:
+    if workspace.current is None:
+        return ""
+    cones = "true" if workspace.map_show_photo_cones() else "false"
+    reserve = "true" if workspace.map_show_reserve() else "false"
+    return (
+        f"window.traveljournalMapFlags={{cones:{cones},reserve:{reserve}}};"
+        f"if(window.traveljournalApplyStoredMapFlags){{"
+        f"window.traveljournalApplyStoredMapFlags({cones},{reserve});}}"
+    )
+
 
 def _webchannel_bootstrap_js() -> str:
     qfile = QFile(":/qtwebchannel/qwebchannel.js")
@@ -384,6 +414,9 @@ def _webchannel_bootstrap_js() -> str:
 if (typeof qt !== 'undefined' && typeof QWebChannel !== 'undefined') {
   new QWebChannel(qt.webChannelTransport, function(channel) {
     window.tjBridge = channel.objects.tjBridge;
+    if (window.traveljournalShowReserve && window.tjBridge.setShowReserve) {
+      window.tjBridge.setShowReserve(!!window.traveljournalShowReserve());
+    }
   });
 }
 """
@@ -467,6 +500,10 @@ class MapView(QWidget):
         self._detail_group_key = ""
         self._pending_focus = ""
         self._requested_focus = ""
+        self._notes_group_key = ""
+        self._notes_title = ""
+        self._notes_baseline = ""
+        self._notes_loading = False
         self._invalidate_timer = QTimer(self)
         self._invalidate_timer.setSingleShot(True)
         self._invalidate_timer.setInterval(80)
@@ -500,8 +537,49 @@ class MapView(QWidget):
         self._message.setWordWrap(True)
         self._stack.addWidget(self._message)
 
-        self._youtube = YouTubeThumbsRow()
+        self._side = QWidget()
+        self._side.setObjectName("mapEntrySide")
+        self._side.setMinimumWidth(260)
+        self._side.setMaximumWidth(380)
+        self._side.setFixedWidth(300)
+        side_layout = QVBoxLayout(self._side)
+        side_layout.setContentsMargins(0, 0, 0, 0)
+        side_layout.setSpacing(8)
+        notes_label = QLabel("Tagebucheintrag")
+        notes_label.setObjectName("pageSubtitle")
+        self._notes_edit = QPlainTextEdit()
+        self._notes_edit.setObjectName("mapNotesEdit")
+        self._notes_edit.setPlaceholderText("Tagebucheintrag der fokussierten Abschnittskarte")
+        self._notes_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._notes_edit.textChanged.connect(self._on_notes_changed)
+        self._notes_actions = QWidget()
+        self._notes_actions.setObjectName("mapNotesActions")
+        actions_layout = QHBoxLayout(self._notes_actions)
+        actions_layout.setContentsMargins(0, 0, 0, 0)
+        actions_layout.setSpacing(6)
+        self._notes_save = QPushButton("Speichern")
+        self._notes_save.setObjectName("primary")
+        self._notes_cancel = QPushButton("Abbrechen")
+        self._notes_cancel.setObjectName("mapNotesCancel")
+        self._notes_discard = QPushButton("Verwerfen")
+        self._notes_discard.setObjectName("mapNotesDiscard")
+        self._notes_save.clicked.connect(self._save_focused_notes)
+        self._notes_cancel.clicked.connect(self._cancel_focused_notes)
+        self._notes_discard.clicked.connect(self._discard_focused_notes)
+        for button in (self._notes_save, self._notes_cancel, self._notes_discard):
+            button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            actions_layout.addWidget(button)
+        self._notes_actions.hide()
+        self._youtube = YouTubeThumbsRow(
+            columns=MAP_YOUTUBE_THUMB_COLUMNS,
+            thumb_size=MAP_YOUTUBE_THUMB_SIZE,
+        )
         self._youtube.set_urls(())
+        side_layout.addWidget(notes_label)
+        side_layout.addWidget(self._notes_edit, 1)
+        side_layout.addWidget(self._notes_actions)
+        side_layout.addWidget(self._youtube)
+
         self._timeline = MapTimelineStrip()
         self._timeline.focus_changed.connect(self._on_timeline_focus)
         self._timeline.open_in_timeline.connect(self.open_in_timeline.emit)
@@ -509,7 +587,11 @@ class MapView(QWidget):
         self._web_layout = QVBoxLayout(self._web_host)
         self._web_layout.setContentsMargins(0, 0, 0, 0)
         self._web_layout.setSpacing(6)
-        self._web_layout.addWidget(self._youtube)
+        self._map_row = QHBoxLayout()
+        self._map_row.setContentsMargins(0, 0, 0, 0)
+        self._map_row.setSpacing(12)
+        self._map_row.addWidget(self._side)
+        self._web_layout.addLayout(self._map_row, 1)
         self._web_layout.addWidget(self._timeline)
         self._stack.addWidget(self._web_host)
         root.addWidget(self._stack, 1)
@@ -553,7 +635,7 @@ class MapView(QWidget):
         self._detail_group_key = ""
         self._pending_focus = ""
         self._requested_focus = ""
-        self._youtube.set_urls(())
+        self._clear_entry_panel()
         self._timeline.set_cards(())
         self._timeline.setVisible(False)
         if self.workspace.current is None:
@@ -574,6 +656,10 @@ class MapView(QWidget):
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
         super().resizeEvent(event)
         self._schedule_invalidate()
+
+    def hideEvent(self, event: QHideEvent) -> None:  # noqa: N802
+        self._flush_notes_save()
+        super().hideEvent(event)
 
     def _force_refresh(self) -> None:
         self._show_cached_or_prepare(force=True)
@@ -638,6 +724,7 @@ class MapView(QWidget):
             self._pending_url = None
             self._display_html = None
             self._timeline.set_cards(())
+            self._clear_entry_panel()
             self._show_message(result.summary_line())
             self.status_message.emit("Karte: keine GPS-Daten")
             return
@@ -664,7 +751,7 @@ class MapView(QWidget):
             self._map_focus_armed = False
             self._last_expand_key = ""
             self._detail_group_key = ""
-            self._youtube.set_urls(())
+            self._clear_entry_panel()
             self._reload_timeline(arm_focus=False)
             self._load_html_if_needed()
         self.status_message.emit(result.summary_line())
@@ -673,7 +760,7 @@ class MapView(QWidget):
         if self._web is not None or QWebEngineView is None:
             return
         self._web = QWebEngineView(self._web_host)
-        self._web_layout.insertWidget(0, self._web, 1)
+        self._map_row.insertWidget(0, self._web, 1)
         if MapEnginePage is not None:
             page = MapEnginePage(self._web)
             page.expand_requested.connect(self._on_expand_group)
@@ -686,6 +773,8 @@ class MapView(QWidget):
                 self._bridge.media_requested.connect(self._on_open_media)
                 self._bridge.sort_status_requested.connect(self._on_sort_status)
                 self._bridge.section_closed.connect(self._on_section_closed)
+                self._bridge.reserve_changed.connect(self._timeline.set_show_reserve)
+                self._bridge.map_settings_changed.connect(self._on_map_settings_changed)
                 channel = QWebChannel(page)
                 channel.registerObject("tjBridge", self._bridge)
                 page.setWebChannel(channel)
@@ -737,6 +826,9 @@ class MapView(QWidget):
     def _install_page_hooks(self) -> None:
         if self._web is None:
             return
+        flags = _map_flags_bootstrap_js(self.workspace)
+        if flags:
+            self._web.page().runJavaScript(flags)
         script = _webchannel_bootstrap_js()
         if script:
             self._web.page().runJavaScript(script)
@@ -744,17 +836,23 @@ class MapView(QWidget):
 
     def _reload_timeline(self, *, arm_focus: bool) -> None:
         self._map_focus_armed = False
+        self._flush_notes_save()
+        self._notes_group_key = ""
         if self.workspace.current is None:
             self._timeline.set_cards(())
             self._timeline.setVisible(False)
+            self._clear_entry_panel()
             return
         try:
             cards = self.workspace.map_timeline_cards()
         except Exception as exc:  # noqa: BLE001 - keep the map usable
             self.status_message.emit(f"Karte: Timeline {exc}")
             cards = ()
+        self._timeline.set_show_reserve(self.workspace.map_show_reserve())
         self._timeline.set_cards(cards)
         self._timeline.setVisible(bool(cards))
+        if not cards:
+            self._clear_entry_panel()
         if self._requested_focus:
             QTimer.singleShot(0, self._apply_requested_focus)
         elif arm_focus:
@@ -828,13 +926,140 @@ class MapView(QWidget):
             return
         self._web.page().runJavaScript(script)
 
+    def _on_map_settings_changed(self, photo_cones: bool, show_reserve: bool) -> None:
+        self.workspace.set_map_display_flags(photo_cones=photo_cones, show_reserve=show_reserve)
+        self._timeline.set_show_reserve(show_reserve)
+
     def _on_timeline_focus(self, group_key: str) -> None:
+        previous = self._notes_group_key
+        if not self._load_entry_panel(group_key):
+            if previous:
+                QTimer.singleShot(0, lambda key=previous: self._timeline.center_on(key, emit=False))
+            return
         if not self._map_focus_armed:
             return
         if not group_key or group_key == self._last_expand_key:
             return
         self._pending_focus = group_key
         self._apply_pending_focus()
+
+    def _clear_entry_panel(self) -> None:
+        self._notes_group_key = ""
+        self._notes_title = ""
+        self._notes_baseline = ""
+        self._notes_loading = True
+        self._notes_edit.clear()
+        self._notes_edit.setEnabled(False)
+        self._notes_loading = False
+        self._notes_actions.hide()
+        self._youtube.set_urls(())
+
+    def _load_entry_panel(self, group_key: str) -> bool:
+        if group_key == self._notes_group_key:
+            return True
+        if self._notes_are_dirty() and not self._confirm_leave_notes():
+            return False
+        card = self._timeline.card(group_key) if group_key else None
+        if card is None:
+            self._clear_entry_panel()
+            return True
+        kind, _raw = parse_group_key(card.group_key)
+        editable = kind in {"section", "day"}
+        self._notes_group_key = card.group_key
+        self._notes_title = card.stored_title
+        self._notes_baseline = card.notes
+        self._notes_loading = True
+        self._notes_edit.setEnabled(editable)
+        self._notes_edit.setPlainText(card.notes)
+        if kind == "day":
+            self._notes_edit.setPlaceholderText("Tagebucheintrag — aus importierten Texten vorbefüllt")
+        elif kind == "section":
+            self._notes_edit.setPlaceholderText("Tagebucheintrag für diesen Abschnitt")
+        else:
+            self._notes_edit.setPlaceholderText("Kein Tagebucheintrag für diesen Eintrag")
+        self._notes_loading = False
+        self._sync_notes_actions()
+        self._youtube.set_urls(card.youtube_urls)
+        return True
+
+    def _notes_are_dirty(self) -> bool:
+        return (
+            bool(self._notes_group_key)
+            and self._notes_edit.isEnabled()
+            and not self._notes_loading
+            and self._notes_edit.toPlainText() != self._notes_baseline
+        )
+
+    def _sync_notes_actions(self) -> None:
+        self._notes_actions.setVisible(self._notes_are_dirty())
+
+    def _on_notes_changed(self) -> None:
+        if self._notes_loading:
+            return
+        self._sync_notes_actions()
+
+    def _flush_notes_save(self) -> None:
+        if self._notes_are_dirty():
+            self._save_focused_notes()
+
+    def _ask_dirty_notes(self) -> str:
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Tagebucheintrag")
+        box.setText("Der Tagebucheintrag wurde geändert.")
+        box.setInformativeText("Speichern, die Änderung verwerfen oder bei diesem Eintrag bleiben?")
+        save = box.addButton("Speichern", QMessageBox.ButtonRole.AcceptRole)
+        discard = box.addButton("Verwerfen", QMessageBox.ButtonRole.DestructiveRole)
+        cancel = box.addButton("Abbrechen", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(save)
+        box.setEscapeButton(cancel)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked == save:
+            return "save"
+        if clicked == discard:
+            return "discard"
+        return "cancel"
+
+    def _confirm_leave_notes(self) -> bool:
+        choice = self._ask_dirty_notes()
+        if choice == "save":
+            self._save_focused_notes()
+            return not self._notes_are_dirty()
+        return choice == "discard"
+
+    def _cancel_focused_notes(self) -> None:
+        self._notes_loading = True
+        self._notes_edit.setPlainText(self._notes_baseline)
+        self._notes_loading = False
+        self._sync_notes_actions()
+
+    def _discard_focused_notes(self) -> None:
+        self._notes_loading = True
+        self._notes_edit.setPlainText("")
+        self._notes_loading = False
+        self._save_focused_notes()
+
+    def _save_focused_notes(self) -> None:
+        key = self._notes_group_key
+        kind, raw_id = parse_group_key(key)
+        if kind not in {"section", "day"} or not isinstance(raw_id, int):
+            return
+        notes = self._notes_edit.toPlainText()
+        title = self._notes_title
+        if self.workspace.current is not None:
+            try:
+                if kind == "section":
+                    self.workspace.save_section_text(raw_id, title=title, notes=notes)
+                else:
+                    self.workspace.save_day_text(raw_id, title=title, notes=notes)
+            except Exception as exc:  # noqa: BLE001 - keep the map usable
+                self.status_message.emit(f"Karte: {exc}")
+                self._sync_notes_actions()
+                return
+        self._timeline.update_card_notes(key, notes)
+        self._notes_baseline = notes
+        self._sync_notes_actions()
 
     def _apply_pending_focus(self) -> None:
         group_key = self._pending_focus
@@ -877,9 +1102,6 @@ class MapView(QWidget):
             self.status_message.emit(f"Karte: {exc}")
             return
         encoded = json.dumps(payload, ensure_ascii=True)
-        urls = payload.get("youtube_urls")
-        youtube = [item for item in urls if isinstance(item, str)] if isinstance(urls, list) else []
-        self._youtube.set_urls(youtube)
         self._timeline.center_on(group_key)
         self._run_js(f"if (window.traveljournalShowDetail) traveljournalShowDetail({encoded});")
 
@@ -887,7 +1109,6 @@ class MapView(QWidget):
         self._detail_items = []
         self._detail_group_key = ""
         self._last_expand_key = ""
-        self._youtube.set_urls(())
         self._schedule_invalidate()
 
     def _on_open_media(self, source_file_id: int) -> None:
@@ -932,12 +1153,12 @@ class MapView(QWidget):
         if not isinstance(item, GalleryItem) or not self._detail_group_key:
             return
         self._detail_items = [
-            item if existing.source_file_id == item.source_file_id else existing for existing in self._detail_items
+            item if existing.source_file_id == item.source_file_id else existing
+            for existing in self._detail_items
         ]
         status = json.dumps(item.sort_status or "")
-        self._run_js(
-            f"if (window.traveljournalApplySort) traveljournalApplySort({int(item.source_file_id)}, {status});"
-        )
+        source_id = int(item.source_file_id)
+        self._run_js(f"if (window.traveljournalApplySort) traveljournalApplySort({source_id}, {status});")
 
     def _on_sort_status(self, source_file_id: int, status: str) -> None:
         next_status = status if status in SORT_STATUSES else None
@@ -954,13 +1175,13 @@ class MapView(QWidget):
         if not isinstance(item, GalleryItem):
             return
         self._detail_items = [
-            item if existing.source_file_id == item.source_file_id else existing for existing in self._detail_items
+            item if existing.source_file_id == item.source_file_id else existing
+            for existing in self._detail_items
         ]
         self.rating_changed.emit(item)
         status = json.dumps(item.sort_status or "")
-        self._run_js(
-            f"if (window.traveljournalApplySort) traveljournalApplySort({int(item.source_file_id)}, {status});"
-        )
+        source_id = int(item.source_file_id)
+        self._run_js(f"if (window.traveljournalApplySort) traveljournalApplySort({source_id}, {status});")
 
     def _rated_detail_item(self, source_file_id: int, status: str | None) -> GalleryItem | None:
         current = next((item for item in self._detail_items if item.source_file_id == source_file_id), None)

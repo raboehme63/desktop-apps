@@ -86,6 +86,14 @@ class PerformanceSettings(BaseModel):
     worker_count: int = Field(default=0, ge=0, le=64)
 
 
+def _as_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
 class PlaceholderSettings(BaseModel):
     """Keys reserved for later phases. Unknown extras are kept on round-trip."""
 
@@ -93,12 +101,19 @@ class PlaceholderSettings(BaseModel):
 
     map_provider: str = "leaflet"
     map_link_color: str = "#ffffff"
+    map_show_photo_cones: bool = False
+    map_show_reserve: bool = False
     journal_language: str = "de"
 
     @field_validator("map_link_color", mode="before")
     @classmethod
     def _link_color(cls, value: object) -> str:
         return normalize_stay_link_color(value)
+
+    @field_validator("map_show_photo_cones", "map_show_reserve", mode="before")
+    @classmethod
+    def _map_flags(cls, value: object) -> bool:
+        return _as_bool(value)
 
 
 class ProjectSettings(BaseModel):

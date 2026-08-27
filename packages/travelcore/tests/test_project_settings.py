@@ -26,6 +26,8 @@ def test_new_project_writes_settings_file(tmp_path: Path) -> None:
     assert settings.export.default_format == "html"
     assert settings.placeholders.map_provider == "leaflet"
     assert settings.placeholders.map_link_color == "#ffffff"
+    assert settings.placeholders.map_show_photo_cones is False
+    assert settings.placeholders.map_show_reserve is False
 
 
 def test_settings_roundtrip_preserves_values(tmp_path: Path) -> None:
@@ -39,6 +41,8 @@ def test_settings_roundtrip_preserves_values(tmp_path: Path) -> None:
     settings.performance.worker_count = 4
     settings.placeholders.journal_language = "it"
     settings.placeholders.map_link_color = "#aabbcc"
+    settings.placeholders.map_show_photo_cones = True
+    settings.placeholders.map_show_reserve = True
     save_project_settings(directory, settings)
     loaded = load_project_settings(directory)
     assert loaded.export.default_format == "pdf"
@@ -47,6 +51,8 @@ def test_settings_roundtrip_preserves_values(tmp_path: Path) -> None:
     assert loaded.performance.worker_count == 4
     assert loaded.placeholders.journal_language == "it"
     assert loaded.placeholders.map_link_color == "#aabbcc"
+    assert loaded.placeholders.map_show_photo_cones is True
+    assert loaded.placeholders.map_show_reserve is True
     assert loaded.paths.source_root is not None
     assert Path(loaded.paths.source_root) == tmp_path / "fotos"
 

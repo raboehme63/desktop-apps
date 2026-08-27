@@ -172,20 +172,22 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 | `test_sqlite_waits_when_busy` | `test_database.py` | Busy-Timeout statt sofortigem Fehler |
 | `test_new_project_writes_settings_file` | `test_project_settings.py` | Default-`settings.toml` |
 | `test_normalize_stay_link_color_accepts_hex_and_falls_back` | `test_project_settings.py` | Linienfarbe Hex / Fallback weiß |
-| `test_settings_roundtrip_preserves_values` | `test_project_settings.py` | Exportformat, Wurzel, Zeitzone, CPU-Worker |
+| `test_settings_roundtrip_preserves_values` | `test_project_settings.py` | Exportformat, Wurzel, Zeitzone, CPU-Worker, Kartenzahnrad |
 | `test_corrupt_settings_raise` | `test_project_settings.py` | unlesbares TOML → `ProjectError` |
 | `test_ensure_fills_source_root_from_database` | `test_project_settings.py` | fehlende Wurzel aus der DB nachziehen |
 | `test_rebase_rewrites_indexed_paths` | `test_project_settings.py` | Pfad-Rebase ohne Original-Move |
 | `test_project_survives_close_and_reopen` | `tests/integration/test_project_lifecycle.py` | Index überlebt Re-Open |
 | `test_exporters_share_interface` | `test_interfaces.py` | HTML/PDF/LaTeX/CEWE sind `Exporter` |
 | `test_protocols_are_importable` | `test_interfaces.py` | `MetadataProvider`, `RankingStrategy`, `MapBackend` |
-| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R1.0.0, Pipeline Projekt/Import/Medien/Timeline/Karte/Export, Medienregister |
+| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R1.0.0, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister |
 
 ### 4.7 GPX und zeitliche Zuordnung — FA-040 bis FA-042
 
 | Test | Datei | Prüft |
 | --- | --- | --- |
 | `test_parse_gpx_track_and_segment` | `test_gpx_parse.py` | Punkte, Höhe, UTC-Zeit, Segment-ID |
+| `test_convert_file_writes_sibling_gpx` | `tests/test_json_routes_to_gpx.py` | Polar-JSON Routes → GPX neben der Datei |
+| `test_directory_mode_prints_dots_and_counts` | `tests/test_json_routes_to_gpx.py` | `-d` / `-r`, Punkte und Zähler |
 | `test_summarize_mean_of_first_points_and_start_time` | `test_gpx_parse.py` | Mittelwert der ersten Punkte, erste Trackzeit |
 | `test_summarize_uses_first_timed_point_even_if_later` | `test_gpx_parse.py` | Startzeit ist der erste Punkt **mit** Zeit |
 | `test_summarize_untimed_points_have_position_but_no_start` | `test_gpx_parse.py` | Position ohne `recorded_at` |
@@ -263,6 +265,7 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 | `test_leaflet_payload_includes_source_file_id` | `test_maps.py` | Detail-Payload: `source_file_id`, Thumbnail-Popup, Blickrichtung |
 | `test_detail_stacks_nearby_photos_until_zoom_17` | `test_maps.py` | Stapel bis Zoom 16, Anzahl, ab 17 einzeln mit Rotation; Orte ungestapelt |
 | `test_pick_cover_item_skips_rejected` | `test_maps.py` | Aussortierte Cover fallen raus |
+| `test_count_card_media_splits_reserve_and_skips_rejected` | `test_maps.py` | Reserve getrennt, Aussortierte nie; IGC separat von GPX |
 | `test_photo_fov_degrees_from_35mm` | `test_maps.py` | Kegelwinkel aus 35-mm-Brennweite |
 | `test_map_detail_omits_rejected_photo` | `test_maps.py` | Aussortierte Fotos nicht im Detail; Heading/FOV am Marker |
 | `test_folium_backend_writes_html` | `test_maps.py` | Leaflet-HTML, `MapBackend` |
@@ -274,7 +277,7 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 | `test_pick_cover_item_uses_first_gps_photo` | `test_maps.py` | ohne Titelbild erstes Foto mit GPS |
 | `test_pick_cover_item_uses_first_gps_track_without_photo_fix` | `test_maps.py` | ohne GPS-Foto erster GPS-Track |
 | `test_parse_group_key_accepts_section_day_and_loose` | `test_maps.py` | `section:` / `day:` / `loose:` |
-| `test_build_map_timeline_cards_from_section` | `test_maps.py` | Leistenkarten aus Abschnitt |
+| `test_build_map_timeline_cards_from_section` | `test_maps.py` | Leistenkarten aus Abschnitt inkl. Text und YouTube |
 | `test_stay_links_connect_days_and_stays_in_timeline_order` | `test_maps.py` | Linien zwischen Tag- und Aufenthaltskreisen in Timeline-Reihenfolge |
 | `test_stay_links_connect_leftover_days` | `test_maps.py` | Resttage mit GPS werden verbunden |
 | `test_stay_links_skip_transfer_as_endpoint` | `test_maps.py` | Transfer-Kreis ist kein Linienende |
@@ -287,7 +290,7 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 | `test_map_view_refresh_uses_disk_cache_without_rebuild` | `tests/test_gui_smoke.py` | MapView zeigt Cache; Leiste unter dem WebView |
 | `test_publish_map_display_writes_unique_file` | `tests/test_gui_smoke.py` | WebEngine lädt eine neue HTML-Kopie nach Rebuild |
 | `test_map_view_applies_prepared_result_when_shown` | `tests/test_gui_smoke.py` | Hintergrund-Karte wird beim Öffnen der Seite übernommen |
-| `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Leiste zentriert die erste Karte; Transfer-Sechseck gleiche Kartengröße; Fokus größer |
+| `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Leiste zentriert; Transfer-Sechseck; Zähler Fotos/Tracks/IGC/YouTube |
 | `test_inspector_map_opens_thumbnail_then_original_on_double_click` | `tests/test_gui_smoke.py` | Inspektor: Vorschau, Doppelklick Original |
 
 ### 4.10 Timeline — FA-014, FA-060 bis FA-063, FA-080 bis FA-082
@@ -374,7 +377,9 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 | `test_entry_widget_track_can_be_cover` | `tests/test_gui_smoke.py` | T-Chip auf Track |
 | `test_entry_widget_shows_cover_in_heading` | `tests/test_gui_smoke.py` | 72-px-Cover in der Karte |
 | `test_entry_widget_section_has_to_map_button` | `tests/test_gui_smoke.py` | Zur Karte an Abschnitt und Tag |
-| `test_map_view_focus_group_centers_section_card` | `tests/test_gui_smoke.py` | MapView fokussiert die Abschnittskarte |
+| `test_map_view_focus_group_centers_section_card` | `tests/test_gui_smoke.py` | MapView fokussiert die Abschnittskarte; Tagebuchtext und YouTube-Thumbs rechts |
+| `test_map_notes_edit_shows_save_cancel_discard` | `tests/test_gui_smoke.py` | Nach Edit Speichern, Abbrechen, Verwerfen |
+| `test_map_notes_switch_card_opens_save_dialog` | `tests/test_gui_smoke.py` | Fokuswechsel bei ungespeichertem Tagebuchtext: Dialog Speichern/Abbrechen/Verwerfen |
 | `test_entry_widget_media_tab_filters_favorites` | `tests/test_gui_smoke.py` | Register filtert Favoriten |
 | `test_photos_view_media_tab_filters_favorites` | `tests/test_gui_smoke.py` | Medien-Register filtert Favoriten |
 | `test_photos_rating_applies_to_timeline_gallery` | `tests/test_gui_smoke.py` | Medien-Bewertung erscheint in der Timeline |
@@ -394,10 +399,12 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 | `test_map_view_refresh_uses_disk_cache_without_rebuild` | `tests/test_gui_smoke.py` | Karten-Cache; Leiste unter dem WebView |
 | `test_publish_map_display_writes_unique_file` | `tests/test_gui_smoke.py` | WebEngine lädt eine neue HTML-Kopie nach Rebuild |
 | `test_map_view_applies_prepared_result_when_shown` | `tests/test_gui_smoke.py` | Hintergrund-Karte wird beim Öffnen der Seite übernommen |
-| `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Timeline-Leiste zentriert |
+| `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Timeline-Leiste zentriert; Zähler Fotos/Tracks/IGC/YouTube, Reserve-Schalter |
 | `test_inspector_map_opens_thumbnail_then_original_on_double_click` | `tests/test_gui_smoke.py` | Vorschau, dann Original |
 | `test_normalize_timeline_media_tab` | `tests/test_workspace.py` | gültige Tab-Namen |
 | `test_timeline_media_tab_persists` | `tests/test_workspace.py` | `config.json` hält das Register |
+| `test_sidebar_collapsed_persists` | `tests/test_workspace.py` | `config.json` hält die eingeklappte Navigation |
+| `test_map_display_flags_persist_in_project` | `tests/test_workspace.py` | Zahnrad-Optionen in `settings.toml` |
 
 ---
 
@@ -419,7 +426,7 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 - Sortierstatus Favorit/Reserve/Aussortiert inkl. Fallback auf Favoriten-Flag
 - Import bricht bei einer defekten Datei (JPEG oder GPX) nicht ab
 - Projekt anlegen, Schema (Abschnitte, URLs, Cover, Drehung), Wiederöffnen, `settings.toml` und Pfad-Rebase
-- Karte: Titelbild-Kreise je Abschnitt/Resttag, Verbindungslinien zwischen Tag- und Aufenthaltskreisen, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad (Fotokegel, Reserve), Leiste darunter, Detail mit Tracklinie und Fotomarkern (Stapel naher Fotos bis Zoom 16), Foto-Popup, offline ohne OSM
+- Karte: Titelbild-Kreise je Abschnitt/Resttag, Verbindungslinien zwischen Tag- und Aufenthaltskreisen, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad (Fotokegel, Reserve), Leiste darunter, Tagebuchtext und YouTube rechts, Detail mit Tracklinie und Fotomarkern (Stapel naher Fotos bis Zoom 16), Foto-Popup, offline ohne OSM
 - Timeline: Tage aus Aufnahmezeit, manuelle Texte bleiben, Ortsvorschläge, `used_in_journal`
 - Reiseabschnitte, Resttage, Pending-Vorschau, Eintrags-Titelbild (Foto und Track)
 - YouTube- und DHV-Leonardo-URL-Normalisierung
@@ -566,15 +573,16 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | --- | --- |
 | Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | ein runder Kreis je Tag, Transfer oder Aufenthalt; zwischen **Tag- und Aufenthaltskreisen** in Timeline-Reihenfolge eine Verbindungslinie mit Richtungsmarker; Layer-Symbol oben rechts mit Straßenkarte / Topo / Satellit; Zahnrad unter den Zoom-Buttons; ohne gesetztes Titelbild das erste Foto mit GPS, sonst der erste GPS-Track; darunter die Timeline-Leiste mit denselben Einträgen; **Übersicht aller Kreise** im Ausschnitt |
 | Layer-Symbol: **Straßenkarte**, **Topo**, **Satellit** | wechselt OSM, OpenTopoMap und Esri World Imagery; Kreise und Linien bleiben; Quellenangabe je Anbieter; `offline` ohne Symbol |
-| Zahnrad: **Fotokegel anzeigen** | ab Zoom 17 ein Kegel an Fotos mit Blickrichtung und Brennweite; Mouseover über ein Foto blendet die anderen Fotos und Kegel aus |
-| Zahnrad: **Reserve-Elemente anzeigen** aus | Reserve-Medien unsichtbar; Aussortierte nie auf der Karte |
+| Zahnrad: **Fotokegel anzeigen** | ab Zoom 17 ein Kegel an Fotos mit Blickrichtung und Brennweite; Mouseover über ein Foto blendet die anderen Fotos und Kegel aus; bleibt nach Projekt-Neuöffnen |
+| Zahnrad: **Reserve-Elemente anzeigen** aus | Reserve-Medien unsichtbar; Aussortierte nie auf der Karte; bleibt nach Projekt-Neuöffnen |
 | Nach Änderungen in der Timeline Seite **Karte** öffnen | Karte erscheint ohne extra **Karte aktualisieren**, Übersicht aller Kreise |
 | **Karte aktualisieren** | Karte lädt neu und zeigt wieder die Übersicht aller Kreise |
 | Leiste: Tag-Karte | Kalendersymbol oben rechts |
 | Leiste: Transfer-Karte | liegendes Sechseck, gleiche Größe wie Rechteckkarten; Schrift etwas kleiner |
 | Leiste: Fokus | nur die zentrierte Karte in voller Größe, die anderen etwas kleiner |
 | Leiste: Titelbild | füllt die Kartenfläche ohne sichtbare Ränder |
-| Einfachklick auf eine Leistenkarte | Karte zentriert, Zoom bleibt |
+| Leiste: Zähler oben | Fotos, GPX-Tracks, IGC (Gleitschirm), YouTube-Logo als Symbol+Zahl; Reserve nur bei Zahnrad-Option |
+| Einfachklick auf eine Leistenkarte | Karte zentriert, Zoom bleibt; rechts der Tagebucheintrag, nach Edit Speichern/Abbrechen/Verwerfen, darunter YouTube-Thumbs (zwei nebeneinander) falls vorhanden |
 | Doppelklick auf eine Leistenkarte | Seite **Timeline**, derselbe Eintrag mit Kopfzeile oben in der Liste (unter Reisetitel und Werkzeugleiste) |
 | Leiste nach links/rechts ziehen oder Mausrad | Karten verschieben sich horizontal; Klick trifft die Karte, nicht die OSM-Kacheln |
 | Hineinzoomen, dann eine Leistenkarte anklicken | die Karte schwenkt auf diesen Eintrag, **Zoom bleibt** |
@@ -585,7 +593,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Freie Karte: offene Hand (Verschieben); über einem Kreis: Zeiger (Auswahl) | der Kreis-Klick öffnet das Detail, startet kein Zoomen |
 | Klick auf ein viereckiges Foto-Symbol im Detail | kleines Thumbnail-Popup auf der Karte (nicht sofort der Inspektor) |
 | Mehrere Fotos fast am selben Ort, Zoom unter 17 | ein Stapel-Marker mit der Anzahl |
-| Hineinzoomen auf Zoom 17 oder höher | Stapel löst sich auf; liegen Marker noch übereinander, rotiert der Stapel (Datum sichtbar); Mouseover auf das gewünschte Foto blendet die anderen aus |
+| Hineinzoomen auf Zoom 17 oder höher | Stapel löst sich auf; liegen Marker noch übereinander, rotiert der Stapel (Datum bündig unter dem Bild); Mouseover auf das gewünschte Foto blendet die anderen aus |
 | Doppelklick auf das Thumbnail (oder das Foto-Symbol) | Medieninspektor mit dem **Original**, Blättern/Zoom/Drehen wie in der Timeline |
 | Bestätigter Ort | erscheint im Detail des Tags |
 

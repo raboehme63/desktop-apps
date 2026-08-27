@@ -22,18 +22,6 @@ QMainWindow, QDialog {
     border-right: 1px solid #2a3144;
 }
 
-#brand {
-    font-size: 16px;
-    font-weight: 600;
-    color: #f4f7fb;
-    padding: 8px 4px 16px 4px;
-}
-
-#brandSub {
-    color: #8b95a8;
-    font-size: 11px;
-}
-
 QPushButton {
     background-color: #243044;
     border: 1px solid #33415c;
@@ -71,11 +59,17 @@ QPushButton#primary:hover {
     background-color: #3ccbb2;
 }
 
+#mapEntrySide QPushButton {
+    padding: 6px 8px;
+    font-size: 12px;
+}
+
 QPushButton#sidebarButton {
     text-align: left;
     border: none;
     border-radius: 10px;
-    padding: 10px 14px;
+    min-width: 0;
+    padding: 10px 12px 10px 10px;
     background-color: transparent;
     color: #c5cddb;
 }
@@ -88,6 +82,29 @@ QPushButton#sidebarButton:checked {
     background-color: #243b3a;
     color: #7eebcf;
     font-weight: 600;
+}
+
+QPushButton#sidebarCollapse {
+    min-width: 14px;
+    max-width: 14px;
+    min-height: 56px;
+    padding: 8px 0;
+    border: 1px solid #3d4a66;
+    border-right: none;
+    border-radius: 8px 0 0 8px;
+    background-color: #243044;
+    color: #e8edf5;
+}
+
+QPushButton#sidebarCollapse:hover {
+    background-color: #33415c;
+    border-color: #5b6b8a;
+}
+
+#sidebar[collapsed="true"] QPushButton#sidebarButton {
+    text-align: center;
+    min-width: 32px;
+    padding: 10px 8px;
 }
 
 QLineEdit, QPlainTextEdit, QTextEdit {

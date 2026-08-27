@@ -198,6 +198,42 @@ class Workspace:
         except ProjectError:
             return DEFAULT_STAY_LINK_COLOR
 
+    def map_show_photo_cones(self) -> bool:
+        if self.current is None:
+            return False
+        try:
+            return load_project_settings(self.current.directory).placeholders.map_show_photo_cones
+        except ProjectError:
+            return False
+
+    def map_show_reserve(self) -> bool:
+        if self.current is None:
+            return False
+        try:
+            return load_project_settings(self.current.directory).placeholders.map_show_reserve
+        except ProjectError:
+            return False
+
+    def set_map_display_flags(self, *, photo_cones: bool, show_reserve: bool) -> None:
+        """Persist Zahnrad options in ``settings.toml`` for the open project."""
+
+        if self.current is None:
+            return
+        try:
+            settings = load_project_settings(self.current.directory)
+        except ProjectError:
+            return
+        cones = bool(photo_cones)
+        reserve = bool(show_reserve)
+        if (
+            settings.placeholders.map_show_photo_cones == cones
+            and settings.placeholders.map_show_reserve == reserve
+        ):
+            return
+        settings.placeholders.map_show_photo_cones = cones
+        settings.placeholders.map_show_reserve = reserve
+        save_project_settings(self.current.directory, settings)
+
     def map_cache_identity(self) -> dict[str, object]:
         opened = self._require_open()
         _thumbs, size = self._thumbs_and_size()
@@ -241,9 +277,7 @@ class Workspace:
 
         html_path = opened.directory / "cache" / "map.html"
         with opened.session_factory() as session:
-            resolved = resolve_map_group(
-                session, opened.project_id, group_key, thumbs, size=size
-            )
+            resolved = resolve_map_group(session, opened.project_id, group_key, thumbs, size=size)
             scene = build_map_group_detail(
                 session,
                 opened.project_id,
@@ -264,9 +298,7 @@ class Workspace:
         from travelcore.maps.groups import resolve_map_group
 
         with opened.session_factory() as session:
-            resolved = resolve_map_group(
-                session, opened.project_id, group_key, thumbs, size=size
-            )
+            resolved = resolve_map_group(session, opened.project_id, group_key, thumbs, size=size)
         if resolved is None:
             return []
         return self.gallery_items_for_ids(resolved.source_ids)
@@ -480,6 +512,17 @@ class Workspace:
         if data.get("timeline_media_tab") == normalized:
             return
         data["timeline_media_tab"] = normalized
+        self._save_ui_config(data)
+
+    def sidebar_collapsed(self) -> bool:
+        return self._load_ui_config().get("sidebar_collapsed") is True
+
+    def set_sidebar_collapsed(self, collapsed: bool) -> None:
+        flag = bool(collapsed)
+        data = self._load_ui_config()
+        if bool(data.get("sidebar_collapsed")) == flag:
+            return
+        data["sidebar_collapsed"] = flag
         self._save_ui_config(data)
 
     def remember_projects_root(self, directory: Path) -> None:

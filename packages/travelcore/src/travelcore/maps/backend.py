@@ -416,23 +416,50 @@ def _map_settings_js() -> str:
 
     icon = json.dumps(_GEAR_ICON_SVG, ensure_ascii=True)
     return f"""
+    window.traveljournalMapFlags = window.traveljournalMapFlags || {{cones: false, reserve: false}};
     function readMapFlag(key) {{
-      try {{
-        return window.localStorage.getItem(key) === '1';
-      }} catch (err) {{
-        return false;
+      var flags = window.traveljournalMapFlags || {{}};
+      if (key === 'traveljournal-photo-cones') {{
+        return !!flags.cones;
       }}
+      if (key === 'traveljournal-show-reserve') {{
+        return !!flags.reserve;
+      }}
+      return false;
     }}
     function writeMapFlag(key, on) {{
-      try {{
-        window.localStorage.setItem(key, on ? '1' : '0');
-      }} catch (err) {{}}
+      window.traveljournalMapFlags = window.traveljournalMapFlags || {{cones: false, reserve: false}};
+      if (key === 'traveljournal-photo-cones') {{
+        window.traveljournalMapFlags.cones = !!on;
+      }} else if (key === 'traveljournal-show-reserve') {{
+        window.traveljournalMapFlags.reserve = !!on;
+      }}
+    }}
+    function persistMapFlags() {{
+      var flags = window.traveljournalMapFlags || {{}};
+      if (window.tjBridge && window.tjBridge.saveMapSettings) {{
+        window.tjBridge.saveMapSettings(!!flags.cones, !!flags.reserve);
+      }}
     }}
     window.traveljournalShowPhotoCones = function() {{
       return readMapFlag('traveljournal-photo-cones');
     }};
     window.traveljournalShowReserve = function() {{
       return readMapFlag('traveljournal-show-reserve');
+    }};
+    window.traveljournalApplyStoredMapFlags = function(cones, reserve) {{
+      window.traveljournalMapFlags = {{cones: !!cones, reserve: !!reserve}};
+      var conesBox = document.getElementById('tj-opt-cones');
+      var reserveBox = document.getElementById('tj-opt-reserve');
+      if (conesBox) {{
+        conesBox.checked = !!cones;
+      }}
+      if (reserveBox) {{
+        reserveBox.checked = !!reserve;
+      }}
+      if (window.traveljournalApplyMapSettings) {{
+        window.traveljournalApplyMapSettings();
+      }}
     }};
     function installMapSettings() {{
       if (window.traveljournalMapSettingsReady) {{
@@ -458,6 +485,11 @@ def _map_settings_js() -> str:
           L.DomEvent.on(boxEl, 'change', function(event) {{
             L.DomEvent.stop(event);
             writeMapFlag(key, boxEl.checked);
+            persistMapFlags();
+            if (key === 'traveljournal-show-reserve' && window.tjBridge
+                && window.tjBridge.setShowReserve) {{
+              window.tjBridge.setShowReserve(!!boxEl.checked);
+            }}
             if (window.traveljournalApplyMapSettings) {{
               window.traveljournalApplyMapSettings();
             }}
@@ -561,6 +593,9 @@ def _photo_cone_js() -> str:
       }});
     }}
     window.traveljournalApplyMapSettings = function() {{
+      if (window.tjBridge && window.tjBridge.setShowReserve && window.traveljournalShowReserve) {{
+        window.tjBridge.setShowReserve(!!window.traveljournalShowReserve());
+      }}
       if (lastDetailPayload && savedView) {{
         renderDetail(lastDetailPayload, true);
       }} else {{
@@ -994,6 +1029,27 @@ _COVER_CSS = (
   object-fit: cover;
   display: block;
   pointer-events: none;
+}
+.leaflet-tooltip.tj-photo-date {
+  background: rgba(8, 12, 18, 0.92);
+  color: #f4f7fb;
+  border: none;
+  border-radius: 0 0 6px 6px;
+  padding: 2px 7px;
+  font: 600 11px/1.2 "Segoe UI", sans-serif;
+  box-shadow: 0 1px 4px rgba(0,0,0,.4);
+  white-space: nowrap;
+  margin: 0;
+}
+.leaflet-tooltip.leaflet-tooltip-bottom.tj-photo-date {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.leaflet-tooltip-bottom.tj-photo-date::before,
+.leaflet-tooltip-bottom.tj-photo-date::after {
+  display: none;
+  content: none;
+  border: none;
 }
 .leaflet-marker-icon.tj-cover-icon {
   z-index: 700 !important;
@@ -1524,6 +1580,7 @@ def _overview_script(
               className: 'tj-cover-icon',
               iconSize: [52, 52],
               iconAnchor: [26, 26],
+              tooltipAnchor: [0, 26],
               html: '<div class="tj-thumb"><img src="' +
                 String(item.preview).replace(/"/g, '&quot;') + '" alt=""></div>'
             }})
@@ -1541,7 +1598,16 @@ def _overview_script(
           }});
         }}
         if (item.label) {{
-          marker.bindTooltip(item.label, {{direction: 'top', opacity: 0.95}});
+          var tipOpts = {{direction: 'top', opacity: 0.95}};
+          if (item.preview) {{
+            tipOpts = {{
+              direction: 'bottom',
+              offset: [0, 0],
+              opacity: 0.95,
+              className: 'tj-photo-date'
+            }};
+          }}
+          marker.bindTooltip(item.label, tipOpts);
         }}
         if (item.popup_html) {{
           marker.bindPopup(item.popup_html, {{maxWidth: 260}});

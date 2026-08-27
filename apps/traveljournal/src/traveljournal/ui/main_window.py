@@ -40,6 +40,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(0)
 
         self.sidebar = Sidebar()
+        self.sidebar.set_collapsed(self.workspace.sidebar_collapsed())
         layout.addWidget(self.sidebar)
 
         self.stack = QStackedWidget()
@@ -74,6 +75,7 @@ class MainWindow(QMainWindow):
         self._build_menu()
 
         self.sidebar.page_changed.connect(self._show_page)
+        self.sidebar.collapsed_changed.connect(self.workspace.set_sidebar_collapsed)
         self.project_view.project_changed.connect(self._on_project_changed)
         self.import_view.status_message.connect(self._set_status)
         self.import_view.import_finished.connect(self._on_import_finished)
@@ -212,7 +214,10 @@ class MainWindow(QMainWindow):
         if key == "map":
             self.map_view.refresh(force=previous == "timeline")
         if key == "timeline":
-            self.timeline_view.ensure_loaded()
+            if previous == "map":
+                self.timeline_view.refresh()
+            else:
+                self.timeline_view.ensure_loaded()
 
     def _on_timeline_changed(self) -> None:
         self.map_view.prepare_in_background(force=True)

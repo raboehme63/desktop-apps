@@ -66,7 +66,8 @@ nicht kopiert, sofern der Benutzer das nicht ausdrücklich wünscht.
 
 `settings.toml` hält Projekteinstellungen: Quellwurzel, Standard-Exportformat,
 GPS-Zeitfenster, Standardzeitzone, Kartenanbieter (`leaflet` / `offline`),
-Farbe der Verbindungslinien auf der Karte (`map_link_color`, Standard `#ffffff`).
+Farbe der Verbindungslinien auf der Karte (`map_link_color`, Standard `#ffffff`),
+Kartenzahnrad (`map_show_photo_cones`, `map_show_reserve`).
 Ändert sich die Quellwurzel, werden Index-Pfade umgeschrieben, die
 Originaldateien nicht.
 
@@ -74,7 +75,8 @@ Zuletzt geöffnete Projekte stehen unter
 `%LOCALAPPDATA%\TravelJournal\recent.json` (max. 10). Die Oberfläche listet
 sie in Phase 7 noch nicht. Der Fenstertitel lautet `Reisetagebuch R{Version}`
 bzw. `Reisetagebuch R{Version} - {Projekttitel}`. Das Medienregister
-(Timeline und Medienseite) steht in `%LOCALAPPDATA%\TravelJournal\config.json` (`timeline_media_tab`).
+(Timeline und Medienseite) steht in `%LOCALAPPDATA%\TravelJournal\config.json` (`timeline_media_tab`),
+ebenso die eingeklappte linke Navigation (`sidebar_collapsed`).
 
 ## Timeline
 
@@ -133,7 +135,8 @@ Folium schreibt `cache/map.html` (`MAP_CACHE_VERSION` im Stamp). Qt WebEngine
 zeigt die Datei; die kompakte Leiste (`MapTimelineStrip`) sitzt **unter** dem
 WebView, nicht als Overlay über Chromium — sonst verschluckt die Karte Klicks.
 Klick auf eine Leistenkarte ruft `traveljournalFocusCover` auf: Schwenken bei
-**unverändertem Zoom**. Doppelklick auf eine Leistenkarte öffnet denselben Eintrag
+**unverändertem Zoom**. Oben auf den Leistenkarten stehen Zähler für Fotos, GPX-Tracks, IGC-Flüge und YouTube-Links; Reserve-Medien zählen nur, wenn **Reserve-Elemente anzeigen** im Zahnrad aktiv ist. Rechts neben der Karte stehen der Tagebucheintrag der
+fokussierten Karte (nach Bearbeitung Speichern, Abbrechen oder Verwerfen; beim Kartenwechsel als Dialog) und YouTube-Vorschaubilder. Doppelklick auf eine Leistenkarte öffnet denselben Eintrag
 in der Timeline. Klick auf einen Kreis (`group_key`) öffnet die
 Detailansicht (`traveljournalShowDetail`): Fotos, Videos, GPX-Linien,
 IGC-Flugtracks ab Zoom 10 (Start/Landung immer sichtbar) und Orte.
@@ -150,8 +153,9 @@ lateinische Umschrift statt Landesschrift). Ein Layer-Symbol oben rechts öffnet
 Straßenkarte (OSM), Topo (OpenTopoMap) und Satellit (Esri World Imagery); die Wahl
 bleibt in `localStorage`. Ein Zahnrad unter den Zoom-Buttons schaltet Fotokegel
 (ab Zoom 17, aus `heading_degrees` und 35-mm-Brennweite; Mouseover über ein Foto
-blendet die übrigen Fotos und Kegel aus) und Reserve-Medien;
-Aussortierte Medien kommen nicht auf die Karte. `map_provider=offline` setzt
+blendet die übrigen Fotos und Kegel aus) und Reserve-Medien; beide Schalter
+stehen in `settings.toml`. Das Datums-Label am Foto sitzt bündig unter dem
+Vorschaubild. Aussortierte Medien kommen nicht auf die Karte. `map_provider=offline` setzt
 `tiles=None` (keine OSM-, OpenTopoMap- oder Satellitenkacheln, kein Umschalter). Fehlt Qt WebEngine, bleibt der Pfad sichtbar.
 
 ## Austauschbare Schnittstellen
@@ -171,9 +175,9 @@ Bereits in Phase 1 angelegt, schrittweise gefüllt:
   Cachepfad enthält `_r90` bei nicht-null `rotation_degrees`
 - `VideoMetadataProvider` – ffprobe-Adapter (noch nicht aktiv)
 - `Exporter` – HTML, PDF, LaTeX, CEWE (Implementierung ab Phase 8)
-- `MapBackend` – Folium/Leaflet, Übersicht als Titelbild-Kreise je Tag/Transfer/Aufenthalt, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad für Fotokegel (Mouseover blendet fremde Fotos und Kegel aus, überlappende Stapel rotieren ab Zoom 17) und Reserve,
+- `MapBackend` – Folium/Leaflet, Übersicht als Titelbild-Kreise je Tag/Transfer/Aufenthalt, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad für Fotokegel und Reserve (in `settings.toml`; Mouseover blendet fremde Fotos und Kegel aus, überlappende Stapel rotieren ab Zoom 17, Datum bündig unter dem Foto),
   Verbindungslinien zwischen Tag- und Aufenthaltskreisen (Richtungsmarker, Zoom-Überdeckung),
-  Qt-Leiste unter der Karte (Tag mit Kalender, Transfer als liegendes Sechseck), Detail mit GPX-Polylinien, IGC-Flugtracks ab Zoom 10
+  Qt-Leiste unter der Karte (Tag mit Kalender, Transfer als liegendes Sechseck), Tagebucheintrag und YouTube-Thumbs rechts daneben, Detail mit GPX-Polylinien, IGC-Flugtracks ab Zoom 10
   (Start/Landung immer sichtbar), Foto-Popup und Inspektor, Orte
 - Timeline in `travelcore.timeline` – Tage, Transfers, Aufenthalte, Cover, Links;
   keine Ortsnamen an Foto-/Trackpositionen

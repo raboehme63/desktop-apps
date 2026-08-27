@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -33,6 +34,8 @@ from travelcore.timeline.links import (
 from travelcore.timeline.types import TimelinePhoto
 
 _THUMB_SIZE = (160, 90)
+MAP_YOUTUBE_THUMB_SIZE = (144, 81)
+MAP_YOUTUBE_THUMB_COLUMNS = 2
 _NETWORK: QNetworkAccessManager | None = None
 
 
@@ -44,11 +47,17 @@ def _network() -> QNetworkAccessManager:
 
 
 class YouTubeThumbLabel(QLabel):
-    def __init__(self, url: str, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        url: str,
+        parent: QWidget | None = None,
+        *,
+        size: tuple[int, int] | None = None,
+    ) -> None:
         super().__init__(parent)
         self._url = url
         self._reply: QNetworkReply | None = None
-        width, height = _THUMB_SIZE
+        width, height = size or _THUMB_SIZE
         self.setFixedSize(width, height)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setObjectName("youtubeThumb")
@@ -90,21 +99,37 @@ class YouTubeThumbLabel(QLabel):
 
 
 class YouTubeThumbsRow(QWidget):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        columns: int = 0,
+        thumb_size: tuple[int, int] | None = None,
+    ) -> None:
         super().__init__(parent)
-        self._layout = QHBoxLayout(self)
+        self._columns = columns
+        self._thumb_size = thumb_size or _THUMB_SIZE
+        self._layout = QGridLayout(self) if columns >= 2 else QHBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(8)
-        self._layout.addStretch(1)
+        if columns < 2:
+            self._layout.addStretch(1)
 
     def set_urls(self, urls: list[str] | tuple[str, ...]) -> None:
-        while self._layout.count() > 1:
+        while self._layout.count():
             item = self._layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
-        for url in urls:
-            self._layout.insertWidget(self._layout.count() - 1, YouTubeThumbLabel(url, self))
+        for index, url in enumerate(urls):
+            thumb = YouTubeThumbLabel(url, self, size=self._thumb_size)
+            if self._columns >= 2:
+                row, column = divmod(index, self._columns)
+                self._layout.addWidget(thumb, row, column)
+            else:
+                self._layout.addWidget(thumb)
+        if self._columns < 2:
+            self._layout.addStretch(1)
         self.setVisible(bool(urls))
 
 

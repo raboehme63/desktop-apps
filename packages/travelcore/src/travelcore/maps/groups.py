@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -29,12 +30,12 @@ from travelcore.maps.scene import (
     _photo_markers,
     track_polylines,
 )
-from travelcore.media.gallery import SORT_REJECTED
+from travelcore.media.gallery import SORT_REJECTED, SORT_RESERVE
 from travelcore.media.orientation import normalize_rotation_degrees
 from travelcore.media.thumbnails import cached_thumbnail_path
 from travelcore.media.types import FileKind
 from travelcore.timeline.build import load_timeline
-from travelcore.timeline.links import parse_youtube_urls
+from travelcore.timeline.links import is_igc_filename, parse_youtube_urls
 from travelcore.timeline.sections import (
     KIND_DAY,
     KIND_MOVEMENT,
@@ -62,6 +63,25 @@ class MapTimelineCard:
     latitude: float | None = None
     longitude: float | None = None
     card_kind: str = "stay"
+    notes: str = ""
+    stored_title: str = ""
+    youtube_urls: tuple[str, ...] = ()
+    photo_count: int = 0
+    photo_reserve_count: int = 0
+    track_count: int = 0
+    track_reserve_count: int = 0
+    igc_count: int = 0
+    igc_reserve_count: int = 0
+    youtube_count: int = 0
+
+    def visible_counts(self, *, show_reserve: bool) -> tuple[int, int, int, int]:
+        """Photo, GPX-track, IGC and YouTube counts; reserve only when ``show_reserve``."""
+
+        extra = 1 if show_reserve else 0
+        photos = self.photo_count + extra * self.photo_reserve_count
+        tracks = self.track_count + extra * self.track_reserve_count
+        igc = self.igc_count + extra * self.igc_reserve_count
+        return photos, tracks, igc, self.youtube_count
 
 
 def build_map_overview(
@@ -200,6 +220,62 @@ def parse_group_key(group_key: str) -> tuple[str | None, int | str | None]:
     return None, None
 
 
+def count_card_media(
+    items: Sequence[TimelinePhoto],
+    youtube_urls: Sequence[str] = (),
+) -> tuple[int, int, int, int, int, int, int]:
+    """Non-rejected photo/GPX/IGC counts, reserve separate. YouTube is unfiltered."""
+
+    photos = 0
+    photo_reserve = 0
+    tracks = 0
+    track_reserve = 0
+    igc = 0
+    igc_reserve = 0
+    for item in items:
+        if item.sort_status == SORT_REJECTED:
+            continue
+        is_photo = item.file_kind in {FileKind.PHOTO.value, FileKind.VIDEO.value}
+        is_igc = item.file_kind == FileKind.GPS.value and is_igc_filename(item.filename)
+        is_track = item.file_kind == FileKind.GPS.value and not is_igc
+        if not is_photo and not is_track and not is_igc:
+            continue
+        reserved = item.sort_status == SORT_RESERVE
+        if is_photo:
+            if reserved:
+                photo_reserve += 1
+            else:
+                photos += 1
+        elif is_igc:
+            if reserved:
+                igc_reserve += 1
+            else:
+                igc += 1
+        elif reserved:
+            track_reserve += 1
+        else:
+            tracks += 1
+    return photos, photo_reserve, tracks, track_reserve, igc, igc_reserve, len(tuple(youtube_urls))
+
+
+def _card_media_kwargs(
+    items: Sequence[TimelinePhoto],
+    youtube_urls: Sequence[str] = (),
+) -> dict[str, int]:
+    photos, photo_reserve, tracks, track_reserve, igc, igc_reserve, youtube = count_card_media(
+        items, youtube_urls
+    )
+    return {
+        "photo_count": photos,
+        "photo_reserve_count": photo_reserve,
+        "track_count": tracks,
+        "track_reserve_count": track_reserve,
+        "igc_count": igc,
+        "igc_reserve_count": igc_reserve,
+        "youtube_count": youtube,
+    }
+
+
 def pick_cover_item(items: list[TimelinePhoto], cover_id: int | None) -> TimelinePhoto | None:
     """Stored cover, else first GPS photo, else first GPS track. Rejected media never count."""
 
@@ -268,6 +344,14 @@ def _card_from_entry(entry: TimelineEntry) -> MapTimelineCard | None:
     cover_path = chosen.thumbnail_path if chosen is not None else None
     lat = position[0] if position is not None else None
     lon = position[1] if position is not None else None
+    if entry.section is not None:
+        notes = entry.section.notes or ""
+        stored_title = entry.section.title or ""
+        youtube_urls = entry.section.youtube_urls
+    else:
+        notes = leftover.notes or "" if leftover is not None else ""
+        stored_title = leftover.title or "" if leftover is not None else ""
+        youtube_urls = leftover.youtube_urls if leftover is not None else ()
     return MapTimelineCard(
         group_key=key,
         title=title,
@@ -276,6 +360,10 @@ def _card_from_entry(entry: TimelineEntry) -> MapTimelineCard | None:
         latitude=lat,
         longitude=lon,
         card_kind=entry.card_kind,
+        notes=notes,
+        stored_title=stored_title,
+        youtube_urls=youtube_urls,
+        **_card_media_kwargs(items, youtube_urls),
     )
 
 
@@ -459,6 +547,7 @@ def _cards_from_source_files(
                 latitude=position[0] if position is not None else None,
                 longitude=position[1] if position is not None else None,
                 card_kind=KIND_DAY,
+                **_card_media_kwargs(items),
             )
         )
     return cards

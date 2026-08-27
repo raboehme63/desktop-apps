@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt, QTimer, Signal
+from dataclasses import replace
+
+from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
+    QFontMetrics,
     QLinearGradient,
     QMouseEvent,
     QPainter,
@@ -198,6 +201,14 @@ class _CardWidget(QFrame):
             int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
             self.card.time_label,
         )
+        _paint_count_chips(
+            painter,
+            rect,
+            self.card,
+            focused=self._focused,
+            hexagon=hexagon,
+            show_reserve=self._include_reserve(),
+        )
         if self.card.card_kind == KIND_DAY:
             _paint_calendar_badge(painter, rect)
         painter.setClipping(False)
@@ -249,6 +260,10 @@ class _CardWidget(QFrame):
             return
         super().mouseDoubleClickEvent(event)
 
+    def _include_reserve(self) -> bool:
+        strip = self._strip()
+        return strip is not None and strip.show_reserve()
+
     def _strip(self) -> MapTimelineStrip | None:
         parent = self.parent()
         while parent is not None:
@@ -277,6 +292,7 @@ class MapTimelineStrip(QScrollArea):
         self._cards: tuple[MapTimelineCard, ...] = ()
         self._widgets: list[_CardWidget] = []
         self._focused_key = ""
+        self._show_reserve = False
         self._inner = QWidget()
         self._inner.setAutoFillBackground(False)
         self._row = QHBoxLayout(self._inner)
@@ -304,8 +320,24 @@ class MapTimelineStrip(QScrollArea):
     def card(self, group_key: str) -> MapTimelineCard | None:
         return next((item for item in self._cards if item.group_key == group_key), None)
 
+    def update_card_notes(self, group_key: str, notes: str) -> None:
+        self._cards = tuple(
+            replace(item, notes=notes) if item.group_key == group_key else item for item in self._cards
+        )
+
     def focused_key(self) -> str:
         return self._focused_key
+
+    def show_reserve(self) -> bool:
+        return self._show_reserve
+
+    def set_show_reserve(self, show: bool) -> None:
+        flag = bool(show)
+        if flag == self._show_reserve:
+            return
+        self._show_reserve = flag
+        for widget in self._widgets:
+            widget.update()
 
     def set_cards(self, cards: tuple[MapTimelineCard, ...] | list[MapTimelineCard]) -> None:
         self._timer.stop()
@@ -339,11 +371,11 @@ class MapTimelineStrip(QScrollArea):
         self._update_end_padding()
         QTimer.singleShot(0, self._center_first)
 
-    def center_on(self, group_key: str) -> None:
+    def center_on(self, group_key: str, *, emit: bool = True) -> None:
         widget = next((item for item in self._widgets if item.card.group_key == group_key), None)
         if widget is None:
             return
-        self._apply_focus(group_key, force=True)
+        self._apply_focus(group_key, force=True, emit=emit)
         self._scroll_widget_to_center(widget)
 
     def sizeHint(self) -> QSize:  # noqa: N802
@@ -383,14 +415,15 @@ class MapTimelineStrip(QScrollArea):
             return
         self._apply_focus(self._widgets[index].card.group_key)
 
-    def _apply_focus(self, group_key: str, *, force: bool = False) -> None:
+    def _apply_focus(self, group_key: str, *, force: bool = False, emit: bool = True) -> None:
         for widget in self._widgets:
             widget.set_focused(widget.card.group_key == group_key)
         self._update_end_padding()
         if group_key == self._focused_key and not force:
             return
         self._focused_key = group_key
-        self.focus_changed.emit(group_key)
+        if emit:
+            self.focus_changed.emit(group_key)
 
     def _viewport_center(self) -> int:
         return self.horizontalScrollBar().value() + self.viewport().width() // 2
@@ -428,3 +461,151 @@ def _paint_calendar_badge(painter: QPainter, rect: QRectF) -> None:
     for column in range(3):
         for row in range(2):
             painter.drawEllipse(QRectF(box.left() + 5 + column * 5.2, box.top() + 10 + row * 5.2, 2.4, 2.4))
+
+
+def _paint_count_chips(
+    painter: QPainter,
+    rect: QRectF,
+    card: MapTimelineCard,
+    *,
+    focused: bool,
+    hexagon: bool,
+    show_reserve: bool,
+) -> None:
+    photos, tracks, igc, youtube = card.visible_counts(show_reserve=show_reserve)
+    chips: list[tuple[str, int]] = []
+    if photos:
+        chips.append(("photo", photos))
+    if tracks:
+        chips.append(("track", tracks))
+    if igc:
+        chips.append(("igc", igc))
+    if youtube:
+        chips.append(("youtube", youtube))
+    if not chips:
+        return
+    scale = 1.0 if focused else CARD_IDLE_SCALE
+    icon = max(10.0, 12.0 * scale)
+    font_px = max(9, int(11 * scale))
+    gap = max(4.0, 6.0 * scale)
+    pad_x = max(4.0, 5.0 * scale)
+    pad_y = max(2.0, 3.0 * scale)
+    side = hexagon_cut(rect) if hexagon else 0.0
+    inset = max(6.0, 8.0 * scale)
+    x = rect.left() + side + inset
+    y = rect.top() + inset
+    limit = rect.right() - side - inset
+    if card.card_kind == KIND_DAY:
+        badge = max(16.0, rect.height() * 22.0 / CARD_HEIGHT)
+        limit = min(limit, rect.right() - badge - inset - 6.0)
+    font = QFont(painter.font())
+    font.setPixelSize(font_px)
+    font.setWeight(QFont.Weight.DemiBold)
+    metrics = QFontMetrics(font)
+    chip_h = pad_y * 2 + max(icon, float(font_px))
+    for kind, number in chips:
+        text = str(number)
+        text_w = metrics.horizontalAdvance(text)
+        icon_w = icon * (4.0 / 3.0) if kind == "youtube" else icon
+        chip_w = pad_x * 2 + icon_w + 3.0 + text_w
+        if x + chip_w > limit:
+            break
+        box = QRectF(x, y, chip_w, chip_h)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(8, 12, 18, 185))
+        painter.drawRoundedRect(box, 4, 4)
+        icon_box = QRectF(box.left() + pad_x, box.center().y() - icon / 2, icon_w, icon)
+        _paint_count_icon(painter, kind, icon_box)
+        painter.setFont(font)
+        painter.setPen(QColor("#f4f7fb"))
+        text_box = QRect(
+            int(icon_box.right()) + 3,
+            int(box.top()),
+            text_w + 2,
+            int(box.height()),
+        )
+        painter.drawText(text_box, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft), text)
+        x += chip_w + gap
+
+
+def _paint_count_icon(painter: QPainter, kind: str, box: QRectF) -> None:
+    painter.setPen(QPen(QColor("#f4f7fb"), 1.2))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    if kind == "photo":
+        painter.drawRoundedRect(box.adjusted(0.6, 0.8, -0.6, -0.4), 1.6, 1.6)
+        peak = QPainterPath()
+        peak.moveTo(box.left() + 1.4, box.bottom() - 1.4)
+        peak.lineTo(box.left() + box.width() * 0.38, box.top() + box.height() * 0.42)
+        peak.lineTo(box.left() + box.width() * 0.58, box.top() + box.height() * 0.62)
+        peak.lineTo(box.right() - 1.4, box.bottom() - 1.4)
+        painter.setBrush(QColor("#f4f7fb"))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawPath(peak)
+        painter.setBrush(QColor("#f4f7fb"))
+        painter.drawEllipse(QRectF(box.left() + box.width() * 0.55, box.top() + 2.0, 2.4, 2.4))
+        return
+    if kind == "track":
+        path = QPainterPath()
+        path.moveTo(box.left() + 1.2, box.bottom() - 2.0)
+        path.lineTo(box.left() + box.width() * 0.38, box.top() + 2.2)
+        path.lineTo(box.left() + box.width() * 0.62, box.bottom() - 2.4)
+        path.lineTo(box.right() - 1.2, box.top() + 2.0)
+        painter.drawPath(path)
+        painter.setBrush(QColor("#f4f7fb"))
+        painter.setPen(Qt.PenStyle.NoPen)
+        r = 1.7
+        painter.drawEllipse(QRectF(box.left() + 0.4, box.bottom() - 3.6, r * 2, r * 2))
+        painter.drawEllipse(QRectF(box.right() - 3.8, box.top() + 0.6, r * 2, r * 2))
+        return
+    if kind == "igc":
+        color = QColor("#f4f7fb")
+        left = box.left() + 0.7
+        right = box.right() - 0.7
+        mid = box.center().x()
+        rim = box.top() + box.height() * 0.40
+        peak = box.top() + 0.55
+        canopy = QPainterPath()
+        canopy.moveTo(left, rim)
+        canopy.quadTo(mid, peak, right, rim)
+        wing = max(2.05, box.height() * 0.20)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(
+            QPen(color, wing, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        )
+        painter.drawPath(canopy)
+        harness = QPointF(mid, box.bottom() - box.height() * 0.16)
+        line_w = max(1.15, box.height() * 0.10)
+        inset = (right - left) * 0.16
+        painter.setPen(QPen(color, line_w, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        painter.drawLine(QPointF(left + inset, rim), harness)
+        painter.drawLine(QPointF(right - inset, rim), harness)
+        r = max(1.45, box.height() * 0.13)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        painter.drawEllipse(harness, r, r)
+        return
+    if kind != "youtube":
+        return
+    height = box.height()
+    width = height * (4.0 / 3.0)
+    if width > box.width():
+        width = box.width()
+        height = width * 0.75
+    tube = QRectF(
+        box.center().x() - width / 2,
+        box.center().y() - height / 2,
+        width,
+        height,
+    )
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#ff0000"))
+    painter.drawRoundedRect(tube, height * 0.26, height * 0.26)
+    play = QPainterPath()
+    cx = tube.center().x() - height * 0.04
+    cy = tube.center().y()
+    play.moveTo(cx - height * 0.14, cy - height * 0.20)
+    play.lineTo(cx + height * 0.24, cy)
+    play.lineTo(cx - height * 0.14, cy + height * 0.20)
+    play.closeSubpath()
+    painter.setBrush(QColor("#ffffff"))
+    painter.drawPath(play)

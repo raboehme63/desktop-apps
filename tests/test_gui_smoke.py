@@ -50,6 +50,25 @@ def test_main_window_starts() -> None:
         "Export",
     ]
     assert list(window.sidebar._buttons) == [key for key, _ in NAV_ITEMS]
+    window.sidebar.set_collapsed(False)
+    assert 96 <= window.sidebar.width() < 220
+    assert not window.sidebar._buttons["map"].icon().isNull()
+    assert not window.sidebar._collapse.icon().isNull()
+    assert window.sidebar._collapse.toolTip() == "Navigation einklappen"
+    assert window.sidebar._collapse.width() <= 16
+    window.show()
+    app.processEvents()
+    collapse = window.sidebar._collapse
+    assert collapse.x() + collapse.width() == window.sidebar.width()
+    assert abs(collapse.geometry().center().y() - window.sidebar.height() // 2) <= 1
+    window.sidebar.set_collapsed(True)
+    assert window.sidebar.is_collapsed()
+    assert 44 <= window.sidebar.width() <= 56
+    assert window.sidebar._buttons["map"].text() == ""
+    assert not window.sidebar._buttons["map"].icon().isNull()
+    assert window.sidebar._collapse.toolTip() == "Navigation ausklappen"
+    window.sidebar.set_collapsed(False)
+    assert window.sidebar._buttons["map"].text() == "Karte"
     assert window.photos_view._media_tabs.count() == 4
     assert window.photos_view._media_tabs.tabText(0) == "Alle"
     assert window.photos_view._media_tabs.tabText(3) == "Aussortiert"
@@ -435,6 +454,7 @@ def test_map_view_focus_group_centers_section_card() -> None:
     from travelcore.timeline.sections import KIND_STAY
     from traveljournal.services.workspace import Workspace
     from traveljournal.views.map_view import MapView
+    from traveljournal.widgets.entry_links import YouTubeThumbLabel
 
     app = QApplication.instance() or QApplication([])
     view = MapView(Workspace())
@@ -448,6 +468,7 @@ def test_map_view_focus_group_centers_section_card() -> None:
                 latitude=46.0,
                 longitude=11.0,
                 card_kind=KIND_STAY,
+                notes="Erster Text",
             ),
             MapTimelineCard(
                 group_key="section:7",
@@ -456,6 +477,11 @@ def test_map_view_focus_group_centers_section_card() -> None:
                 latitude=47.0,
                 longitude=12.0,
                 card_kind=KIND_STAY,
+                notes="Zweiter Text",
+                youtube_urls=(
+                    "https://youtu.be/dQw4w9WgXcQ",
+                    "https://youtu.be/aaaaaaaaaaa",
+                ),
             ),
         )
     )
@@ -465,6 +491,127 @@ def test_map_view_focus_group_centers_section_card() -> None:
     view.focus_group("section:7")
     app.processEvents()
     assert view._timeline.focused_key() == "section:7"
+    assert view._notes_edit.toPlainText() == "Zweiter Text"
+    assert view._notes_actions.isHidden()
+    assert view._youtube.isVisible()
+    thumbs = view._youtube.findChildren(YouTubeThumbLabel)
+    assert len(thumbs) == 2
+    assert thumbs[0].width() * 2 + 8 <= view._side.width()
+    _ = app
+
+
+def test_map_notes_edit_shows_save_cancel_discard() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.maps.groups import MapTimelineCard
+    from travelcore.timeline.sections import KIND_STAY
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.map_view import MapView
+
+    app = QApplication.instance() or QApplication([])
+    view = MapView(Workspace())
+    view._timeline.set_cards(
+        (
+            MapTimelineCard(
+                group_key="section:1",
+                title="Eins",
+                time_label="am 01.05.2025",
+                latitude=46.0,
+                longitude=11.0,
+                card_kind=KIND_STAY,
+                notes="Original",
+            ),
+        )
+    )
+    view._load_entry_panel("section:1")
+    assert view._notes_actions.isHidden()
+    view._notes_edit.setPlainText("Geändert")
+    assert not view._notes_actions.isHidden()
+    assert view._notes_save.text() == "Speichern"
+    assert view._notes_cancel.text() == "Abbrechen"
+    assert view._notes_discard.text() == "Verwerfen"
+    view._notes_cancel.click()
+    assert view._notes_edit.toPlainText() == "Original"
+    assert view._notes_actions.isHidden()
+    view._notes_edit.setPlainText("Nochmals")
+    view._notes_save.click()
+    assert view._notes_edit.toPlainText() == "Nochmals"
+    assert view._timeline.card("section:1").notes == "Nochmals"
+    assert view._notes_actions.isHidden()
+    view._notes_edit.setPlainText("Weg damit")
+    view._notes_discard.click()
+    assert view._notes_edit.toPlainText() == ""
+    assert view._timeline.card("section:1").notes == ""
+    assert view._notes_actions.isHidden()
+    _ = app
+
+
+def test_map_notes_switch_card_opens_save_dialog(monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    from travelcore.maps.groups import MapTimelineCard
+    from travelcore.timeline.sections import KIND_STAY
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.map_view import MapView
+
+    app = QApplication.instance() or QApplication([])
+    cards = (
+        MapTimelineCard(
+            group_key="section:1",
+            title="Eins",
+            time_label="am 01.05.2025",
+            latitude=46.0,
+            longitude=11.0,
+            card_kind=KIND_STAY,
+            notes="Eins-Text",
+        ),
+        MapTimelineCard(
+            group_key="section:7",
+            title="Sieben",
+            time_label="am 02.05.2025",
+            latitude=47.0,
+            longitude=12.0,
+            card_kind=KIND_STAY,
+            notes="Sieben-Text",
+        ),
+    )
+    labels: list[str] = []
+
+    def fake_exec(self: QMessageBox) -> int:
+        labels.extend(button.text() for button in self.buttons())
+        return 0
+
+    monkeypatch.setattr(QMessageBox, "exec", fake_exec)
+    view = MapView(Workspace())
+    view._timeline.set_cards(cards)
+    view._load_entry_panel("section:1")
+    view._notes_edit.setPlainText("Geändert")
+    assert view._ask_dirty_notes() == "cancel"
+    assert set(labels) == {"Speichern", "Abbrechen", "Verwerfen"}
+
+    monkeypatch.setattr(view, "_ask_dirty_notes", lambda: "cancel")
+    view._timeline.center_on("section:7")
+    app.processEvents()
+    assert view._notes_group_key == "section:1"
+    assert view._notes_edit.toPlainText() == "Geändert"
+    assert view._timeline.focused_key() == "section:1"
+
+    monkeypatch.setattr(view, "_ask_dirty_notes", lambda: "save")
+    view._timeline.center_on("section:7")
+    app.processEvents()
+    assert view._timeline.card("section:1").notes == "Geändert"
+    assert view._notes_group_key == "section:7"
+    assert view._notes_edit.toPlainText() == "Sieben-Text"
+
+    view._notes_edit.setPlainText("Nur im Editor")
+    monkeypatch.setattr(view, "_ask_dirty_notes", lambda: "discard")
+    view._timeline.center_on("section:1")
+    app.processEvents()
+    assert view._timeline.card("section:7").notes == "Sieben-Text"
+    assert view._notes_group_key == "section:1"
+    assert view._notes_edit.toPlainText() == "Geändert"
     _ = app
 
 
@@ -1292,6 +1439,12 @@ def test_map_timeline_strip_centers_first_card() -> None:
                 latitude=46.0,
                 longitude=11.0,
                 card_kind=KIND_STAY,
+                photo_count=2,
+                photo_reserve_count=1,
+                track_count=1,
+                igc_count=2,
+                igc_reserve_count=1,
+                youtube_count=3,
             ),
             MapTimelineCard(
                 group_key="section:2",
@@ -1319,6 +1472,11 @@ def test_map_timeline_strip_centers_first_card() -> None:
     assert strip._widgets[1].property("focused") is False
     titles = [widget.card.title for widget in strip._widgets]
     assert titles == ["Eins", "Zwei", "Drei"]
+    assert strip.show_reserve() is False
+    assert strip._widgets[0].card.visible_counts(show_reserve=False) == (2, 1, 2, 3)
+    strip.set_show_reserve(True)
+    assert strip.show_reserve() is True
+    assert strip._widgets[0].card.visible_counts(show_reserve=True) == (3, 1, 3, 3)
     idle_w = round(CARD_WIDTH * CARD_IDLE_SCALE)
     idle_h = round(CARD_HEIGHT * CARD_IDLE_SCALE)
     assert strip._widgets[0].width() == CARD_WIDTH
