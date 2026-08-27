@@ -15,7 +15,7 @@ def test_main_window_starts() -> None:
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
     assert window.windowTitle() == "Reisetagebuch R1.0.0"
-    assert window.stack.count() == 7
+    assert window.stack.count() == 6
     titles = [action.text() for action in window.menuBar().actions()]
     assert "Projekt" in titles
     assert window._settings_action is not None
@@ -244,6 +244,8 @@ def test_entry_widget_separates_tracks_from_media() -> None:
     widget = EntryWidget(TimelineEntry(started_at=photo.captured_at, leftover_day=day))
     assert [item.filename for item in widget.gallery.items()] == ["foto.jpg"]
     assert [item.filename for item in widget.track_gallery.items()] == ["flug.igc"]
+    assert widget.entry_kind() == "day"
+    assert widget._kind_combo.currentData() == "day"
     assert widget._cover_thumb.isHidden()
     _ = app
 
@@ -832,9 +834,11 @@ def test_map_timeline_strip_centers_first_card() -> None:
     from PySide6.QtWidgets import QApplication
 
     from travelcore.maps.groups import MapTimelineCard
+    from travelcore.timeline.sections import KIND_DAY, KIND_MOVEMENT, KIND_STAY
     from traveljournal.widgets.map_timeline import (
         CARD_HEIGHT,
         CARD_WIDTH,
+        TRANSFER_DIAMETER,
         MapTimelineStrip,
         nearest_card_index,
     )
@@ -857,6 +861,7 @@ def test_map_timeline_strip_centers_first_card() -> None:
                 time_label="am 01.05.2025",
                 latitude=46.0,
                 longitude=11.0,
+                card_kind=KIND_STAY,
             ),
             MapTimelineCard(
                 group_key="section:2",
@@ -864,6 +869,15 @@ def test_map_timeline_strip_centers_first_card() -> None:
                 time_label="am 02.05.2025",
                 latitude=47.0,
                 longitude=12.0,
+                card_kind=KIND_MOVEMENT,
+            ),
+            MapTimelineCard(
+                group_key="day:3",
+                title="Drei",
+                time_label="am 03.05.2025",
+                latitude=48.0,
+                longitude=13.0,
+                card_kind=KIND_DAY,
             ),
         )
     )
@@ -874,22 +888,25 @@ def test_map_timeline_strip_centers_first_card() -> None:
     assert strip._widgets[0].property("focused") is True
     assert strip._widgets[1].property("focused") is False
     titles = [widget.card.title for widget in strip._widgets]
-    assert titles == ["Eins", "Zwei"]
+    assert titles == ["Eins", "Zwei", "Drei"]
     assert strip._widgets[0].width() == CARD_WIDTH
     assert strip._widgets[0].height() == CARD_HEIGHT
+    assert strip._widgets[1].width() == TRANSFER_DIAMETER
+    assert strip._widgets[1].height() == TRANSFER_DIAMETER
+    assert strip._widgets[2].property("cardKind") == KIND_DAY
     strip.center_on("section:2")
     app.processEvents()
     assert focused[-1] == "section:2"
     assert strip.focused_key() == "section:2"
     lines = [child for child in strip._inner.children() if child.objectName() == "mapTimelineLine"]
-    assert len(lines) == 1
+    assert len(lines) == 2
     again = len(focused)
     strip.center_on("section:2")
     app.processEvents()
     assert focused[-1] == "section:2"
     assert len(focused) == again + 1
-    fits: list[str] = []
-    strip.fit_all_requested.connect(lambda: fits.append("all"))
+    opened: list[str] = []
+    strip.open_in_timeline.connect(opened.append)
     strip._widgets[0].mouseDoubleClickEvent(
         QMouseEvent(
             QEvent.Type.MouseButtonDblClick,
@@ -900,5 +917,5 @@ def test_map_timeline_strip_centers_first_card() -> None:
             Qt.KeyboardModifier.NoModifier,
         )
     )
-    assert fits == ["all"]
+    assert opened == ["section:1"]
     _ = app

@@ -38,7 +38,7 @@ class MapRenderResult:
                 "Keine GPS-Daten im Index. Fotos mit Ort, GPX- oder IGC-Tracks importieren."
             )
         return (
-            f"{self.groups} Titelbilder (Reiseabschnitte und Resttage). "
+            f"{self.groups} Titelbilder (Tage, Transfers und Aufenthalte). "
             "Klick auf ein Titelbild zeigt Fotos und Tracks dieses Eintrags."
         )
 

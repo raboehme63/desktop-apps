@@ -103,6 +103,14 @@ class TimelineEntry:
     def is_section(self) -> bool:
         return self.section is not None
 
+    @property
+    def card_kind(self) -> str:
+        """Map/timeline type: ``day``, ``stay``, or ``movement``."""
+
+        if self.section is not None:
+            return self.section.kind
+        return "day"
+
 
 @dataclass(frozen=True, slots=True)
 class TimelineSnapshot:

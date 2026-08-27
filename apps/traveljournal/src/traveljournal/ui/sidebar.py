@@ -11,7 +11,6 @@ NAV_ITEMS = (
     ("timeline", "Timeline"),
     ("map", "Karte"),
     ("photos", "Fotos"),
-    ("journal", "Tagebuch"),
     ("export", "Export"),
 )
 

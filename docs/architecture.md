@@ -34,7 +34,7 @@ apps/photoinspector ─uses──►  packages/travelcore   (geplant)
 | `metadata` | Pillow, HEIC-Container, optional ExifTool, Merge |
 | `gps` | GPX/IGC-Parse und Ingest, KML/GeoJSON nur für Vorschauen, zeitliche Interpolation |
 | `geolocation` | Aufenthaltscluster (Haversine, Radius 150 m) |
-| `timeline` | Tage, Resttage, Reiseabschnitte, Links, Cover, manuelle Edits |
+| `timeline` | Tage, Transfers, Aufenthalte, Links, Cover, manuelle Edits |
 | `maps` | `MapScene` + Folium/Leaflet; statische OSM-Ausschnitte für Track-Thumbs |
 | `export` | Vertrag `Exporter`; HTML/PDF/LaTeX/CEWE noch Platzhalter |
 | `image_analysis` / `similarity` | Verträge für Phase 9/10, ohne Engines |
@@ -75,7 +75,7 @@ sie in Phase 7 noch nicht. Der Fenstertitel lautet `Reisetagebuch R{Version}`
 bzw. `Reisetagebuch R{Version} - {Projekttitel}`. Das Timeline-Medienregister
 steht in `%LOCALAPPDATA%\TravelJournal\config.json` (`timeline_media_tab`).
 
-## Timeline und Tagebuch
+## Timeline
 
 Nach dem Import ruft die App `sync_timeline` auf. Die Bibliothek:
 
@@ -86,25 +86,26 @@ Nach dem Import ruft die App `sync_timeline` auf. Die Bibliothek:
 5. löscht leere Auto-Tage ohne manuelle Texte, Orte oder Übernachtungen
 
 Die Timeline-UI mischt **Reiseabschnitte** (`trip_sections` / `section_members`)
-und **Resttage**. Neu angelegte Abschnitte sind `PendingSectionSpec` (negative
-`local_id`) bis Speichern. Overlay `apply_pending_sections` ist Vorschau.
+und **Tage** (früher Resttage). Der Typ ist in der Oberfläche **Tag**, **Transfer**
+oder **Aufenthalt**; gespeichert bleiben `stay` und `movement`, Tage ohne Abschnitt.
+Neu angelegte Abschnitte sind `PendingSectionSpec` (negative `local_id`) bis
+Speichern. Overlay `apply_pending_sections` ist Vorschau.
 
 Manuelle Titel, Notizen, bestätigte Orte, Übernachtungen, Foto-Flags
 (`used_in_journal`, `is_cover`, `is_favorite`, `sort_status`), YouTube-URLs,
 Eintrags-Titelbilder (`cover_source_file_id`, Foto oder GPS-Track) und
 Anzeigedrehung (`rotation_degrees`) überleben Re-Sync bzw. Re-Import.
-Fotos gehören über `captured_at` zu einem Tag; das Tagebuch-Häkchen ändert
-die Zugehörigkeit nicht.
+Fotos gehören über `captured_at` zu einem Tag; das Flag `used_in_journal`
+ändert die Zugehörigkeit nicht.
 
-YouTube-URLs werden nur mit Timeline- bzw. Tagebuch-Speichern persistiert.
+YouTube-URLs werden nur mit Timeline-Speichern persistiert.
 DHV-Leonardo-URLs am IGC-Track und an gespeicherten Tagen/Abschnitten
 schreiben beim Dialog-OK. Das Flugportal heißt ausschließlich DHV-Leonardo,
 nie DAV.
 
-Die UI teilt die Arbeit: Timeline legt Abschnitte an, setzt Bewertungen und
-Eintrags-Titelbilder, öffnet den Medieninspektor; das Tagebuch schreibt Texte
-und Übernachtungen. Beide lesen denselben Snapshot. Änderungen aktualisieren
-Timeline, Tagebuch, Karte und Galerie.
+Die Timeline legt Abschnitte an, schreibt Titel und Texte, setzt Bewertungen
+und Eintrags-Titelbilder und öffnet den Medieninspektor. Änderungen
+aktualisieren Timeline, Karte und Galerie.
 
 Der Medieninspektor blättert in der Sequenz des Tags/Abschnitts (bzw. der
 Fotoseite), zoomt mit dem Mausrad, dreht die Anzeige in 90°-Schritten und
@@ -115,7 +116,7 @@ nur per Klick, nicht durch Mausrad.
 
 `build_map_scene` (delegiert an `build_map_overview`) und `build_map_timeline`
 in `travelcore.maps.groups` bauen die Übersicht: ein Titelbild je gespeichertem
-Reiseabschnitt oder Resttag
+Tag, Transfer oder Aufenthalt
 (`cover_source_file_id`, sonst das erste Listenelement mit GPS). Position ist
 die Cover-GPS, sonst der Schwerpunkt der geotaggten Mitglieder. Unsaved
 Pending-Abschnitte erscheinen nicht auf der Karte.
@@ -124,7 +125,8 @@ Folium schreibt `cache/map.html` (`MAP_CACHE_VERSION` im Stamp). Qt WebEngine
 zeigt die Datei; die kompakte Leiste (`MapTimelineStrip`) sitzt **unter** dem
 WebView, nicht als Overlay über Chromium — sonst verschluckt die Karte Klicks.
 Klick auf eine Leistenkarte ruft `traveljournalFocusCover` auf: Schwenken bei
-**unverändertem Zoom**. Klick auf einen Kreis (`group_key`) öffnet die
+**unverändertem Zoom**. Doppelklick auf eine Leistenkarte öffnet denselben Eintrag
+in der Timeline. Klick auf einen Kreis (`group_key`) öffnet die
 Detailansicht (`traveljournalShowDetail`): Fotos, Videos, GPX-Linien,
 IGC-Flugtracks ab Zoom 10 (Start/Landung immer sichtbar), Übernachtungen und
 Orte. `resolve_map_group` liest nur den angeklickten Eintrag, nicht die ganze
@@ -152,10 +154,10 @@ Bereits in Phase 1 angelegt, schrittweise gefüllt:
   Cachepfad enthält `_r90` bei nicht-null `rotation_degrees`
 - `VideoMetadataProvider` – ffprobe-Adapter (noch nicht aktiv)
 - `Exporter` – HTML, PDF, LaTeX, CEWE (Implementierung ab Phase 8)
-- `MapBackend` – Folium/Leaflet, Übersicht als Titelbild-Kreise je Abschnitt/Resttag,
-  Qt-Leiste unter der Karte, Detail mit GPX-Polylinien, IGC-Flugtracks ab Zoom 10
+- `MapBackend` – Folium/Leaflet, Übersicht als Titelbild-Kreise je Tag/Transfer/Aufenthalt,
+  Qt-Leiste unter der Karte (Tag mit Kalender, Transfer als Kreis), Detail mit GPX-Polylinien, IGC-Flugtracks ab Zoom 10
   (Start/Landung immer sichtbar), Foto-Popup und Inspektor, Übernachtungen und Orte
-- Timeline in `travelcore.timeline` – Tage, Abschnitte, Resttage, Cover, Links;
+- Timeline in `travelcore.timeline` – Tage, Transfers, Aufenthalte, Cover, Links;
   keine Ortsnamen an Foto-/Trackpositionen
 - KML/GeoJSON in `travelcore.gps` – Parser für Vorschauen, kein Ingest in `gps_tracks`
 - `RankingStrategy` / `QualityAnalyzer` – Verträge für Phase 9/10

@@ -9,6 +9,7 @@ from travelcore.database.models import Project, SectionMember
 from travelcore.database.project_store import OpenProject
 from travelcore.media.indexer import FileIndexer
 from travelcore.timeline import (
+    KIND_DAY,
     KIND_MOVEMENT,
     KIND_STAY,
     PendingSectionSpec,
@@ -24,6 +25,7 @@ from travelcore.timeline import (
     serialize_modes,
     set_entry_cover,
     sync_timeline,
+    update_section_kind,
 )
 from travelcore.timeline.types import TimelineSnapshot
 
@@ -197,7 +199,9 @@ def test_leftover_day_sits_between_sections(open_project: OpenProject, tmp_path:
     ]
     assert leftover_names == ["anreise.jpg", "weiter.jpg"]
     assert snapshot.entries[0].leftover_day is not None
+    assert snapshot.entries[0].card_kind == KIND_DAY
     assert snapshot.entries[1].section is not None
+    assert snapshot.entries[1].card_kind == KIND_STAY
     assert snapshot.entries[1].section.title == "Besuch von Berlin"
     assert format_section_span(
         snapshot.entries[1].section.started_at, snapshot.entries[1].section.ended_at
@@ -278,6 +282,51 @@ def test_transfer_mode_is_optional_and_can_be_multiple(open_project: OpenProject
         session.commit()
         assert empty.mode is None
         assert mixed.mode == "bus,train"
+
+
+def test_update_section_kind_switches_stay_and_transfer(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "ort.jpg",
+        datetime_original="2025:05:19 10:00:00",
+        offset_original="+02:00",
+    )
+    first = _index_and_sync(open_project, source)
+    ids = [photo.source_file_id for photo in first.days[0].photos]
+    with open_project.session_factory() as session:
+        section = create_section(
+            session,
+            first.trip_id,
+            ids,
+            kind=KIND_STAY,
+            title="Bozen",
+            location_name="Bozen",
+        )
+        session.commit()
+        section_id = section.id
+        update_section_kind(session, section_id, KIND_MOVEMENT, mode="train")
+        session.commit()
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        loaded = load_timeline(session, project)
+    assert loaded is not None
+    entry = loaded.entries[0].section
+    assert entry is not None
+    assert entry.kind == KIND_MOVEMENT
+    assert entry.mode == "train"
+    assert entry.location_name is None
+    with open_project.session_factory() as session:
+        update_section_kind(session, section_id, KIND_STAY)
+        session.commit()
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        loaded = load_timeline(session, project)
+    assert loaded is not None
+    back = loaded.entries[0].section
+    assert back is not None
+    assert back.kind == KIND_STAY
+    assert back.mode is None
 
 
 def test_apply_pending_sections_is_preview_only() -> None:

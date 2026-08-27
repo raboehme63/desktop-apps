@@ -518,3 +518,4 @@ def test_build_map_timeline_cards_from_section(open_project: OpenProject, tmp_pa
     assert card.latitude == 46.0
     assert card.longitude == 11.0
     assert card.cover_path is not None
+    assert card.card_kind == KIND_STAY

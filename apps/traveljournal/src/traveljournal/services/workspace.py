@@ -380,51 +380,16 @@ class Workspace:
             )
             session.commit()
 
+    def update_section_kind(self, section_id: int, kind: str, *, mode: str | None = None) -> None:
+        self._mutate(
+            lambda session: timeline_sections.update_section_kind(session, section_id, kind, mode=mode)
+        )
+
     def dissolve_section(self, section_id: int) -> None:
         self._mutate(lambda session: timeline_sections.dissolve_section(session, section_id))
 
-    def set_photo_in_journal(self, source_file_id: int, used: bool) -> None:
-        self._mutate(lambda session: timeline_build.set_photo_journal_flag(session, source_file_id, used))
-
-    def set_cover_photo(self, source_file_id: int) -> None:
-        opened = self._require_open()
-        with opened.session_factory() as session:
-            timeline_build.set_cover_photo(session, opened.project_id, source_file_id)
-            session.commit()
-
     def set_entry_cover(self, kind: str, entity_id: int, source_file_id: int | None) -> None:
         self._mutate(lambda session: timeline_build.set_entry_cover(session, kind, entity_id, source_file_id))
-
-    def confirm_place(self, place_id: int, name: str) -> None:
-        self._mutate(lambda session: timeline_build.confirm_place(session, place_id, name))
-
-    def delete_place(self, place_id: int) -> None:
-        self._mutate(lambda session: timeline_build.delete_place(session, place_id))
-
-    def add_overnight_stay(
-        self,
-        day_id: int,
-        *,
-        name: str,
-        location_name: str | None,
-        latitude: float | None,
-        longitude: float | None,
-        description: str | None,
-    ) -> None:
-        self._mutate(
-            lambda session: timeline_build.add_overnight_stay(
-                session,
-                day_id,
-                name=name,
-                location_name=location_name,
-                latitude=latitude,
-                longitude=longitude,
-                description=description,
-            )
-        )
-
-    def delete_overnight_stay(self, stay_id: int) -> None:
-        self._mutate(lambda session: timeline_build.delete_overnight_stay(session, stay_id))
 
     def thumbs_dir(self) -> Path | None:
         if self.current is None:

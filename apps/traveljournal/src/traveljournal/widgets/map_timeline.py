@@ -26,10 +26,12 @@ from PySide6.QtWidgets import (
 )
 
 from travelcore.maps.groups import MapTimelineCard
+from travelcore.timeline.sections import KIND_DAY, KIND_MOVEMENT
 
 CARD_WIDTH = 248
 CARD_HEIGHT = 148
 CARD_RADIUS = 22
+TRANSFER_DIAMETER = 111  # ~75 % of CARD_HEIGHT
 LINE_WIDTH = 36
 _FOCUS_DELAY_MS = 180
 
@@ -59,15 +61,17 @@ class _LineWidget(QWidget):
 
 class _CardWidget(QFrame):
     clicked = Signal(str)
-    fit_all_requested = Signal()
+    open_requested = Signal(str)
 
     def __init__(self, card: MapTimelineCard, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.card = card
         self.setObjectName("mapTimelineCard")
-        self.setFixedSize(CARD_WIDTH, CARD_HEIGHT)
+        width, height = _card_size(card.card_kind)
+        self.setFixedSize(width, height)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setProperty("focused", False)
+        self.setProperty("cardKind", card.card_kind)
         self._focused = False
         self._pixmap = QPixmap()
         path = card.cover_path
@@ -75,8 +79,8 @@ class _CardWidget(QFrame):
             loaded = QPixmap(str(path))
             if not loaded.isNull():
                 self._pixmap = loaded.scaled(
-                    CARD_WIDTH,
-                    CARD_HEIGHT,
+                    width,
+                    height,
                     Qt.AspectRatioMode.KeepAspectRatioByExpanding,
                     Qt.TransformationMode.SmoothTransformation,
                 )
@@ -96,8 +100,12 @@ class _CardWidget(QFrame):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         rect = QRectF(self.rect()).adjusted(1.5, 1.5, -1.5, -1.5)
+        circular = self.card.card_kind == KIND_MOVEMENT
         clip = QPainterPath()
-        clip.addRoundedRect(rect, CARD_RADIUS, CARD_RADIUS)
+        if circular:
+            clip.addEllipse(rect)
+        else:
+            clip.addRoundedRect(rect, CARD_RADIUS, CARD_RADIUS)
         painter.setClipPath(clip)
         if self._pixmap.isNull():
             painter.fillRect(rect, QColor("#243044"))
@@ -105,15 +113,23 @@ class _CardWidget(QFrame):
             x = rect.x() + (rect.width() - self._pixmap.width()) / 2
             y = rect.y() + (rect.height() - self._pixmap.height()) / 2
             painter.drawPixmap(int(x), int(y), self._pixmap)
-        fade = QLinearGradient(rect.left(), rect.bottom() - 86, rect.left(), rect.bottom())
+        fade_h = 56 if circular else 86
+        fade = QLinearGradient(rect.left(), rect.bottom() - fade_h, rect.left(), rect.bottom())
         fade.setColorAt(0.0, QColor(8, 12, 18, 0))
         fade.setColorAt(0.35, QColor(8, 12, 18, 70))
         fade.setColorAt(1.0, QColor(8, 12, 18, 190))
         painter.fillRect(rect, fade)
-        text = QRect(int(rect.left()) + 12, int(rect.bottom()) - 70, int(rect.width()) - 24, 40)
-        when = QRect(int(rect.left()) + 12, int(rect.bottom()) - 28, int(rect.width()) - 24, 16)
+        inset = 10 if circular else 12
+        text_h = 32 if circular else 40
+        text = QRect(
+            int(rect.left()) + inset,
+            int(rect.bottom()) - (text_h + 18),
+            int(rect.width()) - 2 * inset,
+            text_h,
+        )
+        when = QRect(int(rect.left()) + inset, int(rect.bottom()) - 22, int(rect.width()) - 2 * inset, 16)
         title_font = QFont(self.font())
-        title_font.setPixelSize(16)
+        title_font.setPixelSize(13 if circular else 16)
         title_font.setWeight(QFont.Weight.DemiBold)
         painter.setFont(title_font)
         painter.setPen(QColor("#ffffff"))
@@ -123,7 +139,7 @@ class _CardWidget(QFrame):
             self.card.title,
         )
         when_font = QFont(self.font())
-        when_font.setPixelSize(11)
+        when_font.setPixelSize(10 if circular else 11)
         painter.setFont(when_font)
         painter.setPen(QColor("#e8edf5"))
         painter.drawText(
@@ -131,11 +147,16 @@ class _CardWidget(QFrame):
             int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
             self.card.time_label,
         )
+        if self.card.card_kind == KIND_DAY:
+            _paint_calendar_badge(painter, rect)
         painter.setClipping(False)
         border = QColor("#2eb8a0") if self._focused else QColor("#f4f7fb")
         painter.setPen(QPen(border, 2.0 if self._focused else 1.4))
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRoundedRect(rect, CARD_RADIUS, CARD_RADIUS)
+        if circular:
+            painter.drawEllipse(rect)
+        else:
+            painter.drawRoundedRect(rect, CARD_RADIUS, CARD_RADIUS)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
@@ -175,7 +196,7 @@ class _CardWidget(QFrame):
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
-            self.fit_all_requested.emit()
+            self.open_requested.emit(self.card.group_key)
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
@@ -191,7 +212,7 @@ class _CardWidget(QFrame):
 
 class MapTimelineStrip(QScrollArea):
     focus_changed = Signal(str)
-    fit_all_requested = Signal()
+    open_in_timeline = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -263,7 +284,7 @@ class MapTimelineStrip(QScrollArea):
                 self._row.addWidget(line, 0, Qt.AlignmentFlag.AlignVCenter)
             widget = _CardWidget(card, self._inner)
             widget.clicked.connect(self.center_on)
-            widget.fit_all_requested.connect(self.fit_all_requested.emit)
+            widget.open_requested.connect(self.open_in_timeline.emit)
             self._widgets.append(widget)
             self._row.addWidget(widget, 0, Qt.AlignmentFlag.AlignVCenter)
         self._row.addWidget(self._right_pad)
@@ -335,3 +356,26 @@ class MapTimelineStrip(QScrollArea):
     def _scroll_widget_to_center(self, widget: _CardWidget) -> None:
         center = widget.mapTo(self._inner, QPoint(widget.width() // 2, 0)).x()
         self.horizontalScrollBar().setValue(center - self.viewport().width() // 2)
+
+
+def _card_size(card_kind: str) -> tuple[int, int]:
+    if card_kind == KIND_MOVEMENT:
+        return TRANSFER_DIAMETER, TRANSFER_DIAMETER
+    return CARD_WIDTH, CARD_HEIGHT
+
+
+def _paint_calendar_badge(painter: QPainter, rect: QRectF) -> None:
+    size = 22.0
+    box = QRectF(rect.right() - size - 8, rect.top() + 8, size, size)
+    painter.setPen(QPen(QColor("#f4f7fb"), 1.2))
+    painter.setBrush(QColor(8, 12, 18, 175))
+    painter.drawRoundedRect(box, 4, 4)
+    painter.fillRect(QRectF(box.left(), box.top(), box.width(), 6), QColor("#e8edf5"))
+    painter.setPen(QPen(QColor("#243044"), 1.6))
+    painter.drawLine(int(box.left() + 6), int(box.top() - 1), int(box.left() + 6), int(box.top() + 5))
+    painter.drawLine(int(box.right() - 6), int(box.top() - 1), int(box.right() - 6), int(box.top() + 5))
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#f4f7fb"))
+    for column in range(3):
+        for row in range(2):
+            painter.drawEllipse(QRectF(box.left() + 5 + column * 5.2, box.top() + 10 + row * 5.2, 2.4, 2.4))

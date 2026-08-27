@@ -308,6 +308,7 @@ else:  # pragma: no cover
 
 class MapView(QWidget):
     status_message = Signal(str)
+    open_in_timeline = Signal(str)
 
     def __init__(self, workspace: Workspace, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -334,8 +335,8 @@ class MapView(QWidget):
         title = QLabel("Karte")
         title.setObjectName("pageTitle")
         self._subtitle = QLabel(
-            "Titelbilder der Reiseabschnitte und Resttage. "
-            "Die Leiste unter der Karte folgt dem Reiseverlauf."
+            "Titelbilder der Tage, Transfers und Aufenthalte. "
+            "Einfachklick in der Leiste zentriert, Doppelklick öffnet den Eintrag in der Timeline."
         )
         self._subtitle.setObjectName("pageSubtitle")
         self._subtitle.setWordWrap(True)
@@ -359,7 +360,7 @@ class MapView(QWidget):
         self._youtube.set_urls(())
         self._timeline = MapTimelineStrip()
         self._timeline.focus_changed.connect(self._on_timeline_focus)
-        self._timeline.fit_all_requested.connect(self._fit_overview)
+        self._timeline.open_in_timeline.connect(self.open_in_timeline.emit)
         self._web_host = QWidget()
         self._web_layout = QVBoxLayout(self._web_host)
         self._web_layout.setContentsMargins(0, 0, 0, 0)
@@ -536,9 +537,6 @@ class MapView(QWidget):
         if self._web is None or self._stack.currentWidget() is not self._web_host:
             return
         self._web.page().runJavaScript(script)
-
-    def _fit_overview(self) -> None:
-        self._run_js("if (window.traveljournalFitOverview) traveljournalFitOverview();")
 
     def _on_timeline_focus(self, group_key: str) -> None:
         if not group_key or group_key == self._last_expand_key:

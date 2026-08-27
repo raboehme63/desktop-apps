@@ -27,6 +27,7 @@ from travelcore.timeline.links import (
 )
 from travelcore.timeline.ranking import PhotoFeatures, RankingStrategy
 from travelcore.timeline.sections import (
+    KIND_DAY,
     KIND_MOVEMENT,
     KIND_STAY,
     MOVEMENT_MODES,
@@ -41,10 +42,12 @@ from travelcore.timeline.sections import (
     save_section_text,
     save_section_youtube_urls,
     serialize_modes,
+    update_section_kind,
 )
 from travelcore.timeline.types import PendingSectionSpec, TimelineDay, TimelineSnapshot
 
 __all__ = [
+    "KIND_DAY",
     "KIND_MOVEMENT",
     "KIND_STAY",
     "MOVEMENT_MODES",
@@ -85,4 +88,5 @@ __all__ = [
     "set_photo_journal_flag",
     "set_photo_sort_status",
     "sync_timeline",
+    "update_section_kind",
 ]

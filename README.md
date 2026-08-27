@@ -13,7 +13,7 @@ Aktueller Stand: **Phase 7 erweitert**, Software **R1.0.0**
 
 Die Anwendung importiert Medien, liest Metadaten und GPS-Tracks, erzeugt
 Vorschaubilder, zeigt eine Karte (Titelbild-Kreise, Leiste, Detail) und baut
-eine bearbeitbare Timeline aus Resttagen und Reiseabschnitten. Medieninspektor,
+eine bearbeitbare Timeline aus Tagen, Transfers und Aufenthalten. Medieninspektor,
 Bewertungen, Anzeigedrehung und Track-Vorschauen gehören dazu. HTML-Export
 folgt in Phase 8.
 

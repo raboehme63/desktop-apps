@@ -33,7 +33,7 @@ from travelcore.media.thumbnails import cached_thumbnail_path
 from travelcore.media.types import FileKind
 from travelcore.timeline.build import load_timeline
 from travelcore.timeline.links import parse_youtube_urls
-from travelcore.timeline.sections import KIND_MOVEMENT, claimed_source_ids, format_section_span
+from travelcore.timeline.sections import KIND_DAY, KIND_MOVEMENT, claimed_source_ids, format_section_span
 from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelinePhoto, TimelineSection
 
 
@@ -54,6 +54,7 @@ class MapTimelineCard:
     cover_path: Path | None = None
     latitude: float | None = None
     longitude: float | None = None
+    card_kind: str = "stay"
 
 
 def build_map_overview(
@@ -254,6 +255,7 @@ def _card_from_entry(entry: TimelineEntry) -> MapTimelineCard | None:
         cover_path=cover_path,
         latitude=lat,
         longitude=lon,
+        card_kind=entry.card_kind,
     )
 
 
@@ -410,6 +412,7 @@ def _cards_from_source_files(
                 cover_path=chosen.thumbnail_path if chosen is not None else None,
                 latitude=position[0] if position is not None else None,
                 longitude=position[1] if position is not None else None,
+                card_kind=KIND_DAY,
             )
         )
     return cards

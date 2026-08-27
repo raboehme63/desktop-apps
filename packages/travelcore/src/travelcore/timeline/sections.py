@@ -12,6 +12,7 @@ from travelcore.exceptions import ProjectError
 from travelcore.media.types import FileKind
 from travelcore.timeline.links import serialize_leonardo_urls, serialize_youtube_urls
 
+KIND_DAY = "day"
 KIND_STAY = "stay"
 KIND_MOVEMENT = "movement"
 SECTION_KINDS = frozenset({KIND_STAY, KIND_MOVEMENT})
@@ -174,6 +175,31 @@ def create_section(
         session.add(SectionMember(section_id=section.id, source_file_id=row.id, sort_index=index))
     session.flush()
     return section
+
+
+def update_section_kind(
+    session: Session,
+    section_id: int,
+    kind: str,
+    *,
+    mode: str | None = None,
+) -> None:
+    """Switch a saved section between stay and transfer. Does not touch originals."""
+
+    if kind not in SECTION_KINDS:
+        raise ProjectError("Unbekannter Abschnittstyp.")
+    section = session.get(TripSection, section_id)
+    if section is None:
+        raise ProjectError("Reiseabschnitt nicht gefunden.")
+    section.kind = kind
+    section.origin = "manual"
+    if kind == KIND_MOVEMENT:
+        section.mode = serialize_modes(parse_modes(mode)) if mode else section.mode
+        section.location_name = None
+        return
+    section.mode = None
+    section.location_from = None
+    section.location_to = None
 
 
 def save_section_text(session: Session, section_id: int, *, title: str, notes: str) -> None:

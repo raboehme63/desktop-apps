@@ -20,7 +20,6 @@ from traveljournal.services.workspace import Workspace
 from traveljournal.ui.sidebar import Sidebar
 from traveljournal.views.export_view import ExportView
 from traveljournal.views.import_view import ImportView
-from traveljournal.views.journal_view import JournalView
 from traveljournal.views.map_view import MapView
 from traveljournal.views.photos_view import PhotosView
 from traveljournal.views.project_view import ProjectView
@@ -49,7 +48,6 @@ class MainWindow(QMainWindow):
         self.timeline_view = TimelineView(self.workspace)
         self.map_view = MapView(self.workspace)
         self.photos_view = PhotosView(self.workspace)
-        self.journal_view = JournalView(self.workspace)
         self.export_view = ExportView()
 
         self._pages = {
@@ -58,7 +56,6 @@ class MainWindow(QMainWindow):
             "timeline": self.stack.addWidget(self.timeline_view),
             "map": self.stack.addWidget(self.map_view),
             "photos": self.stack.addWidget(self.photos_view),
-            "journal": self.stack.addWidget(self.journal_view),
             "export": self.stack.addWidget(self.export_view),
         }
 
@@ -84,10 +81,8 @@ class MainWindow(QMainWindow):
         self.import_view.index_load_finished.connect(self._on_index_loaded)
         self.photos_view.status_message.connect(self._set_status)
         self.map_view.status_message.connect(self._set_status)
+        self.map_view.open_in_timeline.connect(self._open_timeline_entry)
         self.timeline_view.status_message.connect(self._set_status)
-        self.journal_view.status_message.connect(self._set_status)
-        self.journal_view.timeline_changed.connect(self.timeline_view.refresh)
-        self.journal_view.timeline_changed.connect(self.photos_view.refresh)
         self._sync_menu()
 
     def _build_menu(self) -> None:
@@ -142,7 +137,6 @@ class MainWindow(QMainWindow):
         self.import_view.refresh()
         self.photos_view.refresh()
         self.timeline_view.refresh()
-        self.journal_view.refresh()
         self.map_view.refresh()
         if rebased:
             self._set_status(f"Einstellungen gespeichert. {rebased} Dateipfade angepasst.")
@@ -192,8 +186,6 @@ class MainWindow(QMainWindow):
             self.map_view.refresh()
         elif key == "timeline":
             self.timeline_view.refresh()
-        elif key == "journal":
-            self.journal_view.refresh()
 
     def _show_page(self, key: str) -> None:
         previous = next(
@@ -215,15 +207,16 @@ class MainWindow(QMainWindow):
             self.map_view.refresh()
         if key == "timeline":
             self.timeline_view.ensure_loaded()
-        if key == "journal":
-            self.journal_view.refresh()
+
+    def _open_timeline_entry(self, group_key: str) -> None:
+        self._show_page("timeline")
+        self.timeline_view.reveal_group(group_key)
 
     def _on_project_changed(self, name: str) -> None:
         self._sync_menu()
         if name:
             self.setWindowTitle(app_window_title(name))
             self.timeline_view.clear()
-            self.journal_view.clear()
             self.map_view.clear()
             self.photos_view.clear()
             self._show_page("project")
@@ -243,7 +236,6 @@ class MainWindow(QMainWindow):
         self.photos_view.refresh()
         self.map_view.refresh()
         self.timeline_view.refresh()
-        self.journal_view.refresh()
 
     def _set_status(self, message: str) -> None:
         self.statusBar().showMessage(message)

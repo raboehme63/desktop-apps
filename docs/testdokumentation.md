@@ -26,9 +26,9 @@ Diese Dokumentation beschreibt **Teststrategie, Automatisierung, manuelle Prüfu
 | --- | --- | --- | --- |
 | Unit | `packages/travelcore/tests/` | pytest | Typen, Hash, Zeit, GPS, Provider, HEIC-Container, GPX/IGC/KML, Interpolation, ExifTool-JSON, Thumbnails, Orientierung, Timeline, Abschnitte |
 | Integration | `packages/travelcore/tests/test_indexer.py`, `test_database.py`, `test_timeline.py`; `tests/integration/` | pytest | Projektordner, Schema, Index → SQLite, Timeline-Sync, Re-Open |
-| GUI-Rauch | `tests/test_gui_smoke.py` | pytest + Qt offscreen | Hauptfenster, sieben Seiten, Inspektor, Register, Titel mit Version |
+| GUI-Rauch | `tests/test_gui_smoke.py` | pytest + Qt offscreen | Hauptfenster, sechs Seiten, Inspektor, Register, Titel mit Version |
 | Paketierung | `packaging/` | manuell nach `build.ps1` | Frozen-EXE startet, Alembic/Karte, kein Python nötig (MT-22) |
-| Manuell | dieses Dokument, Abschnitt 7 | Windows-Desktop | Import echter HEIC/JPEG, Liste, Timeline, Abschnitte, Tagebuch, Karte, Inspektor |
+| Manuell | dieses Dokument, Abschnitt 7 | Windows-Desktop | Import echter HEIC/JPEG, Liste, Timeline, Abschnitte, Karte, Inspektor |
 | Statisch | Repository-Wurzel | Ruff, später pyright | Stil, Imports, grundlegende Typen |
 
 Nicht eingeführt (geplant): pytest-qt für Interaktion, visuelle Galerie-/Kartentests, Lasttest mit zehntausenden Dateien.
@@ -178,7 +178,7 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 | `test_project_survives_close_and_reopen` | `tests/integration/test_project_lifecycle.py` | Index überlebt Re-Open |
 | `test_exporters_share_interface` | `test_interfaces.py` | HTML/PDF/LaTeX/CEWE sind `Exporter` |
 | `test_protocols_are_importable` | `test_interfaces.py` | `MetadataProvider`, `RankingStrategy`, `MapBackend` |
-| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R1.0.0, 7 Seiten, Menü Projekt |
+| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R1.0.0, 6 Seiten, Menü Projekt |
 
 ### 4.7 GPX und zeitliche Zuordnung — FA-040 bis FA-042
 
@@ -272,7 +272,7 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 | `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Leiste zentriert die erste Karte |
 | `test_inspector_map_opens_thumbnail_then_original_on_double_click` | `tests/test_gui_smoke.py` | Inspektor: Vorschau, Doppelklick Original |
 
-### 4.10 Timeline und Tagebuch — FA-014, FA-060 bis FA-064, FA-080 bis FA-082
+### 4.10 Timeline — FA-014, FA-060 bis FA-064, FA-080 bis FA-082
 
 | Test | Datei | Prüft |
 | --- | --- | --- |
@@ -308,6 +308,7 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 | `test_leftover_day_sits_between_sections` | `test_timeline_sections.py` | Resttag zwischen Abschnitten |
 | `test_create_movement_section_from_last_day_files` | `test_timeline_sections.py` | Transfer aus Dateien |
 | `test_transfer_mode_is_optional_and_can_be_multiple` | `test_timeline_sections.py` | mehrere Verkehrsmittel |
+| `test_update_section_kind_switches_stay_and_transfer` | `test_timeline_sections.py` | Typ Aufenthalt ↔ Transfer |
 | `test_apply_pending_sections_is_preview_only` | `test_timeline_sections.py` | Overlay schreibt nicht |
 | `test_set_entry_cover_on_day_and_section` | `test_timeline_sections.py` | Foto als Eintrags-Titelbild |
 | `test_set_entry_cover_accepts_gps_track` | `test_timeline_sections.py` | Track als Eintrags-Titelbild |
@@ -392,7 +393,7 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 - Import bricht bei einer defekten Datei (JPEG oder GPX) nicht ab
 - Projekt anlegen, Schema (Abschnitte, URLs, Cover, Drehung), Wiederöffnen, `settings.toml` und Pfad-Rebase
 - Karte: Titelbild-Kreise je Abschnitt/Resttag, Leiste darunter, Detail mit Tracklinie und Fotomarkern, Foto-Popup, offline ohne OSM
-- Timeline: Tage aus Aufnahmezeit, manuelle Texte bleiben, Ortsvorschläge, Übernachtungen, Tagebuch-Flags
+- Timeline: Tage aus Aufnahmezeit, manuelle Texte bleiben, Ortsvorschläge, Übernachtungen, `used_in_journal`
 - Reiseabschnitte, Resttage, Pending-Vorschau, Eintrags-Titelbild (Foto und Track)
 - YouTube- und DHV-Leonardo-URL-Normalisierung
 - Anzeigedrehung (Index, Cachepfad, Re-Import, Inspektor ohne Originalschreiben)
@@ -404,7 +405,7 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 | Lücke | FA | Grund / nächste Phase |
 | --- | --- | --- |
 | Visuelle Marker-Vorschau / Bedienung in Qt | FA-050–FA-053 | Szene und Bridge in `test_maps.py` / `test_gui_smoke.py`; visuell MT-12 |
-| Timeline-/Tagebuch-Bedienung | FA-060–FA-069, FA-080 | Logik in `test_timeline*.py`; visuell MT-13, MT-18–MT-21 |
+| Timeline-Bedienung | FA-060–FA-069, FA-080 | Logik in `test_timeline*.py`; visuell MT-13, MT-18–MT-21 |
 | Windows-Endnutzerpaket | FA-140–FA-144 | kein pytest; manuell MT-22 nach `packaging/build.ps1` |
 | Galeriefilter in der UI | FA-101 | Logik der Liste automatisiert; Filter nur MT-09 |
 | Zuletzt verwendete Projekte in der UI | FA-091 | `recent.json` ohne Oberfläche; manuell nicht zwingend |
@@ -535,30 +536,32 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | ein runder Kreis je Abschnitt oder Resttag; ohne gesetztes Titelbild das erste Listenelement mit GPS; darunter die Timeline-Leiste mit denselben Einträgen |
+| Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | ein runder Kreis je Tag, Transfer oder Aufenthalt; ohne gesetztes Titelbild das erste Listenelement mit GPS; darunter die Timeline-Leiste mit denselben Einträgen |
+| Leiste: Tag-Karte | Kalendersymbol oben rechts |
+| Leiste: Transfer-Karte | Kreis, kleiner als die Rechteckkarten |
+| Einfachklick auf eine Leistenkarte | Karte zentriert, Zoom bleibt |
+| Doppelklick auf eine Leistenkarte | Seite **Timeline**, selber Eintrag sichtbar |
 | Leiste nach links/rechts ziehen oder Mausrad | Karten verschieben sich horizontal; Klick trifft die Karte, nicht die OSM-Kacheln |
 | Hineinzoomen, dann eine Leistenkarte anklicken | die Karte schwenkt auf diesen Eintrag, **Zoom bleibt** |
-| Doppelklick auf eine Leistenkarte oder in die freie (nicht belegte) Kartenfläche | Übersicht: alle Kreise im Ausschnitt |
+| Doppelklick in die freie (nicht belegte) Kartenfläche | Übersicht: alle Kreise im Ausschnitt |
 | Klick auf einen Kreis | Detailansicht: Fotos, Videos und Tracks dieses Eintrags, Ausschnitt angepasst; **Reiseabschnitt schließen** stellt Zoom und Ausschnitt der Übersicht wieder her |
 | Freie Karte: offene Hand (Verschieben); über einem Kreis: Zeiger (Auswahl) | der Kreis-Klick öffnet das Detail, startet kein Zoomen |
 | Klick auf ein viereckiges Foto-Symbol im Detail | kleines Thumbnail-Popup auf der Karte (nicht sofort der Inspektor) |
 | Doppelklick auf das Thumbnail (oder das Foto-Symbol) | Medieninspektor mit dem **Original**, Blättern/Zoom/Drehen wie in der Timeline |
-| Übernachtung im Tagebuch mit GPS anlegen | erscheint nach Klick auf den Resttag; ohne Medien als Fallback-Titelbild |
-| Bestätigter Ort | erscheint im Detail des Resttags |
+| Übernachtung mit GPS in der Datenbank | erscheint nach Klick auf den Tag; ohne Medien als Fallback-Titelbild |
+| Bestätigter Ort | erscheint im Detail des Tags |
 
-### MT-13 Timeline und Tagebuch
+### MT-13 Timeline
 
 | Schritt | Erwartung |
 | --- | --- |
 | Nach Import Seite **Timeline** öffnen bzw. **Timeline aktualisieren** | ein Tag je Aufnahmedatum; Fotos am Kalendertag der Aufnahmezeit; Auto-Ereignis mit Medienzähler |
-| GPS-Fotos am selben Ort | kein automatischer Ortsname; Tag zeigt das Datum. Orte nur manuell im Tagebuch |
+| GPS-Fotos am selben Ort | kein automatischer Ortsname; Tag zeigt das Datum |
 | Ort löschen, erneut abgleichen | kein neuer Auto-Ortsname |
-| Seite **Tagebuch**: Titel und Text speichern, Projekt schließen und öffnen | Text noch da, `origin=manual`; erneuter Timeline-Abgleich überschreibt den Text nicht |
-| Foto-Häkchen und Titelbild | `used_in_journal` / `is_cover` bleiben nach erneutem Öffnen; Foto bleibt am Aufnahmetag |
-| Alle ins Tagebuch / Alle entfernen | nur das Häkchen ändert sich, nicht der Tag |
-| Übernachtung mit Name, Ort, optional GPS | erscheint in Timeline, Tagebuch und auf der Karte; Löschen entfernt sie überall |
-| Timeline: mehrere Fotos markieren, **Neuen Reiseabschnitt erstellen** (Aufenthalt) | Abschnitt erscheint; Resttage bleiben; ohne Speichern und Verlassen fragt nach |
-| Transfer mit mehreren Verkehrsmitteln, **Speichern**, ⊟ auflösen | Dateien wieder auf Resttagen |
+| Timeline: Titel und Text speichern, Projekt schließen und öffnen | Text noch da, `origin=manual`; erneuter Timeline-Abgleich überschreibt den Text nicht |
+| Timeline: Typ **Aufenthalt** bzw. **Transfer** an einem Tag | Abschnitt erscheint; Speichern nötig; Typ **Tag** löst wieder auf |
+| Timeline: mehrere Fotos markieren, **Neuen Reiseabschnitt erstellen** (Aufenthalt) | Abschnitt erscheint; Tage bleiben; ohne Speichern und Verlassen fragt nach |
+| Transfer mit mehreren Verkehrsmitteln, **Speichern**, ⊟ auflösen | Dateien wieder auf Tagen |
 | YouTube im ⋯-Menü, Dialog-OK, **ohne** Speichern die Timeline verlassen und verwerfen | YouTube nicht in der DB |
 | DHV-Leonardo extra an gespeichertem Tag, Dialog-OK | sofort in der DB; nie als „DAV“ bezeichnet |
 | Chip **T** auf Foto und auf Track | Cover in der Kartenüberschrift; Video hat kein T |
@@ -631,7 +634,7 @@ Diese Fälle werden mit der jeweiligen Phase verbindlich.
 | --- | --- |
 | Jede Codeänderung an `travelcore.metadata` oder Import | `pytest` vollständig |
 | HEIC-/GPS-Parser | zusätzlich `test_heic_gps.py`, `test_indexer.py`, manuell MT-03 |
-| Timeline / Tagebuch / Abschnitte | `test_timeline.py`, `test_timeline_sections.py`, manuell MT-13 |
+| Timeline / Abschnitte | `test_timeline.py`, `test_timeline_sections.py`, manuell MT-13 |
 | Karte / Leiste / Kreis-Detail | `test_maps.py`, `tests/test_gui_smoke.py` (Map-Fälle), manuell MT-12 |
 | Inspektor / Drehung / Register | `test_orientation.py`, `tests/test_gui_smoke.py`, manuell MT-18–MT-21 |
 | Windows-Paket (`packaging/`) | manuell MT-22 (kein pytest) |
@@ -646,7 +649,7 @@ Ein Phasenabschluss ohne grüne Automatisierung gilt als nicht abgenommen.
 
 | Datum | Kommando | Ergebnis |
 | --- | --- | --- |
-| 27.08.2026 | `python -m pytest` im Projekt-venv | 238 bestanden |
+| 27.08.2026 | `python -m pytest` im Projekt-venv | 239 bestanden |
 | 26.08.2026 | `python -m pytest` im Projekt-venv | 222 bestanden |
 | 18.08.2026 | `python -m pytest` im Projekt-venv | 98 bestanden |
 

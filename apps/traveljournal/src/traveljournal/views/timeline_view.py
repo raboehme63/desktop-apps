@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from travelcore.exceptions import ProjectError
+from travelcore.maps.groups import parse_group_key
 from travelcore.media.gallery import (
     SORT_FAVORITE,
     SORT_REJECTED,
@@ -49,6 +50,7 @@ from travelcore.timeline.links import (
     serialize_youtube_urls,
 )
 from travelcore.timeline.sections import (
+    KIND_DAY,
     KIND_MOVEMENT,
     KIND_STAY,
     expand_range_selection,
@@ -147,10 +149,11 @@ class TimelineView(QWidget):
         title = QLabel("Timeline")
         title.setObjectName("pageTitle")
         self._subtitle = QLabel(
-            "Resttage und Reiseabschnitte chronologisch untereinander. "
+            "Tage, Transfers und Aufenthalte chronologisch untereinander. "
+            "Typ je Karte ändern, oder Objekte markieren und einen Abschnitt anlegen. "
             "Erstes und letztes Objekt anklicken — alles dazwischen wird mitmarkiert. "
             "Strg+Klick nimmt einzelne Objekte dazwischen wieder raus. "
-            "Dann einen Abschnitt anlegen. Die Zeitspanne kommt aus den gewählten Dateien."
+            "Die Zeitspanne kommt aus den gewählten Dateien."
         )
         self._subtitle.setObjectName("pageSubtitle")
         self._subtitle.setWordWrap(True)
@@ -292,11 +295,11 @@ class TimelineView(QWidget):
         unsaved_n = len(self._pending) + len(self._pending_youtube)
         unsaved = f" {unsaved_n} ungespeichert." if unsaved_n else ""
         self._subtitle.setText(
-            f"{shown.title}: {sections} Abschnitte, {leftover} Resttage.{unsaved} "
+            f"{shown.title}: {sections} Abschnitte, {leftover} Tage.{unsaved} "
             "Auswahl von Fotos, Videos und Tracks erzeugt einen Abschnitt; die Zeit kommt aus den Objekten."
         )
         self._fill_entries()
-        self.status_message.emit(f"Timeline: {sections} Abschnitte, {leftover} Resttage")
+        self.status_message.emit(f"Timeline: {sections} Abschnitte, {leftover} Tage")
 
     def clear(self) -> None:
         self._snapshot = None
@@ -349,6 +352,9 @@ class TimelineView(QWidget):
                 )
                 block.selection_changed.connect(self._on_block_selection_changed)
                 block.dissolve_requested.connect(self._dissolve_section)
+                block.kind_changed.connect(
+                    lambda kind, widget=block: self._change_entry_kind(widget, kind)
+                )
                 block.media_tab_changed.connect(self._on_block_media_tab)
                 block.item_rating_changed.connect(self._on_item_rating)
                 block.gallery.item_activated.connect(self._open_inspector)
@@ -500,7 +506,7 @@ class TimelineView(QWidget):
         self._apply_pending_view()
         self.status_message.emit("Reiseabschnitt angelegt. Speichern, sonst geht er verloren.")
 
-    def _dissolve_section(self, section_id: int) -> None:
+    def _dissolve_section(self, section_id: int) -> bool:
         box = QMessageBox(self)
         box.setWindowTitle("Reiseabschnitt auflösen")
         box.setText(
@@ -510,21 +516,96 @@ class TimelineView(QWidget):
         box.button(QMessageBox.StandardButton.Ok).setText("OK")
         box.button(QMessageBox.StandardButton.Cancel).setText("Abbrechen")
         if box.exec() != QMessageBox.StandardButton.Ok:
-            return
+            return False
         self._pending_youtube.pop(("section", section_id), None)
         if section_id < 0:
             self._pending = [spec for spec in self._pending if spec.local_id != section_id]
             self._apply_pending_view()
             self.status_message.emit("Reiseabschnitt verworfen.")
-            return
+            return True
         try:
             self.workspace.dissolve_section(section_id)
         except ProjectError as exc:
             QMessageBox.warning(self, "Timeline", str(exc))
-            return
+            return False
         self.refresh()
         self.timeline_changed.emit()
         self.status_message.emit("Reiseabschnitt aufgelöst.")
+        return True
+
+    def _change_entry_kind(self, block: EntryWidget, kind: str) -> None:
+        current = block.entry_kind()
+        if kind == current:
+            return
+        if kind == KIND_DAY:
+            if current == KIND_DAY:
+                return
+            if not self._dissolve_section(block.entity_id()):
+                block.reset_kind_combo()
+            return
+        if current == KIND_DAY:
+            ids = [item.source_file_id for item in block.ordered_items()]
+            if not ids:
+                QMessageBox.information(self, "Timeline", "Dieser Tag hat keine Medien für einen Abschnitt.")
+                block.reset_kind_combo()
+                return
+            if not self._commit_if_dirty():
+                block.reset_kind_combo()
+                return
+            title, notes = block.title_edit.text().strip() or None, block.notes_edit.toPlainText()
+            self._pending.append(
+                PendingSectionSpec(
+                    local_id=self._next_pending_id,
+                    source_file_ids=tuple(ids),
+                    kind=kind,
+                    title=title,
+                    notes=notes or None,
+                    cover_source_file_id=block.cover_source_file_id(),
+                    youtube_urls=tuple(block.youtube_urls()),
+                    leonardo_urls=tuple(block.leonardo_urls()),
+                )
+            )
+            self._next_pending_id -= 1
+            self._apply_pending_view()
+            self.status_message.emit("Reiseabschnitt angelegt. Speichern, sonst geht er verloren.")
+            return
+        if block.entity_id() < 0:
+            for spec in self._pending:
+                if spec.local_id == block.entity_id():
+                    spec.kind = kind
+                    if kind != KIND_MOVEMENT:
+                        spec.mode = None
+                        spec.location_from = None
+                        spec.location_to = None
+                    else:
+                        spec.location_name = None
+                    break
+            self._apply_pending_view()
+            return
+        try:
+            self.workspace.update_section_kind(block.entity_id(), kind)
+        except ProjectError as exc:
+            QMessageBox.warning(self, "Timeline", str(exc))
+            block.reset_kind_combo()
+            return
+        self.refresh()
+        self.timeline_changed.emit()
+        self.status_message.emit("Abschnittstyp geändert.")
+
+    def reveal_group(self, group_key: str) -> None:
+        """Scroll the matching day or section into view (from the map strip)."""
+
+        self.ensure_loaded()
+        kind, ident = parse_group_key(group_key)
+        if kind is None or ident is None:
+            return
+        for block in self._blocks:
+            if kind == "section" and block.entity_kind() == "section" and block.entity_id() == ident:
+                self._scroll.ensureWidgetVisible(block, 48, 48)
+                return
+            if kind == "day" and block.entity_kind() == "day" and block.entity_id() == ident:
+                self._scroll.ensureWidgetVisible(block, 48, 48)
+                return
 
     def _selected_items(self) -> list[GalleryItem]:
         items: list[GalleryItem] = []
@@ -646,6 +727,7 @@ class TimelineView(QWidget):
 class EntryWidget(QFrame):
     selection_changed = Signal()
     dissolve_requested = Signal(int)
+    kind_changed = Signal(str)
     media_tab_changed = Signal(int)
     item_rating_changed = Signal(object)
 
@@ -707,6 +789,7 @@ class EntryWidget(QFrame):
         self._flights = igc_flights(items)
         self._loaded_title = title
         self._loaded_notes = notes
+        self._entry_kind = entry.card_kind
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -736,6 +819,16 @@ class EntryWidget(QFrame):
         self._cover_thumb.setToolTip("Titelbild")
         self._cover_thumb.hide()
         heading_row.addWidget(self._cover_thumb, 0, Qt.AlignmentFlag.AlignTop)
+        self._kind_combo = QComboBox(self)
+        self._kind_combo.setObjectName("sectionKind")
+        self._kind_combo.addItem("Tag", KIND_DAY)
+        self._kind_combo.addItem("Aufenthalt", KIND_STAY)
+        self._kind_combo.addItem("Transfer", KIND_MOVEMENT)
+        self._kind_combo.setToolTip("Typ dieses Timeline-Eintrags")
+        index = max(0, self._kind_combo.findData(self._entry_kind))
+        self._kind_combo.setCurrentIndex(index)
+        self._kind_combo.currentIndexChanged.connect(self._on_kind_combo)
+        heading_row.addWidget(self._kind_combo, 0, Qt.AlignmentFlag.AlignTop)
         heading_row.addWidget(heading, 1)
         if self._kind == "section":
             dissolve = QToolButton(self)
@@ -838,6 +931,26 @@ class EntryWidget(QFrame):
 
     def values(self) -> tuple[str, int, str, str]:
         return self._kind, self._entity_id, self.title_edit.text(), self.notes_edit.toPlainText()
+
+    def entity_kind(self) -> str:
+        return self._kind
+
+    def entity_id(self) -> int:
+        return self._entity_id
+
+    def entry_kind(self) -> str:
+        return self._entry_kind
+
+    def reset_kind_combo(self) -> None:
+        self._kind_combo.blockSignals(True)
+        self._kind_combo.setCurrentIndex(max(0, self._kind_combo.findData(self._entry_kind)))
+        self._kind_combo.blockSignals(False)
+
+    def _on_kind_combo(self) -> None:
+        kind = str(self._kind_combo.currentData() or KIND_DAY)
+        if kind == self._entry_kind:
+            return
+        self.kind_changed.emit(kind)
 
     def selected_source_ids(self) -> list[int]:
         return [item.source_file_id for item in self.selected_items()]
@@ -1157,10 +1270,10 @@ class ModePicker(QWidget):
 
 
 def _leftover_heading(day: TimelineDay, *, leftover: bool) -> str:
+    del leftover
     date_text = day.date.strftime("%d.%m.%Y") if day.date is not None else "Ohne Datum"
     origin = "manuell" if day.origin == "manual" else "automatisch"
-    prefix = "Resttag · " if leftover else ""
-    return f"{prefix}{date_text} · {origin}"
+    return f"{date_text} · {origin}"
 
 
 def _gallery_item(photo: TimelinePhoto, *, cover_id: int | None = None) -> GalleryItem:
