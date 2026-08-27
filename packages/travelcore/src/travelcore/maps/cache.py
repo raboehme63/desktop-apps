@@ -12,8 +12,9 @@ from sqlalchemy.orm import Session
 
 from travelcore.maps.backend import OSM_LATIN_TILES, FoliumMapBackend
 from travelcore.maps.scene import MapScene, build_map_scene
+from travelcore.project_settings import DEFAULT_STAY_LINK_COLOR, normalize_stay_link_color
 
-MAP_CACHE_VERSION = 24
+MAP_CACHE_VERSION = 31
 MAP_HTML_NAME = "map.html"
 MAP_STAMP_NAME = "map.stamp.json"
 
@@ -60,6 +61,7 @@ def map_cache_identity(
     db_path: Path,
     map_provider: str,
     thumbnail_size: int,
+    map_link_color: str = DEFAULT_STAY_LINK_COLOR,
 ) -> dict[str, Any]:
     """Fingerprint of inputs that change the rendered HTML."""
 
@@ -74,6 +76,7 @@ def map_cache_identity(
         "version": MAP_CACHE_VERSION,
         "files": files,
         "map_provider": map_provider.strip().lower(),
+        "map_link_color": normalize_stay_link_color(map_link_color),
         "thumbnail_size": int(thumbnail_size),
     }
 
@@ -109,6 +112,7 @@ def ensure_map_cache(
     db_path: Path,
     size: int,
     map_provider: str,
+    map_link_color: str = DEFAULT_STAY_LINK_COLOR,
     force: bool = False,
 ) -> MapRenderResult:
     """Reuse ``cache/map.html`` when the stamp still matches, otherwise rebuild.
@@ -117,10 +121,12 @@ def ensure_map_cache(
     immediately invalidate the cache.
     """
 
+    color = normalize_stay_link_color(map_link_color)
     identity = map_cache_identity(
         db_path=db_path,
         map_provider=map_provider,
         thumbnail_size=size,
+        map_link_color=color,
     )
     if not force:
         cached = read_cached_map(project_dir, identity)
@@ -138,7 +144,7 @@ def ensure_map_cache(
                 html_path.unlink()
             rendered = MapRenderResult(html_path=None, empty=True, from_cache=False, render_seq=seq, **counts)
         else:
-            FoliumMapBackend(tiles=tiles).render(scene, html_path)
+            FoliumMapBackend(tiles=tiles, link_color=color).render(scene, html_path)
             rendered = MapRenderResult(
                 html_path=html_path,
                 empty=False,
@@ -150,6 +156,7 @@ def ensure_map_cache(
         db_path=db_path,
         map_provider=map_provider,
         thumbnail_size=size,
+        map_link_color=color,
     )
     _write_stamp(
         project_dir,
@@ -187,6 +194,7 @@ def _identity_matches(stamp: dict[str, Any], identity: dict[str, Any]) -> bool:
         stamp.get("version") == identity.get("version")
         and stamp.get("files") == identity.get("files")
         and stamp.get("map_provider") == identity.get("map_provider")
+        and stamp.get("map_link_color") == identity.get("map_link_color")
         and stamp.get("thumbnail_size") == identity.get("thumbnail_size")
     )
 

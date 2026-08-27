@@ -8,9 +8,9 @@ from PySide6.QtWidgets import QButtonGroup, QLabel, QPushButton, QVBoxLayout, QW
 NAV_ITEMS = (
     ("project", "Projekt"),
     ("import", "Import"),
+    ("photos", "Medien"),
     ("timeline", "Timeline"),
     ("map", "Karte"),
-    ("photos", "Fotos"),
     ("export", "Export"),
 )
 

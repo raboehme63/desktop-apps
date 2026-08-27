@@ -65,15 +65,16 @@ Die Datenbank speichert nur Referenzen auf Originaldateien. Originale werden
 nicht kopiert, sofern der Benutzer das nicht ausdrücklich wünscht.
 
 `settings.toml` hält Projekteinstellungen: Quellwurzel, Standard-Exportformat,
-GPS-Zeitfenster, Standardzeitzone, Kartenanbieter (`leaflet` / `offline`).
+GPS-Zeitfenster, Standardzeitzone, Kartenanbieter (`leaflet` / `offline`),
+Farbe der Verbindungslinien auf der Karte (`map_link_color`, Standard `#ffffff`).
 Ändert sich die Quellwurzel, werden Index-Pfade umgeschrieben, die
 Originaldateien nicht.
 
 Zuletzt geöffnete Projekte stehen unter
 `%LOCALAPPDATA%\TravelJournal\recent.json` (max. 10). Die Oberfläche listet
 sie in Phase 7 noch nicht. Der Fenstertitel lautet `Reisetagebuch R{Version}`
-bzw. `Reisetagebuch R{Version} - {Projekttitel}`. Das Timeline-Medienregister
-steht in `%LOCALAPPDATA%\TravelJournal\config.json` (`timeline_media_tab`).
+bzw. `Reisetagebuch R{Version} - {Projekttitel}`. Das Medienregister
+(Timeline und Medienseite) steht in `%LOCALAPPDATA%\TravelJournal\config.json` (`timeline_media_tab`).
 
 ## Timeline
 
@@ -106,13 +107,13 @@ schreiben beim Dialog-OK. Das Flugportal heißt ausschließlich DHV-Leonardo,
 nie DAV.
 
 Die Timeline legt Abschnitte an, schreibt den Reisetitel sowie Titel und Texte, setzt Bewertungen
-und Eintrags-Titelbilder und öffnet den Medieninspektor. Änderungen
-aktualisieren Timeline, Karte und Galerie.
+und Eintrags-Titelbilder und öffnet den Medieninspektor. Bewertungen auf der Medienseite
+gelten in der Timeline; Änderungen aktualisieren Timeline, Karte und Galerie.
 
 Der Medieninspektor blättert in der Sequenz des Tags/Abschnitts (bzw. der
-Fotoseite), zoomt mit dem Mausrad, dreht die Anzeige in 90°-Schritten und
-ändert Originale nicht. Reiter Alle/Favoriten/Reserve/Aussortiert wechseln
-nur per Klick, nicht durch Mausrad.
+Medienseite), zoomt mit dem Mausrad, dreht die Anzeige in 90°-Schritten und
+ändert Originale nicht. Reiter Alle/Favoriten/Reserve/Aussortiert (Timeline und
+Medienseite) wechseln nur per Klick, nicht durch Mausrad.
 
 ## Karte
 
@@ -121,7 +122,12 @@ in `travelcore.maps.groups` bauen die Übersicht: ein Titelbild je gespeichertem
 Tag, Transfer oder Aufenthalt
 (`cover_source_file_id`, sonst das erste Foto mit GPS, sonst der erste GPS-Track). Position ist
 die Cover-GPS, sonst der Schwerpunkt der geotaggten Mitglieder. Unsaved
-Pending-Abschnitte erscheinen nicht auf der Karte.
+Pending-Abschnitte erscheinen nicht auf der Karte. Zwischen **Tag- und Aufenthaltskreisen**
+in Timeline-Reihenfolge liegen `StayLink`-Polylinien mit Richtungsmarker (gleiche
+Positionen wie die runden Cover). Transfer-Kreise sind keine Endpunkte. Bei
+überdeckenden Kreisen (Pixelabstand ≤ Cover-Durchmesser) blendet das Leaflet-Skript
+die Linie aus. Ein Transfer dazwischen setzt `via_transfer` (Linienbild später:
+gerade, gebogen, Trackspur). In der Detailansicht sind die Linien ausgeblendet.
 
 Folium schreibt `cache/map.html` (`MAP_CACHE_VERSION` im Stamp). Qt WebEngine
 zeigt die Datei; die kompakte Leiste (`MapTimelineStrip`) sitzt **unter** dem
@@ -134,10 +140,16 @@ IGC-Flugtracks ab Zoom 10 (Start/Landung immer sichtbar) und Orte.
 `resolve_map_group` liest nur den angeklickten Eintrag, nicht die ganze
 Timeline. Klick auf ein Foto im Detail öffnet ein Leaflet-Popup mit Thumbnail;
 Doppelklick öffnet den Medieninspektor mit dem Original (wie Timeline).
+Nahe Foto-, Video- und Track-Marker werden bis Zoom 16 gestapelt
+(`PHOTO_STACK_DISABLE_ZOOM` = 17); der Stapel-Marker zeigt die Anzahl.
+Ab Zoom 17 liegen sie einzeln, auch übereinander. Orte bleiben ungestapelt.
+Übersichtstitelbilder clustern nicht.
 
 Online-Kacheln kommen von `tile.openstreetmap.de` (deutsche Namen, sonst
-lateinische Umschrift statt Landesschrift). `map_provider=offline` setzt
-`tiles=None` (keine OSM-Kacheln). Fehlt Qt WebEngine, bleibt der Pfad sichtbar.
+lateinische Umschrift statt Landesschrift). Ein Layer-Symbol oben rechts öffnet
+Karte (OSM), Gelände (OpenTopoMap) und Satellit (Esri World Imagery); die Wahl
+bleibt in `localStorage`. `map_provider=offline` setzt
+`tiles=None` (keine OSM-, OpenTopoMap- oder Satellitenkacheln, kein Umschalter). Fehlt Qt WebEngine, bleibt der Pfad sichtbar.
 
 ## Austauschbare Schnittstellen
 
@@ -156,7 +168,8 @@ Bereits in Phase 1 angelegt, schrittweise gefüllt:
   Cachepfad enthält `_r90` bei nicht-null `rotation_degrees`
 - `VideoMetadataProvider` – ffprobe-Adapter (noch nicht aktiv)
 - `Exporter` – HTML, PDF, LaTeX, CEWE (Implementierung ab Phase 8)
-- `MapBackend` – Folium/Leaflet, Übersicht als Titelbild-Kreise je Tag/Transfer/Aufenthalt,
+- `MapBackend` – Folium/Leaflet, Übersicht als Titelbild-Kreise je Tag/Transfer/Aufenthalt, Layer-Menü Karte/Gelände/Satellit,
+  Verbindungslinien zwischen Tag- und Aufenthaltskreisen (Richtungsmarker, Zoom-Überdeckung),
   Qt-Leiste unter der Karte (Tag mit Kalender, Transfer als liegendes Sechseck), Detail mit GPX-Polylinien, IGC-Flugtracks ab Zoom 10
   (Start/Landung immer sichtbar), Foto-Popup und Inspektor, Orte
 - Timeline in `travelcore.timeline` – Tage, Transfers, Aufenthalte, Cover, Links;

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
+    QColorDialog,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -18,7 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from travelcore.project_settings import EXPORT_FORMATS, ProjectSettings
+from travelcore.project_settings import EXPORT_FORMATS, ProjectSettings, normalize_stay_link_color
 
 _FORMAT_LABELS = {
     "html": "HTML (Reisebericht)",
@@ -95,11 +97,28 @@ class SettingsDialog(QDialog):
         self.map_combo.addItems(["leaflet", "offline"])
         self.map_combo.setCurrentText(self._settings.placeholders.map_provider)
         extra_form.addRow("Kartenanbieter", self.map_combo)
+        color_row = QHBoxLayout()
+        self.link_color_edit = QLineEdit(self._settings.placeholders.map_link_color)
+        self.link_color_edit.setPlaceholderText("#ffffff")
+        self.link_color_edit.setMaximumWidth(110)
+        self.link_color_edit.textChanged.connect(self._sync_link_color_button)
+        self.link_color_btn = QPushButton()
+        self.link_color_btn.setFixedSize(28, 24)
+        self.link_color_btn.setToolTip("Farbe wählen")
+        self.link_color_btn.clicked.connect(self._pick_link_color)
+        color_row.addWidget(self.link_color_edit)
+        color_row.addWidget(self.link_color_btn)
+        color_row.addStretch(1)
+        extra_form.addRow("Verbindungslinien", color_row)
+        self._sync_link_color_button()
         self.language_edit = QLineEdit(self._settings.placeholders.journal_language)
         extra_form.addRow("Tagebuchsprache", self.language_edit)
         note = QLabel(
             "leaflet: OpenStreetMap-Kacheln mit lateinischen bzw. deutschen Namen "
-            "(Netzwerk, openstreetmap.de). offline: nur Track und Marker. "
+            "(Netzwerk, openstreetmap.de). Kartenansicht, Gelände (OpenTopoMap) und Satellit (Esri) "
+            "schaltet man auf der Karte über das Layer-Symbol um. "
+            "offline: nur Track und Marker, ohne Umschalter. "
+            "Verbindungslinien zwischen Tag- und Aufenthaltskreisen (Standard weiß). "
             "Tagebuchsprache folgt in einer späteren Phase."
         )
         note.setObjectName("pageSubtitle")
@@ -137,6 +156,16 @@ class SettingsDialog(QDialog):
         if directory:
             self.source_edit.setText(directory)
 
+    def _pick_link_color(self) -> None:
+        current = QColor(normalize_stay_link_color(self.link_color_edit.text()))
+        picked = QColorDialog.getColor(current, self, "Linienfarbe")
+        if picked.isValid():
+            self.link_color_edit.setText(picked.name())
+
+    def _sync_link_color_button(self) -> None:
+        color = normalize_stay_link_color(self.link_color_edit.text())
+        self.link_color_btn.setStyleSheet(f"background: {color}; border: 1px solid #444;")
+
     def result_settings(self) -> ProjectSettings:
         settings = self._settings.model_copy(deep=True)
         root = self.source_edit.text().strip()
@@ -148,6 +177,7 @@ class SettingsDialog(QDialog):
         zone = self.timezone_edit.text().strip()
         settings.matching.default_timezone = zone or None
         settings.placeholders.map_provider = self.map_combo.currentText().strip() or "leaflet"
+        settings.placeholders.map_link_color = normalize_stay_link_color(self.link_color_edit.text())
         language = self.language_edit.text().strip() or "de"
         settings.placeholders.journal_language = language
         settings.performance.worker_count = int(self.workers_spin.value())

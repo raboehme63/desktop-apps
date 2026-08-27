@@ -28,6 +28,7 @@ from travelcore.media.orientation import can_rotate_media
 from travelcore.media.thumbnails import cached_thumbnail_path, ensure_thumbnail, generate_project_thumbnails
 from travelcore.media.types import GPS_EXTENSIONS
 from travelcore.project_settings import (
+    DEFAULT_STAY_LINK_COLOR,
     ProjectSettings,
     load_project_settings,
     rebase_source_file_paths,
@@ -190,6 +191,13 @@ class Workspace:
         except ProjectError:
             return "leaflet"
 
+    def map_link_color(self) -> str:
+        opened = self._require_open()
+        try:
+            return load_project_settings(opened.directory).placeholders.map_link_color
+        except ProjectError:
+            return DEFAULT_STAY_LINK_COLOR
+
     def map_cache_identity(self) -> dict[str, object]:
         opened = self._require_open()
         _thumbs, size = self._thumbs_and_size()
@@ -197,6 +205,7 @@ class Workspace:
             db_path=opened.db_path,
             map_provider=self.map_provider(),
             thumbnail_size=size,
+            map_link_color=self.map_link_color(),
         )
 
     def load_cached_map(self) -> MapRenderResult | None:
@@ -218,6 +227,7 @@ class Workspace:
             db_path=opened.db_path,
             size=size,
             map_provider=provider,
+            map_link_color=self.map_link_color(),
             force=force,
         )
 

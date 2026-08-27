@@ -91,9 +91,7 @@ def render_leaflet_excerpt(
     canvas_size = max(int(math.ceil(span)), size)
     scale = canvas_size / span
     image = Image.new("RGB", (canvas_size, canvas_size), _FALLBACK)
-    getter = fetch if fetch is not None else (
-        lambda z, x, y: fetch_osm_tile(z, x, y, cache_dir=cache_dir)
-    )
+    getter = fetch if fetch is not None else (lambda z, x, y: fetch_osm_tile(z, x, y, cache_dir=cache_dir))
     tx0 = int(math.floor(left / TILE_SIZE))
     ty0 = int(math.floor(top / TILE_SIZE))
     tx1 = int(math.floor((left + span) / TILE_SIZE))
@@ -134,16 +132,12 @@ def render_leaflet_excerpt(
     return image.resize((size, size), Image.Resampling.LANCZOS)
 
 
-def _to_canvas(
-    lat: float, lon: float, zoom: int, left: float, top: float, scale: float
-) -> tuple[int, int]:
+def _to_canvas(lat: float, lon: float, zoom: int, left: float, top: float, scale: float) -> tuple[int, int]:
     x, y = latlon_to_world_px(lat, lon, zoom)
     return int(round((x - left) * scale)), int(round((y - top) * scale))
 
 
-def _view_window(
-    segments: list[list[tuple[float, float]]], size: int
-) -> tuple[int, float, float, float]:
+def _view_window(segments: list[list[tuple[float, float]]], size: int) -> tuple[int, float, float, float]:
     lats = [lat for segment in segments for lat, _lon in segment]
     lons = [lon for segment in segments for _lat, lon in segment]
     min_lat, max_lat = min(lats), max(lats)

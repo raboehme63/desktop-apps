@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from PySide6.QtCore import QThreadPool, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -15,11 +17,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from travelcore.media.gallery import GalleryItem, effective_sort_status
+from travelcore.media.gallery import SORT_FAVORITE, GalleryItem, effective_sort_status
 from traveljournal.services.workers import ThumbnailRunnable
 from traveljournal.services.workspace import Workspace
 from traveljournal.widgets.gallery import GalleryView
 from traveljournal.widgets.media_inspector import MediaInspectorWindow
+from traveljournal.widgets.media_tabs import (
+    MEDIA_TABS,
+    ClickTabBar,
+    media_tab_index,
+    media_tab_key,
+)
 
 _JPEG = {".jpg", ".jpeg"}
 _HEIC = {".heic", ".heif"}
@@ -30,6 +38,7 @@ _TRACK = {".gpx", ".igc", ".kml", ".geojson"}
 
 class PhotosView(QWidget):
     status_message = Signal(str)
+    rating_changed = Signal(object)
 
     def __init__(self, workspace: Workspace, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -42,7 +51,7 @@ class PhotosView(QWidget):
         root.setContentsMargins(32, 28, 32, 28)
         root.setSpacing(12)
 
-        title = QLabel("Fotos")
+        title = QLabel("Medien")
         title.setObjectName("pageTitle")
         subtitle = QLabel(
             "Chronologische Galerie aus gecachten Vorschaubildern. Originale bleiben unverändert. "
@@ -66,8 +75,6 @@ class PhotosView(QWidget):
         self.year = QComboBox()
         self.year.addItem("Alle Jahre")
         self.year.currentIndexChanged.connect(self._apply_filters)
-        self.favorites = QCheckBox("Nur Favoriten")
-        self.favorites.toggled.connect(self._apply_filters)
         self.unused = QCheckBox("Nicht im Tagebuch")
         self.unused.toggled.connect(self._apply_filters)
         refresh = QPushButton("Vorschauen aktualisieren")
@@ -76,10 +83,24 @@ class PhotosView(QWidget):
         filters.addWidget(self.year)
         filters.addWidget(self.place)
         filters.addWidget(self.kind)
-        filters.addWidget(self.favorites)
         filters.addWidget(self.unused)
         filters.addWidget(refresh)
         root.addLayout(filters)
+
+        tabs = QHBoxLayout()
+        tab_label = QLabel("Register")
+        tab_label.setObjectName("pageSubtitle")
+        self._media_tabs = ClickTabBar(self)
+        self._media_tabs.setObjectName("mediaSortTabs")
+        self._media_tabs.setExpanding(False)
+        for label, _status in MEDIA_TABS:
+            self._media_tabs.addTab(label)
+        self._media_tabs.setCurrentIndex(media_tab_index(self.workspace.timeline_media_tab()))
+        self._media_tabs.currentChanged.connect(self._on_media_tab)
+        tabs.addWidget(tab_label)
+        tabs.addWidget(self._media_tabs)
+        tabs.addStretch(1)
+        root.addLayout(tabs)
 
         self.gallery = GalleryView()
         self.gallery.item_activated.connect(self._preview)
@@ -113,6 +134,19 @@ class PhotosView(QWidget):
         index = self.year.findText(current)
         self.year.setCurrentIndex(max(index, 0))
         self.year.blockSignals(False)
+        self._sync_media_tab()
+        self._apply_filters()
+
+    def _sync_media_tab(self) -> None:
+        index = media_tab_index(self.workspace.timeline_media_tab())
+        if self._media_tabs.currentIndex() == index:
+            return
+        self._media_tabs.blockSignals(True)
+        self._media_tabs.setCurrentIndex(index)
+        self._media_tabs.blockSignals(False)
+
+    def _on_media_tab(self, index: int) -> None:
+        self.workspace.set_timeline_media_tab(media_tab_key(index))
         self._apply_filters()
 
     def _apply_filters(self) -> None:
@@ -120,8 +154,12 @@ class PhotosView(QWidget):
         place = self.place.currentIndex()
         kind = self.kind.currentText()
         year_text = self.year.currentText()
-        only_fav = self.favorites.isChecked()
         unused = self.unused.isChecked()
+        wanted = (
+            MEDIA_TABS[self._media_tabs.currentIndex()][1]
+            if 0 <= self._media_tabs.currentIndex() < len(MEDIA_TABS)
+            else None
+        )
         shown: list[GalleryItem] = []
         for item in self._items:
             if query and query not in item.filename.lower():
@@ -130,7 +168,7 @@ class PhotosView(QWidget):
                 continue
             if place == 2 and item.gps_latitude is not None:
                 continue
-            if only_fav and effective_sort_status(item.sort_status, item.is_favorite) != "favorite":
+            if wanted is not None and effective_sort_status(item.sort_status, item.is_favorite) != wanted:
                 continue
             if unused and item.used_in_journal:
                 continue
@@ -142,7 +180,7 @@ class PhotosView(QWidget):
                 continue
             shown.append(item)
         self.gallery.set_items(shown)
-        self.summary.setText(f"{len(shown)} von {len(self._items)} Fotos")
+        self.summary.setText(f"{len(shown)} von {len(self._items)} Medien")
 
     def clear(self) -> None:
         self._items = []
@@ -155,14 +193,18 @@ class PhotosView(QWidget):
     def _toggle_favorite(self) -> None:
         item = self.gallery.selected_item()
         if item is None:
-            QMessageBox.information(self, "Fotos", "Bitte ein Foto auswählen.")
+            QMessageBox.information(self, "Medien", "Bitte ein Medium auswählen.")
             return
+        current = effective_sort_status(item.sort_status, item.is_favorite)
+        next_status = None if current == SORT_FAVORITE else SORT_FAVORITE
         try:
-            self.workspace.set_favorite(item.source_file_id, not item.is_favorite)
-        except Exception as exc:  # noqa: BLE001
-            QMessageBox.warning(self, "Fotos", str(exc))
+            self.workspace.set_sort_status(item.source_file_id, next_status)
+        except Exception as error:  # noqa: BLE001
+            QMessageBox.warning(self, "Medien", str(error))
             return
-        self.refresh()
+        self._apply_item_rating(
+            replace(item, sort_status=next_status, is_favorite=next_status == SORT_FAVORITE)
+        )
 
     def _on_rating(self, item: object, status: str) -> None:
         if not isinstance(item, GalleryItem):
@@ -171,10 +213,12 @@ class PhotosView(QWidget):
         next_status = None if current == status else status
         try:
             self.workspace.set_sort_status(item.source_file_id, next_status)
-        except Exception as exc:  # noqa: BLE001
-            QMessageBox.warning(self, "Fotos", str(exc))
+        except Exception as error:  # noqa: BLE001
+            QMessageBox.warning(self, "Medien", str(error))
             return
-        self.refresh()
+        self._apply_item_rating(
+            replace(item, sort_status=next_status, is_favorite=next_status == SORT_FAVORITE)
+        )
 
     def _preview(self, item: object) -> None:
         if not isinstance(item, GalleryItem):
@@ -191,14 +235,18 @@ class PhotosView(QWidget):
     def _on_inspector_rating(self, item: object) -> None:
         if not isinstance(item, GalleryItem):
             return
+        self._apply_item_rating(item)
+
+    def _apply_item_rating(self, item: GalleryItem) -> None:
         self._items = [
             item if existing.source_file_id == item.source_file_id else existing for existing in self._items
         ]
         self._apply_filters()
+        self.rating_changed.emit(item)
 
     def _refresh_thumbs(self) -> None:
         if self.workspace.current is None:
-            QMessageBox.information(self, "Fotos", "Bitte zuerst ein Projekt öffnen.")
+            QMessageBox.information(self, "Medien", "Bitte zuerst ein Projekt öffnen.")
             return
         if self._busy:
             return
@@ -216,7 +264,7 @@ class PhotosView(QWidget):
 
     def _on_thumbs_failed(self, message: str) -> None:
         self._busy = False
-        QMessageBox.warning(self, "Fotos", message)
+        QMessageBox.warning(self, "Medien", message)
 
 
 def _matches_kind(extension: str, kind: str) -> bool:
@@ -236,4 +284,3 @@ def _matches_kind(extension: str, kind: str) -> bool:
     if kind == "Sonstiges":
         return suffix not in _JPEG | _HEIC | _RAW | _VIDEO | _TRACK | {".png", ".webp", ".tif", ".tiff"}
     return True
-

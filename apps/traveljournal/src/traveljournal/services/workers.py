@@ -15,7 +15,7 @@ from travelcore.exceptions import ProjectError
 from travelcore.maps import ensure_map_cache
 from travelcore.media.indexer import FileIndexer, IndexProgress, IndexResult
 from travelcore.media.thumbnails import generate_project_thumbnails
-from travelcore.project_settings import load_project_settings
+from travelcore.project_settings import DEFAULT_STAY_LINK_COLOR, load_project_settings
 
 if TYPE_CHECKING:
     from traveljournal.services.workspace import Workspace
@@ -164,9 +164,12 @@ class MapRenderRunnable(QRunnable):
         try:
             settings = AppSettings()
             try:
-                provider = load_project_settings(self.open_project.directory).placeholders.map_provider
+                loaded = load_project_settings(self.open_project.directory)
+                provider = loaded.placeholders.map_provider
+                link_color = loaded.placeholders.map_link_color
             except ProjectError:
                 provider = "leaflet"
+                link_color = DEFAULT_STAY_LINK_COLOR
             thumbs = self.open_project.directory / "thumbnails"
             thumbs.mkdir(parents=True, exist_ok=True)
             result = ensure_map_cache(
@@ -177,6 +180,7 @@ class MapRenderRunnable(QRunnable):
                 db_path=self.open_project.db_path,
                 size=settings.default_thumbnail_size,
                 map_provider=provider,
+                map_link_color=link_color,
                 force=self.force,
             )
             self.signals.finished.emit(result)

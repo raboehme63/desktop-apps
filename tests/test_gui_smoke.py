@@ -39,6 +39,20 @@ def test_main_window_starts() -> None:
     assert window.timeline_view._media_tabs.count() == 4
     assert window.timeline_view._media_tabs.tabText(0) == "Alle"
     assert window.timeline_view._media_tabs.tabText(1) == "Favoriten"
+    from traveljournal.ui.sidebar import NAV_ITEMS
+
+    assert [label for _, label in NAV_ITEMS] == [
+        "Projekt",
+        "Import",
+        "Medien",
+        "Timeline",
+        "Karte",
+        "Export",
+    ]
+    assert list(window.sidebar._buttons) == [key for key, _ in NAV_ITEMS]
+    assert window.photos_view._media_tabs.count() == 4
+    assert window.photos_view._media_tabs.tabText(0) == "Alle"
+    assert window.photos_view._media_tabs.tabText(3) == "Aussortiert"
     assert window.timeline_view._trip_title.placeholderText() == "Titel der Reise"
     assert not window.timeline_view._trip_title.isEnabled()
     _ = app
@@ -505,6 +519,116 @@ def test_entry_widget_media_tab_filters_favorites() -> None:
     assert [item.filename for item in widget.gallery.items()] == ["normal.jpg", "fav.jpg"]
     widget.set_media_tab(media_tab_index("favorite"))
     assert [item.filename for item in widget.gallery.items()] == ["fav.jpg"]
+    _ = app
+
+
+def test_photos_view_media_tab_filters_favorites(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, datetime
+
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.photos_view import PhotosView
+    from traveljournal.widgets.media_tabs import media_tab_index
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    app = QApplication.instance() or QApplication([])
+    view = PhotosView(Workspace())
+    stamp = datetime(2025, 5, 15, 8, 0, tzinfo=UTC)
+
+    def item(name: str, source_file_id: int, *, favorite: bool) -> GalleryItem:
+        return GalleryItem(
+            source_file_id=source_file_id,
+            path=name,
+            filename=name,
+            extension=".jpg",
+            captured_at=stamp,
+            timezone_unknown=False,
+            gps_latitude=None,
+            gps_longitude=None,
+            camera=None,
+            is_favorite=favorite,
+            used_in_journal=False,
+            thumbnail_path=Path("."),
+            sort_status="favorite" if favorite else None,
+        )
+
+    view._items = [
+        item("normal.jpg", 1, favorite=False),
+        item("fav.jpg", 2, favorite=True),
+    ]
+    view._apply_filters()
+    assert [row.filename for row in view.gallery.items()] == ["normal.jpg", "fav.jpg"]
+    view._media_tabs.setCurrentIndex(media_tab_index("favorite"))
+    assert [row.filename for row in view.gallery.items()] == ["fav.jpg"]
+    _ = app
+
+
+def test_photos_rating_applies_to_timeline_gallery(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, datetime
+
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelinePhoto
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.timeline_view import EntryWidget, TimelineView
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    app = QApplication.instance() or QApplication([])
+    stamp = datetime(2025, 5, 15, 8, 0, tzinfo=UTC)
+    photo = TimelinePhoto(
+        source_file_id=7,
+        filename="foto.jpg",
+        path="foto.jpg",
+        thumbnail_path=Path("."),
+        captured_at=stamp,
+        used_in_journal=False,
+        is_cover=False,
+        is_favorite=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        file_kind="photo",
+        sort_status=None,
+    )
+    day = TimelineDay(
+        id=1,
+        day_index=0,
+        date=stamp.date(),
+        title=None,
+        notes=None,
+        origin="auto",
+        photos=(photo,),
+    )
+    timeline = TimelineView(Workspace())
+    block = EntryWidget(TimelineEntry(started_at=stamp, leftover_day=day), parent=timeline)
+    timeline._blocks = [block]
+    rated = GalleryItem(
+        source_file_id=7,
+        path="foto.jpg",
+        filename="foto.jpg",
+        extension=".jpg",
+        captured_at=stamp,
+        timezone_unknown=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        camera=None,
+        is_favorite=True,
+        used_in_journal=False,
+        thumbnail_path=Path("."),
+        sort_status="favorite",
+    )
+    timeline.apply_media_rating(rated)
+    assert timeline._media_ratings_stale
+    shown = block.gallery.items()
+    assert len(shown) == 1
+    assert shown[0].sort_status == "favorite"
+    assert shown[0].is_favorite is True
     _ = app
 
 

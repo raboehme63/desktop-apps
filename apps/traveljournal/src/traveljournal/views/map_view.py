@@ -234,6 +234,9 @@ MAP_PAGE_SETUP_JS = """
     }
     try {
       map.invalidateSize({animate: false});
+      if (window.traveljournalDrawStayLinks) {
+        window.traveljournalDrawStayLinks();
+      }
     } catch (err) {}
   };
   window.traveljournalFitOverviewNow = function() {

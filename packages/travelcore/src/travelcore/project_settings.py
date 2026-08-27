@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import tomllib
 from pathlib import Path
 from typing import Any, Literal
@@ -20,6 +21,21 @@ logger = logging.getLogger(__name__)
 SETTINGS_FILENAME = "settings.toml"
 ExportFormat = Literal["html", "pdf", "latex", "cewe"]
 EXPORT_FORMATS: tuple[ExportFormat, ...] = ("html", "pdf", "latex", "cewe")
+DEFAULT_STAY_LINK_COLOR = "#ffffff"
+_HEX_COLOR = re.compile(r"^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+
+
+def normalize_stay_link_color(value: object) -> str:
+    """CSS hex color for stay-link lines; unknown values become white."""
+
+    text = str(value or "").strip()
+    if text.lower() == "white":
+        return DEFAULT_STAY_LINK_COLOR
+    if not _HEX_COLOR.fullmatch(text):
+        return DEFAULT_STAY_LINK_COLOR
+    if len(text) == 4:
+        return "#" + "".join(char * 2 for char in text[1:]).lower()
+    return text.lower()
 
 _HEADER = """# Reisetagebuch – Projekteinstellungen
 # Liegt im Projektordner. Änderungen auch über Projekt → Einstellungen.
@@ -76,7 +92,13 @@ class PlaceholderSettings(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     map_provider: str = "leaflet"
+    map_link_color: str = "#ffffff"
     journal_language: str = "de"
+
+    @field_validator("map_link_color", mode="before")
+    @classmethod
+    def _link_color(cls, value: object) -> str:
+        return normalize_stay_link_color(value)
 
 
 class ProjectSettings(BaseModel):

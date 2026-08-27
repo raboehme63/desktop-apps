@@ -6,7 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, Qt, QTimer, Signal
-from PySide6.QtGui import QPixmap, QResizeEvent, QTextOption, QWheelEvent
+from PySide6.QtGui import QPixmap, QResizeEvent, QTextOption
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -25,7 +25,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
-    QTabBar,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -35,8 +34,6 @@ from travelcore.exceptions import ProjectError
 from travelcore.maps.groups import parse_group_key
 from travelcore.media.gallery import (
     SORT_FAVORITE,
-    SORT_REJECTED,
-    SORT_RESERVE,
     GalleryItem,
     effective_sort_status,
 )
@@ -76,27 +73,7 @@ from traveljournal.widgets.entry_links import (
 )
 from traveljournal.widgets.gallery import GalleryView
 from traveljournal.widgets.media_inspector import MediaInspectorWindow
-
-_MEDIA_TABS = (
-    ("Alle", None),
-    ("Favoriten", SORT_FAVORITE),
-    ("Reserve", SORT_RESERVE),
-    ("Aussortiert", SORT_REJECTED),
-)
-
-
-def media_tab_key(index: int) -> str:
-    if 0 <= index < len(_MEDIA_TABS):
-        return _MEDIA_TABS[index][1] or "all"
-    return "all"
-
-
-def media_tab_index(key: str) -> int:
-    for index, (_, status) in enumerate(_MEDIA_TABS):
-        if (status or "all") == key:
-            return index
-    return 0
-
+from traveljournal.widgets.media_tabs import MEDIA_TABS, ClickTabBar, media_tab_index, media_tab_key
 
 _REVEAL_TOP_PAD = 12
 
@@ -106,18 +83,6 @@ def scroll_offset_to_widget_top(host: QWidget, child: QWidget, *, padding: int =
 
     top = child.mapTo(host, QPoint(0, 0)).y()
     return max(0, top - padding)
-
-
-class ClickTabBar(QTabBar):
-    """Tabs change only on click. Wheel events scroll the timeline instead."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setChangeCurrentOnDrag(False)
-
-    def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
-        event.ignore()
 
 
 _MODE_LABELS = (
@@ -154,6 +119,7 @@ class TimelineView(QWidget):
         self._syncing_tabs = False
         self._loaded_trip_title = ""
         self._pending_reveal: EntryWidget | None = None
+        self._media_ratings_stale = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 28)
@@ -198,7 +164,7 @@ class TimelineView(QWidget):
         self._media_tabs = ClickTabBar(self)
         self._media_tabs.setObjectName("mediaSortTabs")
         self._media_tabs.setExpanding(False)
-        for label, _status in _MEDIA_TABS:
+        for label, _status in MEDIA_TABS:
             self._media_tabs.addTab(label)
         self._media_tabs.setCurrentIndex(media_tab_index(self.workspace.timeline_media_tab()))
         self._media_tabs.currentChanged.connect(self._on_global_media_tab)
@@ -237,8 +203,16 @@ class TimelineView(QWidget):
         self.timeline_changed.emit()
 
     def ensure_loaded(self) -> None:
-        if self._snapshot is None:
+        self._propagate_media_tab(media_tab_index(self.workspace.timeline_media_tab()), persist=False)
+        if self._snapshot is None or self._media_ratings_stale:
             self.refresh()
+            self._media_ratings_stale = False
+
+    def apply_media_rating(self, item: object) -> None:
+        """Take a rating from the Medien page into already loaded timeline cards."""
+
+        self._media_ratings_stale = True
+        self._on_item_rating(item)
 
     def confirm_leave(self) -> bool:
         """Drop unsaved YouTube links unless Speichern was used; prompt for unsaved sections."""
@@ -414,7 +388,7 @@ class TimelineView(QWidget):
     def _propagate_media_tab(self, index: int, *, persist: bool) -> None:
         if self._syncing_tabs:
             return
-        index = max(0, min(index, len(_MEDIA_TABS) - 1))
+        index = max(0, min(index, len(MEDIA_TABS) - 1))
         self._syncing_tabs = True
         try:
             if self._media_tabs.currentIndex() != index:
@@ -966,7 +940,7 @@ class EntryWidget(QFrame):
         self._media_tabs = ClickTabBar(self)
         self._media_tabs.setObjectName("mediaSortTabs")
         self._media_tabs.setExpanding(False)
-        for label, _status in _MEDIA_TABS:
+        for label, _status in MEDIA_TABS:
             self._media_tabs.addTab(label)
         self._media_tabs.setVisible(media_count > 0)
         self.gallery = GalleryView(self, show_cover=True)
@@ -1124,7 +1098,7 @@ class EntryWidget(QFrame):
         self.media_tab_changed.emit(index)
 
     def _apply_media_tab(self) -> None:
-        wanted = _MEDIA_TABS[self._media_tabs.currentIndex()][1]
+        wanted = MEDIA_TABS[self._media_tabs.currentIndex()][1]
         if wanted is None:
             shown = self._all_gallery
         else:

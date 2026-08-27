@@ -19,6 +19,12 @@ from travelcore.media.types import FileKind
 MAX_TRACK_DISPLAY_POINTS = 2500
 MAX_FLIGHT_DISPLAY_POINTS = 1200
 FLIGHT_LINE_MIN_ZOOM = 10
+PHOTO_STACK_DISABLE_ZOOM = 17
+COVER_ICON_PX = 54
+COVER_LINE_INSET_PX = 23
+STAY_LINK_STYLE_STRAIGHT = "straight"
+STAY_LINK_STYLE_CURVE = "curve"
+STAY_LINK_STYLE_TRACK = "track"
 _DAY_COLORS = (
     "blue",
     "green",
@@ -57,14 +63,33 @@ class MapPolyline:
 
 
 @dataclass(frozen=True, slots=True)
+class StayLink:
+    """Overview connection between two consecutive stay covers."""
+
+    start: tuple[float, float]
+    end: tuple[float, float]
+    start_key: str
+    end_key: str
+    style: str = STAY_LINK_STYLE_STRAIGHT
+    via_transfer: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class MapScene:
     markers: tuple[MapMarker, ...] = ()
     polylines: tuple[MapPolyline, ...] = ()
+    stay_links: tuple[StayLink, ...] = ()
     center: tuple[float, float] | None = None
 
     @property
     def empty(self) -> bool:
         return not self.markers and not self.polylines
+
+
+def stay_link_visible(pixel_distance: float, *, cover_px: float = COVER_ICON_PX) -> bool:
+    """Hide the line when stay circles overlap or touch at the current zoom."""
+
+    return pixel_distance > cover_px
 
 
 def downsample_points(
@@ -164,9 +189,7 @@ def _photo_markers(
         select(SourceFile)
         .where(
             SourceFile.project_id == project_id,
-            SourceFile.file_kind.in_(
-                (FileKind.PHOTO.value, FileKind.VIDEO.value, FileKind.GPS.value)
-            ),
+            SourceFile.file_kind.in_((FileKind.PHOTO.value, FileKind.VIDEO.value, FileKind.GPS.value)),
             SourceFile.gps_latitude.is_not(None),
             SourceFile.gps_longitude.is_not(None),
         )

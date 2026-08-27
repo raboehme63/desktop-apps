@@ -20,8 +20,10 @@ from travelcore.database.models import (
     TripSection,
 )
 from travelcore.maps.scene import (
+    STAY_LINK_STYLE_STRAIGHT,
     MapMarker,
     MapScene,
+    StayLink,
     _center,
     _day_key,
     _photo_markers,
@@ -32,7 +34,12 @@ from travelcore.media.thumbnails import cached_thumbnail_path
 from travelcore.media.types import FileKind
 from travelcore.timeline.build import load_timeline
 from travelcore.timeline.links import parse_youtube_urls
-from travelcore.timeline.sections import KIND_DAY, KIND_MOVEMENT, claimed_source_ids, format_section_span
+from travelcore.timeline.sections import (
+    KIND_DAY,
+    KIND_MOVEMENT,
+    claimed_source_ids,
+    format_section_span,
+)
 from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelinePhoto, TimelineSection
 
 
@@ -68,11 +75,14 @@ def build_map_overview(
     project = session.get(Project, project_id)
     snapshot = load_timeline(session, project, thumbs_dir=thumbs_dir, size=size) if project else None
     if snapshot is not None and snapshot.entries:
-        covers = _covers_from_entries(list(snapshot.entries))
+        entries = list(snapshot.entries)
+        covers = _covers_from_entries(entries)
+        links = stay_links_from_entries(entries)
     else:
         covers = _covers_from_source_files(session, project_id, thumbs_dir, size=size)
+        links = []
     center = _center(covers, ())
-    return MapScene(markers=tuple(covers), polylines=(), center=center)
+    return MapScene(markers=tuple(covers), polylines=(), stay_links=tuple(links), center=center)
 
 
 def build_map_timeline(
@@ -265,6 +275,45 @@ def _card_from_entry(entry: TimelineEntry) -> MapTimelineCard | None:
     )
 
 
+def stay_links_from_entries(entries: list[TimelineEntry]) -> list[StayLink]:
+    """Straight links between Tag and Aufenthalt covers in timeline order.
+
+    Transfer circles are not endpoints. A transfer between two linked covers is
+    recorded so a later pass can pick a curved line or a track trace.
+    """
+
+    stops: list[tuple[int, MapMarker]] = []
+    for index, entry in enumerate(entries):
+        if entry.card_kind == KIND_MOVEMENT:
+            continue
+        marker = _cover_marker_for_entry(entry)
+        if marker is None:
+            continue
+        stops.append((index, marker))
+    links: list[StayLink] = []
+    for (left, start), (right, end) in zip(stops, stops[1:], strict=False):
+        between = entries[left + 1 : right]
+        via_transfer = any(item.card_kind == KIND_MOVEMENT for item in between)
+        links.append(
+            StayLink(
+                start=(start.latitude, start.longitude),
+                end=(end.latitude, end.longitude),
+                start_key=start.group_key or "",
+                end_key=end.group_key or "",
+                style=stay_link_style(via_transfer=via_transfer),
+                via_transfer=via_transfer,
+            )
+        )
+    return links
+
+
+def stay_link_style(*, via_transfer: bool) -> str:
+    """Line look between two Tag/Aufenthalt covers. Transfers will later choose curve or track."""
+
+    del via_transfer
+    return STAY_LINK_STYLE_STRAIGHT
+
+
 def _covers_from_entries(entries: list[TimelineEntry]) -> list[MapMarker]:
     covers: list[MapMarker] = []
     for entry in entries:
@@ -453,9 +502,7 @@ def _photo_markers_for_ids(
     size: int,
     source_ids: set[int],
 ) -> list[MapMarker]:
-    return _photo_markers(
-        session, project_id, thumbs_dir, size=size, source_file_ids=source_ids
-    )
+    return _photo_markers(session, project_id, thumbs_dir, size=size, source_file_ids=source_ids)
 
 
 def _leftover_source_ids_for_day(

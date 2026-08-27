@@ -15,19 +15,26 @@ from travelcore.maps.groups import (
     build_map_overview,
     build_map_timeline,
     parse_group_key,
+    stay_links_from_entries,
 )
 from travelcore.maps.scene import (
+    COVER_ICON_PX,
     FLIGHT_LINE_MIN_ZOOM,
+    PHOTO_STACK_DISABLE_ZOOM,
     MapMarker,
     MapPolyline,
     MapScene,
+    StayLink,
     build_map_scene,
     downsample_points,
+    stay_link_visible,
 )
 from travelcore.maps.static import render_leaflet_excerpt
 
 __all__ = [
+    "COVER_ICON_PX",
     "FLIGHT_LINE_MIN_ZOOM",
+    "PHOTO_STACK_DISABLE_ZOOM",
     "FoliumMapBackend",
     "MapBackend",
     "MapMarker",
@@ -35,6 +42,7 @@ __all__ = [
     "MapRenderResult",
     "MapScene",
     "MapTimelineCard",
+    "StayLink",
     "build_map_group_detail",
     "build_map_overview",
     "build_map_scene",
@@ -47,6 +55,8 @@ __all__ = [
     "parse_group_key",
     "read_cached_map",
     "render_leaflet_excerpt",
+    "stay_link_visible",
+    "stay_links_from_entries",
     "tiles_for_map_provider",
     "timeline_js_cards",
 ]

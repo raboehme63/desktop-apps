@@ -11,6 +11,7 @@ from travelcore.project_settings import (
     ProjectSettings,
     ensure_project_settings,
     load_project_settings,
+    normalize_stay_link_color,
     rebase_source_file_paths,
     save_project_settings,
 )
@@ -24,6 +25,7 @@ def test_new_project_writes_settings_file(tmp_path: Path) -> None:
     settings = load_project_settings(directory)
     assert settings.export.default_format == "html"
     assert settings.placeholders.map_provider == "leaflet"
+    assert settings.placeholders.map_link_color == "#ffffff"
 
 
 def test_settings_roundtrip_preserves_values(tmp_path: Path) -> None:
@@ -36,6 +38,7 @@ def test_settings_roundtrip_preserves_values(tmp_path: Path) -> None:
     settings.matching.default_timezone = "Europe/Berlin"
     settings.performance.worker_count = 4
     settings.placeholders.journal_language = "it"
+    settings.placeholders.map_link_color = "#aabbcc"
     save_project_settings(directory, settings)
     loaded = load_project_settings(directory)
     assert loaded.export.default_format == "pdf"
@@ -43,8 +46,16 @@ def test_settings_roundtrip_preserves_values(tmp_path: Path) -> None:
     assert loaded.matching.default_timezone == "Europe/Berlin"
     assert loaded.performance.worker_count == 4
     assert loaded.placeholders.journal_language == "it"
+    assert loaded.placeholders.map_link_color == "#aabbcc"
     assert loaded.paths.source_root is not None
     assert Path(loaded.paths.source_root) == tmp_path / "fotos"
+
+
+def test_normalize_stay_link_color_accepts_hex_and_falls_back() -> None:
+    assert normalize_stay_link_color("#ABC") == "#aabbcc"
+    assert normalize_stay_link_color("white") == "#ffffff"
+    assert normalize_stay_link_color("nope") == "#ffffff"
+    assert normalize_stay_link_color("#00FF00") == "#00ff00"
 
 
 def test_corrupt_settings_raise(tmp_path: Path) -> None:

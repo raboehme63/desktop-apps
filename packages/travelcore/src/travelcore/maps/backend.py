@@ -3,20 +3,60 @@
 from __future__ import annotations
 
 import html
+import json
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, NamedTuple, Protocol, runtime_checkable
 
 import folium
 from folium.plugins import MarkerCluster
 
 from travelcore.maps.groups import MapTimelineCard
-from travelcore.maps.scene import FLIGHT_LINE_MIN_ZOOM, MapMarker, MapPolyline, MapScene
+from travelcore.maps.scene import (
+    COVER_ICON_PX,
+    COVER_LINE_INSET_PX,
+    FLIGHT_LINE_MIN_ZOOM,
+    PHOTO_STACK_DISABLE_ZOOM,
+    MapMarker,
+    MapPolyline,
+    MapScene,
+    StayLink,
+)
+from travelcore.project_settings import DEFAULT_STAY_LINK_COLOR, normalize_stay_link_color
 
 OSM_LATIN_TILES = "https://tile.openstreetmap.de/{z}/{x}/{y}.png"
-OSM_LATIN_ATTR = (
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-Mitwirkende'
+OSM_LATIN_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-Mitwirkende'
+OPENTOPO_TILES = "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
+OPENTOPO_ATTR = (
+    'Kartendaten &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-Mitwirkende, '
+    '<a href="https://viewfinderpanoramas.org">SRTM</a> | Darstellung &copy; '
+    '<a href="https://opentopomap.org">OpenTopoMap</a> '
+    '(<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)'
 )
+ESRI_SAT_TILES = (
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+)
+ESRI_SAT_ATTR = "Kacheln &copy; Esri &mdash; Esri, Maxar, Earthstar Geographics, GIS User Community"
+_LAYERS_ICON_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" '
+    'fill="none" stroke="#333" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
+    'aria-hidden="true">'
+    '<polygon points="12 2 2 7 12 12 22 7 12 2"/>'
+    '<polyline points="2 12 12 17 22 12"/>'
+    '<polyline points="2 17 12 22 22 17"/>'
+    "</svg>"
+)
+PHOTO_STACK_RADIUS_PX = 48
+_STACK_ICON_JS = """
+function (cluster) {
+  var n = cluster.getChildCount();
+  return L.divIcon({
+    html: '<div class="tj-stack"><span>' + n + '</span></div>',
+    className: 'tj-stack-icon',
+    iconSize: L.point(36, 36)
+  });
+}
+"""
 
 
 @runtime_checkable
@@ -42,8 +82,14 @@ def _folium_map(*, location: tuple[float, float], zoom: int, tiles: str | None) 
 class FoliumMapBackend:
     """Leaflet via Folium. Remote tiles are optional; vectors are always local."""
 
-    def __init__(self, *, tiles: str | None = OSM_LATIN_TILES) -> None:
+    def __init__(
+        self,
+        *,
+        tiles: str | None = OSM_LATIN_TILES,
+        link_color: str = DEFAULT_STAY_LINK_COLOR,
+    ) -> None:
         self.tiles = tiles
+        self.link_color = normalize_stay_link_color(link_color)
 
     def render(self, scene: MapScene, output_html: Path) -> Path:
         location = scene.center or (50.0, 10.0)
@@ -63,11 +109,27 @@ class FoliumMapBackend:
                     interactive=True,
                     group_key=marker.group_key or "",
                 ).add_to(cover_layer)
+            link_layer = _stay_link_layer(scene.stay_links, color=self.link_color)
+            if link_layer is not None:
+                link_layer.add_to(fmap)
             cover_layer.add_to(fmap)
+            extra = _add_extra_basemaps(fmap) if self.tiles else None
+            _photo_stack_cluster(control=False, show=False).add_to(fmap)
             bounds = _latlng_bounds(covers)
             if bounds is not None:
                 fmap.fit_bounds(bounds, padding=(56, 56), max_zoom=13)
-            fmap.get_root().html.add_child(folium.Element(_overview_script(fmap, cover_layer)))
+            fmap.get_root().html.add_child(
+                folium.Element(
+                    _overview_script(
+                        fmap,
+                        cover_layer,
+                        scene.stay_links,
+                        link_layer,
+                        extra=extra,
+                        color=self.link_color,
+                    )
+                )
+            )
             output_html.parent.mkdir(parents=True, exist_ok=True)
             fmap.save(str(output_html))
             return output_html
@@ -76,7 +138,7 @@ class FoliumMapBackend:
         flight_layer = folium.FeatureGroup(name="Flugtracks (IGC)", show=True)
         flight_ends = folium.FeatureGroup(name="Start / Landung", show=True)
         place_layer = folium.FeatureGroup(name="Orte", show=True)
-        day_clusters: dict[str, MarkerCluster] = {}
+        media_cluster: MarkerCluster | None = None
         has_flights = False
 
         for line in scene.polylines:
@@ -103,36 +165,268 @@ class FoliumMapBackend:
                     icon=folium.Icon(color="gray", icon="flag", prefix="fa"),
                 ).add_to(place_layer)
                 continue
-            day_key = marker.day_key or "Ohne Datum"
-            cluster = day_clusters.get(day_key)
-            if cluster is None:
-                cluster = MarkerCluster(name=f"Tag {day_key}")
-                day_clusters[day_key] = cluster
+            if media_cluster is None:
+                media_cluster = _photo_stack_cluster()
             icon_name = "camera" if marker.kind == "photo" else "film"
             folium.Marker(
                 location=(marker.latitude, marker.longitude),
                 tooltip=marker.label,
                 popup=popup,
                 icon=folium.Icon(color=marker.color, icon=icon_name, prefix="fa"),
-            ).add_to(cluster)
+            ).add_to(media_cluster)
 
         track_layer.add_to(fmap)
         if has_flights:
             flight_layer.add_to(fmap)
             flight_ends.add_to(fmap)
-        for cluster in day_clusters.values():
-            cluster.add_to(fmap)
+        if media_cluster is not None:
+            media_cluster.add_to(fmap)
         place_layer.add_to(fmap)
+        extra = _add_extra_basemaps(fmap) if self.tiles else None
         folium.LayerControl(collapsed=False).add_to(fmap)
+        fmap.get_root().header.add_child(folium.Element(_STACK_CSS))
         if has_flights:
             fmap.get_root().html.add_child(
                 folium.Element(_zoom_script(fmap, flight_layer, FLIGHT_LINE_MIN_ZOOM))
             )
+        if extra is not None:
+            fmap.get_root().header.add_child(folium.Element(_BASEMAP_CSS))
+            fmap.get_root().html.add_child(folium.Element(_standalone_basemap_script(fmap, extra)))
         if scene.center is None and scene.empty:
             fmap.location = [50.0, 10.0]
         output_html.parent.mkdir(parents=True, exist_ok=True)
         fmap.save(str(output_html))
         return output_html
+
+
+class ExtraBasemaps(NamedTuple):
+    satellite: folium.TileLayer
+    topo: folium.TileLayer
+
+
+def _photo_stack_cluster(*, control: bool = True, show: bool = True) -> MarkerCluster:
+    """One cluster for nearby photo/video/track markers until zoom 17."""
+
+    return MarkerCluster(
+        name="Fotos" if control else None,
+        overlay=True,
+        control=control,
+        show=show,
+        icon_create_function=_STACK_ICON_JS,
+        options={
+            "disableClusteringAtZoom": PHOTO_STACK_DISABLE_ZOOM,
+            "spiderfyOnMaxZoom": False,
+            "maxClusterRadius": PHOTO_STACK_RADIUS_PX,
+            "showCoverageOnHover": False,
+        },
+    )
+
+
+def _photo_cluster_js() -> str:
+    return f"""
+    function photoClusterGroup() {{
+      if (typeof L.markerClusterGroup !== 'function') {{
+        return null;
+      }}
+      return L.markerClusterGroup({{
+        disableClusteringAtZoom: {PHOTO_STACK_DISABLE_ZOOM},
+        spiderfyOnMaxZoom: false,
+        maxClusterRadius: {PHOTO_STACK_RADIUS_PX},
+        showCoverageOnHover: false,
+        iconCreateFunction: function(cluster) {{
+          var n = cluster.getChildCount();
+          return L.divIcon({{
+            html: '<div class="tj-stack"><span>' + n + '</span></div>',
+            className: 'tj-stack-icon',
+            iconSize: L.point(36, 36)
+          }});
+        }}
+      }});
+    }}
+"""
+
+
+def _tile_layer(
+    tiles: str,
+    *,
+    attr: str,
+    name: str,
+    max_zoom: int,
+    subdomains: str | None = None,
+) -> folium.TileLayer:
+    kwargs: dict[str, Any] = {
+        "tiles": tiles,
+        "attr": attr,
+        "name": name,
+        "overlay": False,
+        "control": False,
+        "show": False,
+        "max_zoom": max_zoom,
+    }
+    if subdomains is not None:
+        kwargs["subdomains"] = subdomains
+    return folium.TileLayer(**kwargs)
+
+
+def _add_extra_basemaps(fmap: folium.Map) -> ExtraBasemaps:
+    """OpenTopoMap and Esri World Imagery. Hidden until the user picks them."""
+
+    satellite = _tile_layer(ESRI_SAT_TILES, attr=ESRI_SAT_ATTR, name="Satellit", max_zoom=19)
+    topo = _tile_layer(
+        OPENTOPO_TILES,
+        attr=OPENTOPO_ATTR,
+        name="Gelände",
+        max_zoom=17,
+        subdomains="abc",
+    )
+    satellite.add_to(fmap)
+    topo.add_to(fmap)
+    return ExtraBasemaps(satellite=satellite, topo=topo)
+
+
+def _basemap_toggle_js() -> str:
+    """Uses ``map``, ``satLayer`` and ``topoLayer`` from the enclosing script."""
+
+    icon = json.dumps(_LAYERS_ICON_SVG, ensure_ascii=True)
+    osm_url = json.dumps(OSM_LATIN_TILES, ensure_ascii=True)
+    osm_attr = json.dumps(OSM_LATIN_ATTR, ensure_ascii=True)
+    sat_url = json.dumps(ESRI_SAT_TILES, ensure_ascii=True)
+    sat_attr = json.dumps(ESRI_SAT_ATTR, ensure_ascii=True)
+    topo_url = json.dumps(OPENTOPO_TILES, ensure_ascii=True)
+    topo_attr = json.dumps(OPENTOPO_ATTR, ensure_ascii=True)
+    return f"""
+    function installBasemapToggle() {{
+      if (window.traveljournalSetBasemap) {{
+        return;
+      }}
+      var osmLayer = null;
+      map.eachLayer(function(layer) {{
+        if (layer instanceof L.TileLayer && layer !== satLayer && layer !== topoLayer && !osmLayer) {{
+          osmLayer = layer;
+        }}
+      }});
+      if (!osmLayer) {{
+        osmLayer = L.tileLayer({osm_url}, {{attribution: {osm_attr}}});
+      }}
+      if (!satLayer || !satLayer._url) {{
+        satLayer = L.tileLayer({sat_url}, {{attribution: {sat_attr}, maxZoom: 19}});
+      }}
+      if (!topoLayer || !topoLayer._url) {{
+        topoLayer = L.tileLayer({topo_url}, {{
+          attribution: {topo_attr},
+          maxZoom: 17,
+          subdomains: 'abc'
+        }});
+      }}
+      var choices = {{karte: osmLayer, topo: topoLayer, satellit: satLayer}};
+      var labels = {{karte: 'Karte', topo: 'Gelände', satellit: 'Satellit'}};
+      var menuLinks = {{}};
+      function applyBasemap(kind) {{
+        if (!choices[kind]) {{
+          kind = 'karte';
+        }}
+        var wanted = choices[kind];
+        Object.keys(choices).forEach(function(key) {{
+          var layer = choices[key];
+          if (layer === wanted) {{
+            if (!map.hasLayer(layer)) {{
+              layer.addTo(map);
+            }}
+          }} else if (map.hasLayer(layer)) {{
+            map.removeLayer(layer);
+          }}
+        }});
+        Object.keys(menuLinks).forEach(function(key) {{
+          L.DomUtil[key === kind ? 'addClass' : 'removeClass'](menuLinks[key], 'tj-basemap-on');
+        }});
+        try {{
+          window.localStorage.setItem('traveljournal-basemap', kind);
+        }} catch (err) {{}}
+      }}
+      window.traveljournalSetBasemap = applyBasemap;
+      var ctl = L.control({{position: 'topright'}});
+      ctl.onAdd = function() {{
+        var box = L.DomUtil.create('div', 'leaflet-bar tj-basemap');
+        var btn = L.DomUtil.create('a', 'tj-basemap-btn', box);
+        btn.href = '#';
+        btn.title = 'Kartenansicht';
+        btn.setAttribute('aria-label', 'Kartenansicht');
+        btn.innerHTML = {icon};
+        var menu = L.DomUtil.create('div', 'tj-basemap-menu', box);
+        ['karte', 'topo', 'satellit'].forEach(function(kind) {{
+          var link = L.DomUtil.create('a', '', menu);
+          link.href = '#';
+          link.title = labels[kind];
+          link.innerHTML = labels[kind];
+          menuLinks[kind] = link;
+          L.DomEvent.on(link, 'click', function(event) {{
+            L.DomEvent.stop(event);
+            applyBasemap(kind);
+            L.DomUtil.removeClass(box, 'tj-basemap-open');
+          }});
+        }});
+        L.DomEvent.disableClickPropagation(box);
+        L.DomEvent.on(btn, 'click', function(event) {{
+          L.DomEvent.stop(event);
+          if (L.DomUtil.hasClass(box, 'tj-basemap-open')) {{
+            L.DomUtil.removeClass(box, 'tj-basemap-open');
+          }} else {{
+            L.DomUtil.addClass(box, 'tj-basemap-open');
+          }}
+        }});
+        return box;
+      }};
+      ctl.addTo(map);
+      L.DomEvent.on(document, 'click', function() {{
+        var el = ctl.getContainer && ctl.getContainer();
+        if (el) {{
+          L.DomUtil.removeClass(el, 'tj-basemap-open');
+        }}
+      }});
+      var saved = '';
+      try {{
+        saved = window.localStorage.getItem('traveljournal-basemap') || '';
+      }} catch (err) {{}}
+      applyBasemap(saved === 'satellit' || saved === 'topo' ? saved : 'karte');
+    }}
+    """
+
+
+def _standalone_basemap_script(fmap: folium.Map, extra: ExtraBasemaps) -> str:
+    map_name = fmap.get_name()
+    sat_name = extra.satellite.get_name()
+    topo_name = extra.topo.get_name()
+    inner = _basemap_toggle_js()
+    return f"""
+<script>
+(function() {{
+  function boot() {{
+    var map = {map_name};
+    var satLayer = {sat_name};
+    var topoLayer = {topo_name};
+    if (!map || !satLayer || !topoLayer) {{
+      return;
+    }}
+    {inner}
+    installBasemapToggle();
+  }}
+  function wait(tries) {{
+    try {{
+      if (typeof {map_name} !== 'undefined'
+          && typeof {sat_name} !== 'undefined'
+          && typeof {topo_name} !== 'undefined') {{
+        boot();
+        return;
+      }}
+    }} catch (err) {{}}
+    if (tries > 0) {{
+      setTimeout(function() {{ wait(tries - 1); }}, 50);
+    }}
+  }}
+  wait(120);
+}})();
+</script>
+"""
 
 
 def _latlng_bounds(markers: list[MapMarker]) -> list[list[float]] | None:
@@ -192,7 +486,60 @@ def timeline_js_cards(
     ]
 
 
-_COVER_CSS = """
+_BASEMAP_RULES = """
+.tj-basemap {
+  position: relative;
+}
+.tj-basemap-btn {
+  width: 26px !important;
+  height: 26px !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  line-height: 26px !important;
+}
+.tj-basemap-btn svg {
+  display: block;
+}
+.tj-basemap-menu {
+  display: none;
+  position: absolute;
+  top: 0;
+  right: 34px;
+  min-width: 108px;
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 1px 5px rgba(0,0,0,.4);
+  overflow: hidden;
+  z-index: 1000;
+}
+.tj-basemap-open .tj-basemap-menu {
+  display: block;
+}
+.tj-basemap-menu a {
+  display: block;
+  width: auto !important;
+  min-width: 108px;
+  height: 26px;
+  line-height: 26px !important;
+  padding: 0 12px !important;
+  text-align: left;
+  font-size: 12px;
+  border-bottom: 1px solid #eee;
+  color: #333 !important;
+}
+.tj-basemap-menu a:last-child {
+  border-bottom: none;
+}
+.tj-basemap-menu a.tj-basemap-on {
+  background: #2eb8a0 !important;
+  color: #fff !important;
+}
+"""
+
+
+_COVER_CSS = (
+    """
 <style>
 .tj-cover-icon {
   background: rgba(0, 0, 0, 0.01) !important;
@@ -245,6 +592,62 @@ _COVER_CSS = """
   cursor: pointer;
   pointer-events: auto;
 }
+.tj-stay-arrow {
+  background: none !important;
+  border: none !important;
+  pointer-events: none !important;
+}
+.tj-stay-arrow-rot {
+  width: 18px;
+  height: 18px;
+  transform-origin: 9px 9px;
+}
+.tj-stay-arrow-rot svg {
+  display: block;
+}
+.leaflet-overlay-pane .tj-stay-link {
+  pointer-events: none !important;
+}
+.tj-stack-icon {
+  background: none !important;
+  border: none !important;
+}
+.tj-stack {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #2eb8a0;
+  color: #06231e;
+  font: 700 13px/36px "Segoe UI", sans-serif;
+  text-align: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,.45);
+  border: 2px solid #fff;
+}
+"""
+    + _BASEMAP_RULES
+    + """
+</style>
+"""
+)
+
+_BASEMAP_CSS = "<style>\n" + _BASEMAP_RULES + "</style>\n"
+_STACK_CSS = """
+<style>
+.tj-stack-icon {
+  background: none !important;
+  border: none !important;
+}
+.tj-stack {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #2eb8a0;
+  color: #06231e;
+  font: 700 13px/36px "Segoe UI", sans-serif;
+  text-align: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,.45);
+  border: 2px solid #fff;
+}
 </style>
 """
 
@@ -257,18 +660,66 @@ def _cover_icon(marker: MapMarker, html_path: Path) -> folium.DivIcon:
     else:
         inner = '<span style="font-size:20px;line-height:47px">&#128247;</span>'
     body = f'<div class="tj-cover" data-group-key="{key}">{inner}</div>'
+    half = COVER_ICON_PX // 2
     return folium.DivIcon(
         html=body,
-        icon_size=(54, 54),
-        icon_anchor=(27, 27),
+        icon_size=(COVER_ICON_PX, COVER_ICON_PX),
+        icon_anchor=(half, half),
         class_name="tj-cover-icon",
     )
 
 
+def _stay_links_payload(links: Sequence[StayLink]) -> list[dict[str, Any]]:
+    return [
+        {
+            "start": [link.start[0], link.start[1]],
+            "end": [link.end[0], link.end[1]],
+            "start_key": link.start_key,
+            "end_key": link.end_key,
+            "style": link.style,
+            "via_transfer": link.via_transfer,
+        }
+        for link in links
+    ]
 
-def _overview_script(fmap: folium.Map, covers: folium.FeatureGroup) -> str:
+
+def _stay_link_layer(links: Sequence[StayLink], *, color: str) -> folium.FeatureGroup | None:
+    """Real overlay polylines so connections are visible without extra JS panes."""
+
+    if not links:
+        return None
+    group = folium.FeatureGroup(name="Aufenthaltslinien", show=True)
+    for link in links:
+        folium.PolyLine(
+            locations=[list(link.start), list(link.end)],
+            color=color,
+            weight=3.5,
+            opacity=1.0,
+            interactive=False,
+            className="tj-stay-link",
+            lineCap="butt",
+        ).add_to(group)
+    return group
+
+
+def _overview_script(
+    fmap: folium.Map,
+    covers: folium.FeatureGroup,
+    stay_links: Sequence[StayLink] = (),
+    link_layer: folium.FeatureGroup | None = None,
+    extra: ExtraBasemaps | None = None,
+    *,
+    color: str = DEFAULT_STAY_LINK_COLOR,
+) -> str:
     map_name = fmap.get_name()
     cover_name = covers.get_name()
+    links_json = json.dumps(_stay_links_payload(stay_links), ensure_ascii=True)
+    link_ref = link_layer.get_name() if link_layer is not None else "null"
+    sat_ref = extra.satellite.get_name() if extra is not None else "null"
+    topo_ref = extra.topo.get_name() if extra is not None else "null"
+    link_color = json.dumps(normalize_stay_link_color(color), ensure_ascii=True)
+    basemap_js = _basemap_toggle_js() if extra is not None else ""
+    basemap_boot = "installBasemapToggle();" if extra is not None else ""
     return f"""
 <script>
 (function() {{
@@ -282,7 +733,108 @@ def _overview_script(fmap: folium.Map, covers: folium.FeatureGroup) -> str:
       return;
     }}
     var detail = L.layerGroup().addTo(map);
+    {_photo_cluster_js()}
     var savedView = null;
+    var stayLinks = {links_json};
+    var COVER_PX = {COVER_ICON_PX};
+    var INSET_PX = {COVER_LINE_INSET_PX};
+    var LINK_COLOR = {link_color};
+    var stayLinkGroup = {link_ref};
+    var satLayer = {sat_ref};
+    var topoLayer = {topo_ref};
+    var stayArrowLayer = L.layerGroup().addTo(map);
+    function stayLinkVisible(pixelDist) {{
+      return pixelDist > COVER_PX;
+    }}
+    function drawStayLinks() {{
+      try {{
+        stayArrowLayer.clearLayers();
+        if (savedView) {{
+          if (stayLinkGroup && map.hasLayer(stayLinkGroup)) {{
+            map.removeLayer(stayLinkGroup);
+          }}
+          return;
+        }}
+        if (stayLinkGroup && !map.hasLayer(stayLinkGroup)) {{
+          map.addLayer(stayLinkGroup);
+        }}
+        var size = map.getSize && map.getSize();
+        var ready = size && size.x > 2 && size.y > 2;
+        var layers = stayLinkGroup && stayLinkGroup.getLayers
+          ? stayLinkGroup.getLayers()
+          : [];
+        stayLinks.forEach(function(link, idx) {{
+          var a = L.latLng(link.start[0], link.start[1]);
+          var b = L.latLng(link.end[0], link.end[1]);
+          var hide = false;
+          var start = a;
+          var end = b;
+          if (ready) {{
+            var pa = map.latLngToLayerPoint(a);
+            var pb = map.latLngToLayerPoint(b);
+            var dist = pa.distanceTo(pb);
+            if (!stayLinkVisible(dist)) {{
+              hide = true;
+            }} else {{
+              var ux = (pb.x - pa.x) / dist;
+              var uy = (pb.y - pa.y) / dist;
+              start = map.layerPointToLatLng(L.point(pa.x + ux * INSET_PX, pa.y + uy * INSET_PX));
+              end = map.layerPointToLatLng(L.point(pb.x - ux * INSET_PX, pb.y - uy * INSET_PX));
+            }}
+          }}
+          var layer = layers[idx];
+          if (layer && layer.setLatLngs) {{
+            layer.setLatLngs([start, end]);
+            if (layer.setStyle) {{
+              layer.setStyle({{
+                color: LINK_COLOR,
+                opacity: hide ? 0 : 1,
+                weight: hide ? 0 : 3.5,
+                lineCap: 'butt'
+              }});
+            }}
+          }} else if (!hide) {{
+            layer = L.polyline([start, end], {{
+              color: LINK_COLOR,
+              weight: 3.5,
+              opacity: 1,
+              interactive: false,
+              className: 'tj-stay-link',
+              lineCap: 'butt'
+            }});
+            layer.addTo(stayArrowLayer);
+          }}
+          if (hide || !ready) {{
+            return;
+          }}
+          var sa = map.latLngToLayerPoint(start);
+          var sb = map.latLngToLayerPoint(end);
+          var t = 0.62;
+          var ax = sa.x + (sb.x - sa.x) * t;
+          var ay = sa.y + (sb.y - sa.y) * t;
+          var angle = Math.atan2(sb.y - sa.y, sb.x - sa.x) * 180 / Math.PI;
+          L.marker(map.layerPointToLatLng(L.point(ax, ay)), {{
+            pane: 'overlayPane',
+            interactive: false,
+            keyboard: false,
+            icon: L.divIcon({{
+              className: 'tj-stay-arrow',
+              html: '<div class="tj-stay-arrow-rot" style="transform:rotate(' +
+                angle + 'deg)"><svg viewBox="0 0 18 18" width="18" height="18">' +
+                '<polygon points="5,4 17,9 5,14" fill="' + LINK_COLOR + '"/></svg></div>',
+              iconSize: [18, 18],
+              iconAnchor: [9, 9]
+            }})
+          }}).addTo(stayArrowLayer);
+        }});
+      }} catch (err) {{
+        console.warn('traveljournal:stayLinks', err);
+      }}
+    }}
+    window.traveljournalDrawStayLinks = drawStayLinks;
+    map.on('zoomend', drawStayLinks);
+    map.on('moveend', drawStayLinks);
+    {basemap_js}
     var closeCtl = null;
     function setCloseVisible(show) {{
       var el = closeCtl && closeCtl.getContainer && closeCtl.getContainer();
@@ -339,6 +891,7 @@ def _overview_script(fmap: folium.Map, covers: folium.FeatureGroup) -> str:
         savedView = null;
       }}
       setCloseVisible(false);
+      drawStayLinks();
       if (window.tjBridge && window.tjBridge.sectionClosed) {{
         window.tjBridge.sectionClosed();
       }}
@@ -352,6 +905,7 @@ def _overview_script(fmap: folium.Map, covers: folium.FeatureGroup) -> str:
         }}
         savedView = null;
         setCloseVisible(false);
+        drawStayLinks();
         if (window.tjBridge && window.tjBridge.sectionClosed) {{
           window.tjBridge.sectionClosed();
         }}
@@ -390,10 +944,12 @@ def _overview_script(fmap: folium.Map, covers: folium.FeatureGroup) -> str:
     window.traveljournalShowDetail = function(payload) {{
       enableDrag();
       savedView = {{center: map.getCenter(), zoom: map.getZoom()}};
+      drawStayLinks();
       if (map.hasLayer(covers)) {{
         map.removeLayer(covers);
       }}
       detail.clearLayers();
+      var cluster = photoClusterGroup();
       (payload.markers || []).forEach(function(item) {{
         var latlng = [item.latitude, item.longitude];
         var marker;
@@ -431,8 +987,15 @@ def _overview_script(fmap: folium.Map, covers: folium.FeatureGroup) -> str:
             window.traveljournalOpenMedia(item.source_file_id);
           }});
         }}
-        marker.addTo(detail);
+        if (cluster && item.kind !== 'place') {{
+          marker.addTo(cluster);
+        }} else {{
+          marker.addTo(detail);
+        }}
       }});
+      if (cluster) {{
+        cluster.addTo(detail);
+      }}
       (payload.polylines || []).forEach(function(line) {{
         var layer = L.polyline(line.points, {{
           color: line.color || '#2eb8a0',
@@ -521,6 +1084,7 @@ def _overview_script(fmap: folium.Map, covers: folium.FeatureGroup) -> str:
         }}
         savedView = null;
         setCloseVisible(false);
+        drawStayLinks();
         if (window.tjBridge && window.tjBridge.sectionClosed) {{
           window.tjBridge.sectionClosed();
         }}
@@ -552,7 +1116,7 @@ def _overview_script(fmap: folium.Map, covers: folium.FeatureGroup) -> str:
     map.on('dblclick', function(event) {{
       var target = event.originalEvent && event.originalEvent.target;
       if (target && target.closest && target.closest(
-        '.tj-cover, .tj-cover-icon, .tj-thumb, .tj-popup-thumb, .leaflet-popup'
+        '.tj-cover, .tj-cover-icon, .tj-thumb, .tj-popup-thumb, .leaflet-popup, .tj-stack-icon, .tj-stack'
       )) {{
         L.DomEvent.stop(event);
         return;
@@ -661,8 +1225,13 @@ def _overview_script(fmap: folium.Map, covers: folium.FeatureGroup) -> str:
         window.traveljournalExpand(bestKey);
       }}
     }});
+    {basemap_boot}
     fitOverview();
-    setTimeout(fitOverview, 150);
+    drawStayLinks();
+    setTimeout(function() {{
+      fitOverview();
+      drawStayLinks();
+    }}, 150);
   }}
   function wait(tries) {{
     try {{
@@ -695,8 +1264,7 @@ def _popup_body(marker: MapMarker, html_path: Path) -> str:
         if marker.source_file_id:
             sid = f' data-source-id="{int(marker.source_file_id)}"'
         parts.append(
-            f'<img class="tj-popup-thumb" src="{html.escape(href, quote=True)}" '
-            f'width="180" alt=""{sid}>'
+            f'<img class="tj-popup-thumb" src="{html.escape(href, quote=True)}" width="180" alt=""{sid}>'
         )
     return "<div style='min-width:160px'>" + "".join(parts) + "</div>"
 

@@ -45,17 +45,17 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.project_view = ProjectView(self.workspace)
         self.import_view = ImportView(self.workspace)
+        self.photos_view = PhotosView(self.workspace)
         self.timeline_view = TimelineView(self.workspace)
         self.map_view = MapView(self.workspace)
-        self.photos_view = PhotosView(self.workspace)
         self.export_view = ExportView()
 
         self._pages = {
             "project": self.stack.addWidget(self.project_view),
             "import": self.stack.addWidget(self.import_view),
+            "photos": self.stack.addWidget(self.photos_view),
             "timeline": self.stack.addWidget(self.timeline_view),
             "map": self.stack.addWidget(self.map_view),
-            "photos": self.stack.addWidget(self.photos_view),
             "export": self.stack.addWidget(self.export_view),
         }
 
@@ -80,6 +80,7 @@ class MainWindow(QMainWindow):
         self.import_view.index_load_progress.connect(self._on_index_progress)
         self.import_view.index_load_finished.connect(self._on_index_loaded)
         self.photos_view.status_message.connect(self._set_status)
+        self.photos_view.rating_changed.connect(self.timeline_view.apply_media_rating)
         self.map_view.status_message.connect(self._set_status)
         self.map_view.open_in_timeline.connect(self._open_timeline_entry)
         self.timeline_view.status_message.connect(self._set_status)

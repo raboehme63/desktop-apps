@@ -77,7 +77,7 @@ Hilfsmodul: `packages/travelcore/tests/jpeg_fixtures.py`. GPX-Hilfen: `gpx_fixtu
 
 ## 4. Abbildungsmatrix Pflichtenheft → automatisierte Tests
 
-Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests sind ergänzend zu führen, nicht still zu löschen.
+Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests sind ergänzend zu führen, nicht still zu löschen.
 
 ### 4.1 Dateitypen und Scan — FA-010 bis FA-016
 
@@ -171,6 +171,7 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 | `test_create_under_rejects_empty_name` | `test_database.py` | leerer Name abgelehnt |
 | `test_sqlite_waits_when_busy` | `test_database.py` | Busy-Timeout statt sofortigem Fehler |
 | `test_new_project_writes_settings_file` | `test_project_settings.py` | Default-`settings.toml` |
+| `test_normalize_stay_link_color_accepts_hex_and_falls_back` | `test_project_settings.py` | Linienfarbe Hex / Fallback weiß |
 | `test_settings_roundtrip_preserves_values` | `test_project_settings.py` | Exportformat, Wurzel, Zeitzone, CPU-Worker |
 | `test_corrupt_settings_raise` | `test_project_settings.py` | unlesbares TOML → `ProjectError` |
 | `test_ensure_fills_source_root_from_database` | `test_project_settings.py` | fehlende Wurzel aus der DB nachziehen |
@@ -178,7 +179,7 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 | `test_project_survives_close_and_reopen` | `tests/integration/test_project_lifecycle.py` | Index überlebt Re-Open |
 | `test_exporters_share_interface` | `test_interfaces.py` | HTML/PDF/LaTeX/CEWE sind `Exporter` |
 | `test_protocols_are_importable` | `test_interfaces.py` | `MetadataProvider`, `RankingStrategy`, `MapBackend` |
-| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R1.0.0, 6 Seiten, Menü Projekt |
+| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R1.0.0, Pipeline Projekt/Import/Medien/Timeline/Karte/Export, Medienregister |
 
 ### 4.7 GPX und zeitliche Zuordnung — FA-040 bis FA-042
 
@@ -256,18 +257,29 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 | `test_downsample_keeps_endpoints` | `test_maps.py` | Trackpunkte werden ausgedünnt, Start/Ende bleiben |
 | `test_map_scene_has_track_and_photo` | `test_maps.py` | Übersicht ein Cover, Detail: Polylinie + Fotomarker |
 | `test_map_scene_includes_place` | `test_maps.py` | Ort im Detail des Tags |
-| `test_folium_overview_cover_uses_expand_url` | `test_maps.py` | rundes Cover, Expand-Bridge, Zoom-Halt, Popup-Skript |
+| `test_folium_overview_cover_uses_expand_url` | `test_maps.py` | rundes Cover, Expand-Bridge, Zoom-Halt, Popup-Skript, Aufenthaltslinien, Layer-Menü Karte/Gelände/Satellit |
+| `test_overview_offline_omits_satellite` | `test_maps.py` | ohne Kacheln kein Layer-Umschalter |
 | `test_timeline_js_cards_uses_relative_cover` | `test_maps.py` | Timeline-Karten relative Cover-Pfade |
 | `test_leaflet_payload_includes_source_file_id` | `test_maps.py` | Detail-Payload: `source_file_id`, Thumbnail-Popup |
+| `test_detail_stacks_nearby_photos_until_zoom_17` | `test_maps.py` | Stapel bis Zoom 16, Anzahl, ab 17 einzeln; Orte ungestapelt |
 | `test_folium_backend_writes_html` | `test_maps.py` | Leaflet-HTML, `MapBackend` |
 | `test_offline_backend_omits_osm_tiles` | `test_maps.py` | `tiles=None` ohne OSM-URL |
 | `test_map_scene_includes_igc_flight` | `test_maps.py` | IGC-Polylinie, Pilot, DHV-Link, Zoom-Skript |
 | `test_map_cache_reuses_html_when_inputs_unchanged` | `test_maps.py` | Disk-Cache ohne Rebuild |
 | `test_map_cache_rebuilds_when_provider_or_force_changes` | `test_maps.py` | Cache-Invalidierung |
+| `test_map_cache_rebuilds_when_link_color_changes` | `test_maps.py` | Cache neu bei geänderter Linienfarbe |
 | `test_pick_cover_item_uses_first_gps_photo` | `test_maps.py` | ohne Titelbild erstes Foto mit GPS |
 | `test_pick_cover_item_uses_first_gps_track_without_photo_fix` | `test_maps.py` | ohne GPS-Foto erster GPS-Track |
 | `test_parse_group_key_accepts_section_day_and_loose` | `test_maps.py` | `section:` / `day:` / `loose:` |
 | `test_build_map_timeline_cards_from_section` | `test_maps.py` | Leistenkarten aus Abschnitt |
+| `test_stay_links_connect_days_and_stays_in_timeline_order` | `test_maps.py` | Linien zwischen Tag- und Aufenthaltskreisen in Timeline-Reihenfolge |
+| `test_stay_links_connect_leftover_days` | `test_maps.py` | Resttage mit GPS werden verbunden |
+| `test_stay_links_skip_transfer_as_endpoint` | `test_maps.py` | Transfer-Kreis ist kein Linienende |
+| `test_stay_links_mark_transfer_between_stays` | `test_maps.py` | Transfer zwischen Endpunkten setzt `via_transfer` |
+| `test_stay_links_skip_stays_without_gps` | `test_maps.py` | Aufenthalt ohne GPS ist kein Linienende |
+| `test_stay_link_hidden_when_covers_overlap` | `test_maps.py` | Linie unsichtbar, wenn Kreise sich überdecken |
+| `test_build_map_overview_links_consecutive_stays` | `test_maps.py` | Übersicht verbindet zwei Aufenthalte über einen Transfer |
+| `test_build_map_overview_links_leftover_days` | `test_maps.py` | Übersicht verbindet Resttage mit GPS |
 | `test_parse_map_bridge_url_reads_group_key` | `tests/test_gui_smoke.py` | Expand-URL und Konsolen-Bridge |
 | `test_map_view_refresh_uses_disk_cache_without_rebuild` | `tests/test_gui_smoke.py` | MapView zeigt Cache; Leiste unter dem WebView |
 | `test_publish_map_display_writes_unique_file` | `tests/test_gui_smoke.py` | WebEngine lädt eine neue HTML-Kopie nach Rebuild |
@@ -361,6 +373,8 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 | `test_entry_widget_section_has_to_map_button` | `tests/test_gui_smoke.py` | Zur Karte an Abschnitt und Tag |
 | `test_map_view_focus_group_centers_section_card` | `tests/test_gui_smoke.py` | MapView fokussiert die Abschnittskarte |
 | `test_entry_widget_media_tab_filters_favorites` | `tests/test_gui_smoke.py` | Register filtert Favoriten |
+| `test_photos_view_media_tab_filters_favorites` | `tests/test_gui_smoke.py` | Medien-Register filtert Favoriten |
+| `test_photos_rating_applies_to_timeline_gallery` | `tests/test_gui_smoke.py` | Medien-Bewertung erscheint in der Timeline |
 | `test_media_tabs_change_only_on_click` | `tests/test_gui_smoke.py` | Mausrad wechselt keinen Reiter |
 | `test_timeline_global_register_applies_to_all_days` | `tests/test_gui_smoke.py` | globales Register |
 | `test_scroll_offset_to_widget_top_uses_host_not_page_chrome` | `tests/test_gui_smoke.py` | Reveal ignoriert Reisetitel über der Liste |
@@ -402,12 +416,12 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 - Sortierstatus Favorit/Reserve/Aussortiert inkl. Fallback auf Favoriten-Flag
 - Import bricht bei einer defekten Datei (JPEG oder GPX) nicht ab
 - Projekt anlegen, Schema (Abschnitte, URLs, Cover, Drehung), Wiederöffnen, `settings.toml` und Pfad-Rebase
-- Karte: Titelbild-Kreise je Abschnitt/Resttag, Leiste darunter, Detail mit Tracklinie und Fotomarkern, Foto-Popup, offline ohne OSM
+- Karte: Titelbild-Kreise je Abschnitt/Resttag, Verbindungslinien zwischen Tag- und Aufenthaltskreisen, Layer-Menü Karte/Gelände/Satellit, Leiste darunter, Detail mit Tracklinie und Fotomarkern (Stapel naher Fotos bis Zoom 16), Foto-Popup, offline ohne OSM
 - Timeline: Tage aus Aufnahmezeit, manuelle Texte bleiben, Ortsvorschläge, `used_in_journal`
 - Reiseabschnitte, Resttage, Pending-Vorschau, Eintrags-Titelbild (Foto und Track)
 - YouTube- und DHV-Leonardo-URL-Normalisierung
 - Anzeigedrehung (Index, Cachepfad, Re-Import, Inspektor ohne Originalschreiben)
-- GUI-Rauch: Fenstertitel mit Version, getrennte Medien/Tracks, Register nur per Klick, Inspektor Blättern/Zoom/Drehen
+- GUI-Rauch: Fenstertitel mit Version, Pipeline Import→Medien→Timeline, getrennte Medien/Tracks, Register nur per Klick, Inspektor Blättern/Zoom/Drehen
 - Export- und Provider-*Verträge* existieren
 
 ### 5.2 Bewusst noch ohne Automatisierung
@@ -510,22 +524,23 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Schritt | Erwartung |
 | --- | --- |
 | Vorher/Nachher Hash oder mtime einer Quell-HEIC | unverändert |
-| Kein Netzmonitor nötig; es dürfen keine Upload-Versuche sichtbar sein | erfüllt im Standardbetrieb |
+| Kein Netzmonitor nötig; es dürfen keine Upload-Versuche sichtbar sein | erfüllt im Standardbetrieb (OSM-, optionale OpenTopoMap- und Esri-Kacheln sind Abrufe, kein Upload) |
 
 ### MT-08 Projekteinstellungen
 
 | Schritt | Erwartung |
 | --- | --- |
-| Projekt → Einstellungen: GPS-Zeitfenster, Standardzeitzone, Kartenanbieter | Werte in `settings.toml`; Originale unverändert |
+| Projekt → Einstellungen: GPS-Zeitfenster, Standardzeitzone, Kartenanbieter, Verbindungslinien-Farbe | Werte in `settings.toml`; Originale unverändert; Standardfarbe der Linien weiß |
 | Wurzelverzeichnis auf einen verschobenen Ordner setzen | Index-Pfade umgeschrieben, Dateien selbst nicht bewegt |
-| Kartenanbieter `offline` | Karte ohne OSM-Kacheln, Track und Marker bleiben |
+| Kartenanbieter `offline` | Karte ohne OSM-, Gelände- und Satellitenkacheln, Track und Marker bleiben |
 
 ### MT-09 Galeriefilter und Favoriten
 
 | Schritt | Erwartung |
 | --- | --- |
-| Seite **Fotos**: Filter Jahr / Mit Ort / JPEG / Favorit / Nicht im Tagebuch | sichtbare Menge ändert sich; Zähler „N von M Fotos“ |
+| Seite **Medien**: Filter Jahr / Mit Ort / JPEG / Register Favoriten / Nicht im Tagebuch | sichtbare Menge ändert sich; Zähler „N von M Medien“ |
 | Favorit umschalten, Projekt schließen und öffnen | Favorit bleibt |
+| Bewertung (Favorit/Reserve/Aussortiert) auf **Medien**, dann Seite **Timeline** | dieselbe Bewertung am gleichen Medium; Register Favoriten zeigt es |
 | Doppelklick | Medieninspektor mit Zeit, GPS, Kamera; Originale unverändert |
 
 ### MT-10 Foto ohne GPS, GPX im selben Ordner
@@ -538,7 +553,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Nach Import Seite **Fotos** öffnen | Vorschaubilder, chronologisch; Doppelklick öffnet den Medieninspektor |
+| Nach Import Seite **Medien** öffnen | Vorschaubilder, chronologisch; Doppelklick öffnet den Medieninspektor; Reiter Alle/Favoriten/Reserve/Aussortiert |
 | HEIC ohne eingebettetes JPEG (HEIF Image Extensions installiert) | echtes Vorschaubild, kein Absturz |
 | HEIC ohne Codec/Erweiterung | Platzhalter, kein Absturz |
 
@@ -546,7 +561,9 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | ein runder Kreis je Tag, Transfer oder Aufenthalt; ohne gesetztes Titelbild das erste Foto mit GPS, sonst der erste GPS-Track; darunter die Timeline-Leiste mit denselben Einträgen; **Übersicht aller Kreise** im Ausschnitt |
+| Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | ein runder Kreis je Tag, Transfer oder Aufenthalt; zwischen **Tag- und Aufenthaltskreisen** in Timeline-Reihenfolge eine Verbindungslinie mit Richtungsmarker; Layer-Symbol oben rechts mit Karte / Gelände / Satellit; ohne gesetztes Titelbild das erste Foto mit GPS, sonst der erste GPS-Track; darunter die Timeline-Leiste mit denselben Einträgen; **Übersicht aller Kreise** im Ausschnitt |
+| Layer-Symbol: **Karte**, **Gelände**, **Satellit** | wechselt OSM, OpenTopoMap und Esri World Imagery; Kreise und Linien bleiben; Quellenangabe je Anbieter; `offline` ohne Symbol |
+
 | Nach Änderungen in der Timeline Seite **Karte** öffnen | Karte erscheint ohne extra **Karte aktualisieren**, Übersicht aller Kreise |
 | **Karte aktualisieren** | Karte lädt neu und zeigt wieder die Übersicht aller Kreise |
 | Leiste: Tag-Karte | Kalendersymbol oben rechts |
@@ -557,10 +574,14 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Doppelklick auf eine Leistenkarte | Seite **Timeline**, derselbe Eintrag mit Kopfzeile oben in der Liste (unter Reisetitel und Werkzeugleiste) |
 | Leiste nach links/rechts ziehen oder Mausrad | Karten verschieben sich horizontal; Klick trifft die Karte, nicht die OSM-Kacheln |
 | Hineinzoomen, dann eine Leistenkarte anklicken | die Karte schwenkt auf diesen Eintrag, **Zoom bleibt** |
+| Zwei nahe Tag-/Aufenthaltskreise, weit herausgezoomt | Verbindungslinie unsichtbar, sobald sich die Kreise überdecken |
+| Zwei entfernte Tag- oder Aufenthaltskreise | Linie mit Pfeil in Timeline-Richtung; in der Detailansicht keine Linie |
 | Doppelklick in die freie (nicht belegte) Kartenfläche | Übersicht: alle Kreise im Ausschnitt |
 | Klick auf einen Kreis | Detailansicht: Fotos, Videos und Tracks dieses Eintrags, Ausschnitt angepasst; **Reiseabschnitt schließen** stellt Zoom und Ausschnitt der Übersicht wieder her |
 | Freie Karte: offene Hand (Verschieben); über einem Kreis: Zeiger (Auswahl) | der Kreis-Klick öffnet das Detail, startet kein Zoomen |
 | Klick auf ein viereckiges Foto-Symbol im Detail | kleines Thumbnail-Popup auf der Karte (nicht sofort der Inspektor) |
+| Mehrere Fotos fast am selben Ort, Zoom unter 17 | ein Stapel-Marker mit der Anzahl |
+| Hineinzoomen auf Zoom 17 oder höher | Stapel löst sich auf, auch wenn Marker übereinander liegen |
 | Doppelklick auf das Thumbnail (oder das Foto-Symbol) | Medieninspektor mit dem **Original**, Blättern/Zoom/Drehen wie in der Timeline |
 | Bestätigter Ort | erscheint im Detail des Tags |
 
@@ -592,7 +613,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Ecke unten rechts ziehen | Fenster wächst proportional zum Foto |
 | Fensterrand ziehen | frei breiter oder höher |
 | Maximieren oder F11 | Foto eingepasst, schwarze Ränder, Zoom zurückgesetzt |
-| Seite **Fotos**: Doppelklick | dieselbe Sequenz wie die aktuelle Galerie |
+| Seite **Medien**: Doppelklick | dieselbe Sequenz wie die aktuelle Galerie |
 
 ### MT-19 Anzeigedrehung
 
@@ -607,7 +628,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Schritt | Erwartung |
 | --- | --- |
 | Timeline: Mausrad über einer Karte mit Register Alle/Favoriten/… | Tag scrollt, Reiter bleibt |
-| Klick auf **Favoriten** oben neben „Neuen Reiseabschnitt erstellen“ | alle Karten filtern; nach Verlassen der Seite und Zurückkehren bleibt Favoriten |
+| Klick auf **Favoriten** oben neben „Neuen Reiseabschnitt erstellen“ oder auf der Medienseite | alle Karten bzw. die Galerie filtern; nach Verlassen der Seite und Zurückkehren bleibt Favoriten |
 
 ### MT-21 Fenstertitel
 
@@ -664,7 +685,7 @@ Ein Phasenabschluss ohne grüne Automatisierung gilt als nicht abgenommen.
 
 | Datum | Kommando | Ergebnis |
 | --- | --- | --- |
-| 27.08.2026 | `python -m pytest` im Projekt-venv | 241 bestanden |
+| 27.08.2026 | `python -m pytest` im Projekt-venv | 261 bestanden |
 | 26.08.2026 | `python -m pytest` im Projekt-venv | 222 bestanden |
 | 18.08.2026 | `python -m pytest` im Projekt-venv | 98 bestanden |
 
