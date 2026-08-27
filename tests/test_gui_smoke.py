@@ -14,7 +14,7 @@ def test_main_window_starts() -> None:
 
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
-    assert window.windowTitle() == "Reisetagebuch R1.0.0"
+    assert window.windowTitle() == "Reisetagebuch R1.1.0"
     assert window.stack.count() == 6
     titles = [action.text() for action in window.menuBar().actions()]
     assert "Projekt" in titles
@@ -80,9 +80,9 @@ def test_main_window_starts() -> None:
 def test_app_window_title_includes_version() -> None:
     from traveljournal.__about__ import app_window_title
 
-    assert app_window_title() == "Reisetagebuch R1.0.0"
-    assert app_window_title("Alpen 2025") == "Reisetagebuch R1.0.0 - Alpen 2025"
-    assert app_window_title("  ") == "Reisetagebuch R1.0.0"
+    assert app_window_title() == "Reisetagebuch R1.1.0"
+    assert app_window_title("Alpen 2025") == "Reisetagebuch R1.1.0 - Alpen 2025"
+    assert app_window_title("  ") == "Reisetagebuch R1.1.0"
 
 
 def test_new_project_dialog_preview_and_values(tmp_path: Path) -> None:
@@ -496,7 +496,14 @@ def test_map_view_focus_group_centers_section_card() -> None:
     assert view._youtube.isVisible()
     thumbs = view._youtube.findChildren(YouTubeThumbLabel)
     assert len(thumbs) == 2
-    assert thumbs[0].width() * 2 + 8 <= view._side.width()
+    assert view._youtube.parent() is view._map_frame
+    app.processEvents()
+    bottom = max(thumb.y() for thumb in thumbs)
+    top = min(thumb.y() for thumb in thumbs)
+    assert bottom > top
+    first = next(thumb for thumb in thumbs if thumb.toolTip() == "https://youtu.be/dQw4w9WgXcQ")
+    second = next(thumb for thumb in thumbs if thumb.toolTip() == "https://youtu.be/aaaaaaaaaaa")
+    assert first.y() >= second.y()
     _ = app
 
 
@@ -859,6 +866,124 @@ def test_timeline_global_register_applies_to_all_days(tmp_path: Path, monkeypatc
     assert workspace.timeline_media_tab() == "reserve"
     view.confirm_leave()
     assert workspace.timeline_media_tab() == "reserve"
+    _ = app
+
+
+def test_timeline_save_button_only_when_dirty(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, datetime
+
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.timeline.types import PendingSectionSpec, TimelineDay, TimelineEntry, TimelinePhoto
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.timeline_view import EntryWidget, TimelineView
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    app = QApplication.instance() or QApplication([])
+    stamp = datetime(2025, 5, 15, 8, 0, tzinfo=UTC)
+    photo = TimelinePhoto(
+        source_file_id=1,
+        filename="foto.jpg",
+        path="foto.jpg",
+        thumbnail_path=Path("."),
+        captured_at=stamp,
+        used_in_journal=False,
+        is_cover=False,
+        is_favorite=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        file_kind="photo",
+    )
+    day = TimelineDay(
+        id=1,
+        day_index=0,
+        date=stamp.date(),
+        title=None,
+        notes=None,
+        origin="auto",
+        photos=(photo,),
+    )
+    view = TimelineView(Workspace())
+    assert not view._save_button.isEnabled()
+    view._loaded_trip_title = "Reise"
+    view._trip_title.setEnabled(True)
+    view._trip_title.setText("Reise")
+    assert not view._save_button.isEnabled()
+    view._trip_title.setText("Alpen 2025")
+    assert view._save_button.isEnabled()
+    view._trip_title.setText("Reise")
+    assert not view._save_button.isEnabled()
+    block = EntryWidget(TimelineEntry(started_at=stamp, leftover_day=day), parent=view)
+    block.content_changed.connect(view._update_save_button)
+    view._blocks = [block]
+    view._update_save_button()
+    assert not view._save_button.isEnabled()
+    block.notes_edit.setPlainText("Abend in Bozen")
+    assert view._save_button.isEnabled()
+    block.notes_edit.setPlainText("")
+    assert not view._save_button.isEnabled()
+    block._youtube_urls = ["https://www.youtube.com/watch?v=aaaaaaaaaaa"]
+    view._update_save_button()
+    assert view._save_button.isEnabled()
+    block._youtube_urls = list(block.youtube_from_db())
+    view._update_save_button()
+    assert not view._save_button.isEnabled()
+    view._pending.append(PendingSectionSpec(local_id=-1, source_file_ids=(1,), kind="stay"))
+    view._update_save_button()
+    assert view._save_button.isEnabled()
+    view._pending.clear()
+    view._update_save_button()
+    assert not view._save_button.isEnabled()
+    _ = app
+
+
+def test_timeline_leave_without_prompt_when_only_text_dirty(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, datetime
+
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelinePhoto
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.timeline_view import EntryWidget, TimelineView
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    app = QApplication.instance() or QApplication([])
+    stamp = datetime(2025, 5, 15, 8, 0, tzinfo=UTC)
+    photo = TimelinePhoto(
+        source_file_id=1,
+        filename="foto.jpg",
+        path="foto.jpg",
+        thumbnail_path=Path("."),
+        captured_at=stamp,
+        used_in_journal=False,
+        is_cover=False,
+        is_favorite=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        file_kind="photo",
+    )
+    day = TimelineDay(
+        id=1,
+        day_index=0,
+        date=stamp.date(),
+        title=None,
+        notes=None,
+        origin="auto",
+        photos=(photo,),
+    )
+    view = TimelineView(Workspace())
+    block = EntryWidget(TimelineEntry(started_at=stamp, leftover_day=day), parent=view)
+    block.content_changed.connect(view._update_save_button)
+    view._blocks = [block]
+    block.notes_edit.setPlainText("Abend in Bozen")
+    assert view._save_button.isEnabled()
+    assert view.confirm_leave() is True
+    assert view._save_button.isEnabled()
+    assert block.is_dirty()
     _ = app
 
 

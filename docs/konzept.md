@@ -4,7 +4,7 @@
 | --- | --- |
 | Version | 0.7 |
 | Stand | 27. August 2026 |
-| Status | Leitkonzept; Phase 7 erweitert, Software **R1.0.0** |
+| Status | Leitkonzept; Phase 7 erweitert, Software **R1.1.0** |
 | Bezug | [pflichtenheft.md](pflichtenheft.md), [architecture.md](architecture.md), [packaging/README.md](../packaging/README.md) |
 
 Dieses Dokument beschreibt die **Idee, den Ablauf und die technische Leitlinie**. Verbindliche Soll-Aussagen stehen im Pflichtenheft.
@@ -70,17 +70,20 @@ Dieselbe Quelle erneut analysieren:
 - neue Dateien ergänzen
 - defekte Dateien als Fehler zählen, Rest fortsetzen
 
-### 3.3 Bearbeitung (Phase 7, Software R1.0.0)
+Polar-Trainings-JSON mit `routes` importiert die App nicht. Das Hilfsskript `scripts/json_routes_to_gpx.py` schreibt eine GPX-Datei neben die JSON-Datei (Aufruf und Kurzhilfe im [README](../README.md)).
+
+### 3.3 Bearbeitung (Phase 7, Software R1.1.0)
 
 Das Grundgerüst entsteht **automatisch nach dem Import**, nicht als zweite Wahrheit in der Oberfläche.
 
 - **Ein Reisetag je Kalendertag** der Aufnahmezeit (`captured_at.date()`). Medien ohne Zeit landen unter „Ohne Datum“.
-- **Reiseabschnitte** legt der Benutzer in der Timeline an: Aufenthalt oder Transfer, aus einer Mehrfachauswahl von Fotos, Videos und Tracks. Dateien ohne Abschnitt bleiben **Tage**. Der Typ (Tag, Transfer, Aufenthalt) ist an jeder Timeline-Karte änderbar. Neu angelegte Abschnitte existieren nur im Speicher, bis **Speichern**. **Zur Karte** an einem gespeicherten Abschnitt oder Tag öffnet die Karte und fokussiert die passende Karte in der Leiste.
-- **Der Reisetitel** steht oben in der Timeline. Zuerst gilt der Projektname; nach **Speichern** ist er manuell und überlebt den erneuten Abgleich.
+- **Reiseabschnitte** legt der Benutzer in der Timeline an: Aufenthalt oder Transfer, aus einer Mehrfachauswahl von Fotos, Videos und Tracks. Dateien ohne Abschnitt bleiben **Tage**. Der Typ (Tag, Transfer, Aufenthalt) ist an jeder Timeline-Karte änderbar. Neu angelegte Abschnitte existieren nur im Speicher, bis Timeline-**Speichern**. **Zur Karte** an einem gespeicherten Abschnitt oder Tag öffnet die Karte und fokussiert die passende Karte in der Leiste.
+- **Der Reisetitel** steht oben in der Timeline. Zuerst gilt der Projektname; nach Timeline-**Speichern** ist er manuell und überlebt den erneuten Abgleich.
+- **Speichern in der Timeline** schreibt neue Abschnitte, Reisetitel, Titel/Texte und YouTube. Der Button ist nur dann aktiv. **Timeline aktualisieren** schreibt geänderte Texte und den Reisetitel mit, persistiert aber keine Abschnitte und kein YouTube. Bewertungen, Eintrags-Titelbild an gespeicherten Einträgen und DHV-Leonardo an gespeicherten Einträgen speichern sofort und lassen **Speichern** inaktiv. Verlassen der Seite fragt bei ungespeicherten Abschnitten (Speichern / Verwerfen / Abbrechen) und bei nur ungespeicherten YouTube-Links (Verwerfen / Abbrechen); nur geänderte Texte oder nur ein geänderter Reisetitel erzeugen keine Rückfrage (Schließen des Fensters verwirft sie).
 - **Fotos werden nicht umgehängt.** Die Aufnahmezeit bleibt der Tag. Das Flag `used_in_journal` (Filter **Nicht im Tagebuch** auf der Medienseite) ändert die Zugehörigkeit nicht — wer ein Foto einem anderen Tag zuordnen will, ändert die Zeit nicht still, sondern wartet auf eine spätere, explizite Korrektur.
 - **Ortsvorschläge** entstehen aus GPS-Fotos desselben Tages: greedy Cluster mit Haversine, Radius 150 m (`stay_radius_meters`). Sie bleiben unbestätigt (`origin=auto`), bis der Benutzer sie benennt, bestätigt oder löscht. Hat ein Tag bereits Orte, legt der Abgleich keine zweiten Auto-Orte an.
 - **Manuelle Daten überleben den Re-Sync:** Titel, Tagesetext, bestätigte Orte, Favoriten, Sortierstatus, Titelbild und `used_in_journal` tragen `origin=manual`. Die Automatik überschreibt sie nicht. Anzeigedrehung (`rotation_degrees`) überlebt den Re-Import.
-- **Die Timeline** ist die Bearbeitungsoberfläche: sie mischt Tage, Transfers und Aufenthalte, schreibt Titel und Texte, setzt Bewertungen (dieselben wie auf der Medienseite) und Eintrags-Titelbilder (Foto oder Track), speichert YouTube erst mit Speichern und DHV-Leonardo-Links an gespeicherten Einträgen sofort. Die Karte zeigt dieselben Einträge als Titelbilder plus eine Leiste darunter (Tag mit Kalendersymbol, Transfer als liegendes Sechseck, Aufenthalt als bisherige Karte); zwischen Tag- und Aufenthaltskreisen verbindet eine Linie mit Richtungsmarker die Positionen, solange sie sich nicht überdecken. Die Detailansicht liest dieselben Orte und blendet die Verbindungslinien aus. Einfachklick in der Leiste zentriert, Doppelklick öffnet den Eintrag in der Timeline. Oben auf den Leistenkarten stehen Zähler für Fotos, GPX-Tracks, IGC-Flüge und YouTube (Reserve nur bei eingeschalteter Reserve-Anzeige). Rechts neben der Karte erscheint der Tagebucheintrag der fokussierten Karte (editierbar; nach Änderung Speichern, Abbrechen, Verwerfen; beim Wechsel der Leistenkarte als Dialog) und darunter YouTube-Vorschaubilder.
+- **Die Timeline** ist die Bearbeitungsoberfläche: sie mischt Tage, Transfers und Aufenthalte, schreibt Titel und Texte, setzt Bewertungen (dieselben wie auf der Medienseite) und Eintrags-Titelbilder (Foto oder Track), speichert YouTube erst mit **Speichern** und DHV-Leonardo-Links an gespeicherten Einträgen sofort. Die Karte zeigt dieselben Einträge als Titelbilder plus eine Leiste darunter (Tag mit Kalendersymbol, Transfer als liegendes Sechseck, Aufenthalt als bisherige Karte); zwischen Tag- und Aufenthaltskreisen verbindet eine Linie mit Richtungsmarker die Positionen, solange sie sich nicht überdecken. Die Detailansicht liest dieselben Orte und blendet die Verbindungslinien aus. Einfachklick in der Leiste zentriert, Doppelklick öffnet den Eintrag in der Timeline. Oben auf den Leistenkarten stehen Zähler für Fotos, GPX-Tracks, IGC-Flüge und YouTube (Reserve nur bei eingeschalteter Reserve-Anzeige). Rechts neben der Karte erscheint der Tagebucheintrag der fokussierten Karte (editierbar; nach Änderung Speichern, Abbrechen, Verwerfen; beim Wechsel der Leistenkarte als Dialog). YouTube-Vorschaubilder liegen unten rechts auf der Karte übereinander.
 - **Medieninspektor:** In der Timeline öffnet ein Doppelklick ein eigenes Fenster mit dem Original. Auf der Karte zeigt ein Klick auf ein Foto zuerst ein kleines Thumbnail-Popup; Doppelklick auf das Thumbnail öffnet denselben Inspektor. Liegen Fotos in der Detailansicht sehr nah beieinander, werden sie gestapelt (Anzahl auf dem Marker); ab Zoom 17 liegen sie einzeln, auch wenn sie sich überdecken; überlappende Marker rotieren, Mouseover blendet die übrigen Fotos aus. Ein Zahnrad unter den Zoom-Buttons schaltet Fotokegel (Richtung und Brennweite ab Zoom 17; Mouseover über ein Foto blendet die übrigen Fotos und Kegel aus) und Reserve-Medien (gespeichert im Projekt); Aussortierte erscheinen nie. Blättern in der Sequenz des Tags/Abschnitts, Zoom, freie Fenstergröße, Vollbild mit schwarzen Rändern, Anzeigedrehung ohne Originalschreiben.
 
 ### 3.4 PhotoInspector (später)
@@ -98,7 +101,7 @@ Linke Navigation, rechts der Arbeitsbereich. Die Pipeline (Projekt, Import, Medi
 | **Projekt** | Behälter: Name, Ordner, Öffnen/Anlegen. Keine Medienbearbeitung. |
 | **Import** | Brücke zur Außenwelt. Einzige Stelle, die das Quellverzeichnis scannt. |
 | **Medien** | Medienarbeit vor der Chronik: Galerie, Filter, Register Alle/Favoriten/Reserve/Aussortiert, Bewertungen, Inspektor. Qualität und Dubletten folgen später. |
-| **Timeline** | Chronologische und narrative Bearbeitung: Reisetitel, Tage, Transfers und Aufenthalte, Typwahl, Titel/Text, Bewertungen, Eintrags-Titelbild, YouTube/DHV-Leonardo, Medieninspektor. |
+| **Timeline** | Chronologische und narrative Bearbeitung: Reisetitel, Tage, Transfers und Aufenthalte, Typwahl, Titel/Text, Bewertungen, Eintrags-Titelbild, YouTube/DHV-Leonardo, **Speichern** nur bei ungespeicherten Abschnitten/Texten/Reisetitel/YouTube, Medieninspektor. |
 | **Karte** | Geografische Wahrheit: ein runder Kreis je Tag, Transfer oder Aufenthalt; zwischen Tag- und Aufenthaltskreisen Verbindungslinien mit Richtung in Timeline-Reihenfolge (ausgeblendet, wenn sich die Kreise überdecken). Klick auf den Kreis zeigt Fotos, Videos, Tracks und Orte dieses Eintrags. Die Leiste unter der Karte folgt dem Reiseverlauf — Einfachklick zentriert bei gleichem Zoom, Doppelklick öffnet die Timeline. Ohne Eintrags-Titelbild das erste Foto mit GPS, sonst der erste GPS-Track. Backend austauschbar. |
 | **Export** | Ausgabe, keine Analyse. Phase 8: HTML. |
 
@@ -145,7 +148,7 @@ Dateisystemzeit ist letzter Fallback, nie stillschweigend als Aufnahmezeit ausge
 
 ### 5.4 Projektordner
 
-SQLite ist die Arbeitsdatei, nicht das Archiv der Bilder. Thumbnails und Analyseergebnisse liegen neben der Datenbank, damit das Projekt kopierbar bleibt. Die Quellwurzel der Originale steht in `settings.toml` (Projekt → Einstellungen), zusammen mit GPS-Zeitfenster, Standardzeitzone, Kartenanbieter (`leaflet` / `offline`) und der Farbe der Verbindungslinien auf der Karte (Standard weiß). Wird der Ordner verschoben, setzt man den neuen Pfad; der Index wird umgeschrieben, die Originaldateien nicht. Zuletzt geöffnete Projekte merkt die App unter `%LOCALAPPDATA%\TravelJournal\recent.json`; die Liste erscheint noch nicht in der Oberfläche. Das Medienregister (`timeline_media_tab`, Timeline und Medienseite), die eingeklappte Navigation (`sidebar_collapsed`) und der Projekte-Stammordner liegen in `config.json`. Der Fenstertitel zeigt die Softwareversion (`Reisetagebuch R1.0.0` bzw. mit Projekttitel).
+SQLite ist die Arbeitsdatei, nicht das Archiv der Bilder. Thumbnails und Analyseergebnisse liegen neben der Datenbank, damit das Projekt kopierbar bleibt. Die Quellwurzel der Originale steht in `settings.toml` (Projekt → Einstellungen), zusammen mit GPS-Zeitfenster, Standardzeitzone, Kartenanbieter (`leaflet` / `offline`) und der Farbe der Verbindungslinien auf der Karte (Standard weiß). Wird der Ordner verschoben, setzt man den neuen Pfad; der Index wird umgeschrieben, die Originaldateien nicht. Zuletzt geöffnete Projekte merkt die App unter `%LOCALAPPDATA%\TravelJournal\recent.json`; die Liste erscheint noch nicht in der Oberfläche. Das Medienregister (`timeline_media_tab`, Timeline und Medienseite), die eingeklappte Navigation (`sidebar_collapsed`) und der Projekte-Stammordner liegen in `config.json`. Der Fenstertitel zeigt die Softwareversion (`Reisetagebuch R1.1.0` bzw. mit Projekttitel).
 
 ---
 
@@ -266,4 +269,4 @@ Nicht das ganze Polarsteps-Abbild auf einmal. Jede Phase bleibt startbar und tes
 | 8 | Die Reise verlässt die App. |
 | 9–10 | Die Auswahl wird begründet (Qualität, Dubletten). |
 
-Aktueller Konzeptstand: **Phase 7 erweitert**, Software **R1.0.0** (Timeline mit Abschnitten, Bewertungen, Inspektor, Track-Vorschauen, Karten-Leiste und Kreis-Detail). Windows-Endnutzerpaket (onedir/Zip, optional Inno-Setup) ist baubar und keine eigene Fachphase. HTML-Export folgt in Phase 8.
+Aktueller Konzeptstand: **Phase 7 erweitert**, Software **R1.1.0** (Timeline mit Abschnitten, Bewertungen, Inspektor, Track-Vorschauen, Karten-Leiste und Kreis-Detail). Windows-Endnutzerpaket (onedir/Zip, optional Inno-Setup) ist baubar und keine eigene Fachphase. HTML-Export folgt in Phase 8.

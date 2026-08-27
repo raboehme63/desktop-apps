@@ -192,6 +192,14 @@ QLabel#youtubeThumb {
     border-radius: 8px;
 }
 
+QWidget#mapFrame {
+    background-color: #12151c;
+}
+
+QWidget#mapYoutubeOverlay {
+    background-color: transparent;
+}
+
 QLabel#entryCover {
     background-color: #12151c;
     border: 1px solid #2a3144;

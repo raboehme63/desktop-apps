@@ -34,8 +34,7 @@ from travelcore.timeline.links import (
 from travelcore.timeline.types import TimelinePhoto
 
 _THUMB_SIZE = (160, 90)
-MAP_YOUTUBE_THUMB_SIZE = (144, 81)
-MAP_YOUTUBE_THUMB_COLUMNS = 2
+MAP_YOUTUBE_THUMB_SIZE = (108, 61)
 _NETWORK: QNetworkAccessManager | None = None
 
 
@@ -105,15 +104,27 @@ class YouTubeThumbsRow(QWidget):
         *,
         columns: int = 0,
         thumb_size: tuple[int, int] | None = None,
+        vertical: bool = False,
     ) -> None:
         super().__init__(parent)
         self._columns = columns
+        self._vertical = vertical
         self._thumb_size = thumb_size or _THUMB_SIZE
-        self._layout = QGridLayout(self) if columns >= 2 else QHBoxLayout(self)
-        self._layout.setContentsMargins(0, 0, 0, 0)
+        if columns >= 2:
+            self._layout = QGridLayout(self)
+        elif vertical:
+            self._layout = QVBoxLayout(self)
+        else:
+            self._layout = QHBoxLayout(self)
+        if vertical:
+            self._layout.setContentsMargins(0, 0, 10, 26)
+        else:
+            self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(8)
         if columns < 2:
             self._layout.addStretch(1)
+        if vertical:
+            self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Maximum)
 
     def set_urls(self, urls: list[str] | tuple[str, ...]) -> None:
         while self._layout.count():
@@ -121,14 +132,18 @@ class YouTubeThumbsRow(QWidget):
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
-        for index, url in enumerate(urls):
+        items = list(urls)
+        if self._vertical:
+            self._layout.addStretch(1)
+            items = list(reversed(items))
+        for index, url in enumerate(items):
             thumb = YouTubeThumbLabel(url, self, size=self._thumb_size)
             if self._columns >= 2:
                 row, column = divmod(index, self._columns)
                 self._layout.addWidget(thumb, row, column)
             else:
                 self._layout.addWidget(thumb)
-        if self._columns < 2:
+        if self._columns < 2 and not self._vertical:
             self._layout.addStretch(1)
         self.setVisible(bool(urls))
 

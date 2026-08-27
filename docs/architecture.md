@@ -2,7 +2,7 @@
 
 Produktanforderungen: [pflichtenheft.md](pflichtenheft.md). Leitkonzept: [konzept.md](konzept.md). Tests: [testdokumentation.md](testdokumentation.md). Windows-Paket: [packaging/README.md](../packaging/README.md).
 
-Stand: **Phase 7 erweitert**, Software **R1.0.0** (27. August 2026).
+Stand: **Phase 7 erweitert**, Software **R1.1.0** (27. August 2026).
 
 ## Prinzip
 
@@ -15,6 +15,12 @@ nutzen.
 apps/traveljournal  ──uses──►  packages/travelcore
 apps/photoinspector ─uses──►  packages/travelcore   (geplant)
 ```
+
+Polar-Trainings-JSON mit `routes` ingestiert die App nicht. Das Hilfsskript
+`scripts/json_routes_to_gpx.py` schreibt eine Sibling-GPX (`route.wayPoints`,
+nicht `transitionRoute`). Aufruf und Kurzhilfe: [README.md](../README.md).
+Tests: `tests/test_json_routes_to_gpx.py`. Das Skript gehört nicht zur GUI
+und ändert die JSON-Datei nicht.
 
 ## Schichten
 
@@ -92,7 +98,17 @@ Die Timeline-UI mischt **Reiseabschnitte** (`trip_sections` / `section_members`)
 und **Tage** (früher Resttage). Der Typ ist in der Oberfläche **Tag**, **Transfer**
 oder **Aufenthalt**; gespeichert bleiben `stay` und `movement`, Tage ohne Abschnitt.
 Neu angelegte Abschnitte sind `PendingSectionSpec` (negative `local_id`) bis
-Speichern. Overlay `apply_pending_sections` ist Vorschau.
+Timeline-Speichern. Overlay `apply_pending_sections` ist Vorschau.
+
+`TimelineView._has_unsaved_work` steuert den Speichern-Button: aktiv bei
+`_pending`, dirty Reisetitel, dirty Titel/Notizen oder dirty YouTube
+(`youtube_urls` ungleich DB bzw. `_pending_youtube`). Bewertungen,
+Anzeigedrehung, DHV-Leonardo und Cover an gespeicherten Einträgen schreiben
+sofort und zählen nicht. `confirm_leave` fragt bei `_pending`
+(Speichern/Verwerfen/Abbrechen) und bei nur `_pending_youtube`
+(Verwerfen/Abbrechen); dirty Texte allein erzeugen keine Rückfrage.
+`refresh()` ruft `_commit_if_dirty()` auf, sodass **Timeline aktualisieren**
+ungespeicherte Texte mitschreibt.
 
 Manuelle Titel, Notizen, bestätigte Orte, Foto-Flags
 (`used_in_journal`, `is_cover`, `is_favorite`, `sort_status`), YouTube-URLs,
@@ -108,9 +124,11 @@ DHV-Leonardo-URLs am IGC-Track und an gespeicherten Tagen/Abschnitten
 schreiben beim Dialog-OK. Das Flugportal heißt ausschließlich DHV-Leonardo,
 nie DAV.
 
-Die Timeline legt Abschnitte an, schreibt den Reisetitel sowie Titel und Texte, setzt Bewertungen
-und Eintrags-Titelbilder und öffnet den Medieninspektor. Bewertungen auf der Medienseite
-gelten in der Timeline; Änderungen aktualisieren Timeline, Karte und Galerie.
+Die Timeline legt Abschnitte an, schreibt den Reisetitel sowie Titel und Texte
+über **Speichern**, setzt Bewertungen und Eintrags-Titelbilder (sofort an
+gespeicherten Einträgen) und öffnet den Medieninspektor. Bewertungen auf der
+Medienseite gelten in der Timeline; Änderungen aktualisieren Timeline, Karte
+und Galerie.
 
 Der Medieninspektor blättert in der Sequenz des Tags/Abschnitts (bzw. der
 Medienseite), zoomt mit dem Mausrad, dreht die Anzeige in 90°-Schritten und
@@ -136,7 +154,7 @@ zeigt die Datei; die kompakte Leiste (`MapTimelineStrip`) sitzt **unter** dem
 WebView, nicht als Overlay über Chromium — sonst verschluckt die Karte Klicks.
 Klick auf eine Leistenkarte ruft `traveljournalFocusCover` auf: Schwenken bei
 **unverändertem Zoom**. Oben auf den Leistenkarten stehen Zähler für Fotos, GPX-Tracks, IGC-Flüge und YouTube-Links; Reserve-Medien zählen nur, wenn **Reserve-Elemente anzeigen** im Zahnrad aktiv ist. Rechts neben der Karte stehen der Tagebucheintrag der
-fokussierten Karte (nach Bearbeitung Speichern, Abbrechen oder Verwerfen; beim Kartenwechsel als Dialog) und YouTube-Vorschaubilder. Doppelklick auf eine Leistenkarte öffnet denselben Eintrag
+fokussierten Karte (nach Bearbeitung Speichern, Abbrechen oder Verwerfen; beim Kartenwechsel als Dialog). YouTube-Vorschaubilder liegen unten rechts auf der Karte übereinander. Doppelklick auf eine Leistenkarte öffnet denselben Eintrag
 in der Timeline. Klick auf einen Kreis (`group_key`) öffnet die
 Detailansicht (`traveljournalShowDetail`): Fotos, Videos, GPX-Linien,
 IGC-Flugtracks ab Zoom 10 (Start/Landung immer sichtbar) und Orte.
@@ -177,7 +195,7 @@ Bereits in Phase 1 angelegt, schrittweise gefüllt:
 - `Exporter` – HTML, PDF, LaTeX, CEWE (Implementierung ab Phase 8)
 - `MapBackend` – Folium/Leaflet, Übersicht als Titelbild-Kreise je Tag/Transfer/Aufenthalt, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad für Fotokegel und Reserve (in `settings.toml`; Mouseover blendet fremde Fotos und Kegel aus, überlappende Stapel rotieren ab Zoom 17, Datum bündig unter dem Foto),
   Verbindungslinien zwischen Tag- und Aufenthaltskreisen (Richtungsmarker, Zoom-Überdeckung),
-  Qt-Leiste unter der Karte (Tag mit Kalender, Transfer als liegendes Sechseck), Tagebucheintrag und YouTube-Thumbs rechts daneben, Detail mit GPX-Polylinien, IGC-Flugtracks ab Zoom 10
+  Qt-Leiste unter der Karte (Tag mit Kalender, Transfer als liegendes Sechseck), Tagebucheintrag rechts, YouTube-Thumbs unten rechts auf der Karte, Detail mit GPX-Polylinien, IGC-Flugtracks ab Zoom 10
   (Start/Landung immer sichtbar), Foto-Popup und Inspektor, Orte
 - Timeline in `travelcore.timeline` – Tage, Transfers, Aufenthalte, Cover, Links;
   keine Ortsnamen an Foto-/Trackpositionen
@@ -241,7 +259,7 @@ macOS ist kein Ziel (WIC-Vorschauen, AppData-Pfade).
 4. GPX und GPS-Zuordnung
 5. Thumbnail-Galerie
 6. Karte
-7. Timeline und manuelle Bearbeitung  ← aktueller Stand, Software R1.0.0
+7. Timeline und manuelle Bearbeitung  ← aktueller Stand, Software R1.1.0
    (Abschnitte, Bewertungen, Inspektor, Track-Vorschauen, Anzeigedrehung)
    Windows-Endnutzerpaket: `packaging/` (keine eigene Fachphase)
 8. HTML-Export

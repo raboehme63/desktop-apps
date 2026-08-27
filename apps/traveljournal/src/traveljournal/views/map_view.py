@@ -8,9 +8,10 @@ from pathlib import Path
 from time import monotonic
 from urllib.parse import parse_qs, unquote, urlparse
 
-from PySide6.QtCore import QFile, QIODevice, QObject, QThreadPool, QTimer, QUrl, Signal, Slot
+from PySide6.QtCore import QFile, QIODevice, QObject, Qt, QThreadPool, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices, QHideEvent, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -28,7 +29,6 @@ from travelcore.media.gallery import SORT_FAVORITE, SORT_STATUSES, GalleryItem
 from traveljournal.services.workers import MapRenderRunnable
 from traveljournal.services.workspace import Workspace
 from traveljournal.widgets.entry_links import (
-    MAP_YOUTUBE_THUMB_COLUMNS,
     MAP_YOUTUBE_THUMB_SIZE,
     YouTubeThumbsRow,
 )
@@ -570,15 +570,27 @@ class MapView(QWidget):
             button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             actions_layout.addWidget(button)
         self._notes_actions.hide()
+        self._map_frame = QWidget()
+        self._map_frame.setObjectName("mapFrame")
+        self._map_grid = QGridLayout(self._map_frame)
+        self._map_grid.setContentsMargins(0, 0, 0, 0)
+        self._map_grid.setSpacing(0)
         self._youtube = YouTubeThumbsRow(
-            columns=MAP_YOUTUBE_THUMB_COLUMNS,
+            self._map_frame,
+            vertical=True,
             thumb_size=MAP_YOUTUBE_THUMB_SIZE,
         )
+        self._youtube.setObjectName("mapYoutubeOverlay")
         self._youtube.set_urls(())
+        self._map_grid.addWidget(
+            self._youtube,
+            0,
+            0,
+            Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight,
+        )
         side_layout.addWidget(notes_label)
         side_layout.addWidget(self._notes_edit, 1)
         side_layout.addWidget(self._notes_actions)
-        side_layout.addWidget(self._youtube)
 
         self._timeline = MapTimelineStrip()
         self._timeline.focus_changed.connect(self._on_timeline_focus)
@@ -590,6 +602,7 @@ class MapView(QWidget):
         self._map_row = QHBoxLayout()
         self._map_row.setContentsMargins(0, 0, 0, 0)
         self._map_row.setSpacing(12)
+        self._map_row.addWidget(self._map_frame, 1)
         self._map_row.addWidget(self._side)
         self._web_layout.addLayout(self._map_row, 1)
         self._web_layout.addWidget(self._timeline)
@@ -759,8 +772,9 @@ class MapView(QWidget):
     def _ensure_web(self) -> None:
         if self._web is not None or QWebEngineView is None:
             return
-        self._web = QWebEngineView(self._web_host)
-        self._map_row.insertWidget(0, self._web, 1)
+        self._web = QWebEngineView(self._map_frame)
+        self._map_grid.addWidget(self._web, 0, 0)
+        self._youtube.raise_()
         if MapEnginePage is not None:
             page = MapEnginePage(self._web)
             page.expand_requested.connect(self._on_expand_group)

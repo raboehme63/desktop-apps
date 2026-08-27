@@ -138,6 +138,7 @@ class TimelineView(QWidget):
         self._trip_title.setPlaceholderText("Titel der Reise")
         self._trip_title.setClearButtonEnabled(True)
         self._trip_title.setEnabled(False)
+        self._trip_title.textChanged.connect(self._update_save_button)
         trip_row.addWidget(trip_label)
         trip_row.addWidget(self._trip_title, 1)
         root.addLayout(trip_row)
@@ -335,7 +336,6 @@ class TimelineView(QWidget):
                     self._empty.setText("Index wird geladen…")
                 else:
                     self._empty.setText("Keine Tage in der Timeline.")
-                self._save_button.setEnabled(self._snapshot is not None)
                 self._create_button.setEnabled(False)
                 return
             self._empty.setVisible(False)
@@ -361,12 +361,12 @@ class TimelineView(QWidget):
                 block.media_tab_changed.connect(self._on_block_media_tab)
                 block.item_rating_changed.connect(self._on_item_rating)
                 block.open_on_map.connect(self.open_on_map.emit)
+                block.content_changed.connect(self._update_save_button)
                 block.gallery.item_activated.connect(self._open_inspector)
                 block.track_gallery.item_activated.connect(self._open_inspector)
                 self._blocks.append(block)
                 self._host_layout.insertWidget(insert_at, block)
                 insert_at += 1
-            self._save_button.setEnabled(True)
             self._update_create_button()
             self._propagate_media_tab(self._media_tabs.currentIndex(), persist=False)
         finally:
@@ -375,6 +375,7 @@ class TimelineView(QWidget):
             self._excluded_ids.clear()
             self._displayed_selection = set(self._selected_source_ids())
             self._scroll.verticalScrollBar().setValue(scroll)
+            self._update_save_button()
 
     def _update_create_button(self) -> None:
         self._create_button.setEnabled(bool(self._selected_source_ids()))
@@ -638,15 +639,36 @@ class TimelineView(QWidget):
     def _trip_title_dirty(self) -> bool:
         return self._trip_title.text().strip() != (self._loaded_trip_title or "").strip()
 
+    def _has_unsaved_work(self) -> bool:
+        if self._pending:
+            return True
+        if self._trip_title_dirty():
+            return True
+        for block in self._blocks:
+            if block.is_dirty():
+                return True
+            if block.youtube_urls() != block.youtube_from_db():
+                return True
+        return bool(self._pending_youtube)
+
+    def _update_save_button(self) -> None:
+        if self._loading:
+            return
+        self._save_button.setEnabled(self._has_unsaved_work())
+
     def _set_trip_title_field(self, snapshot: TimelineSnapshot | None) -> None:
         if snapshot is None:
+            self._trip_title.blockSignals(True)
             self._trip_title.clear()
+            self._trip_title.blockSignals(False)
             self._trip_title.setEnabled(False)
             self._loaded_trip_title = ""
             return
         self._trip_title.setEnabled(True)
         if not self._trip_title_dirty():
+            self._trip_title.blockSignals(True)
             self._trip_title.setText(snapshot.title)
+            self._trip_title.blockSignals(False)
             self._loaded_trip_title = snapshot.title
 
     def _commit_trip_title(self) -> bool:
@@ -755,17 +777,12 @@ class TimelineView(QWidget):
         except ProjectError as exc:
             QMessageBox.warning(self, "Timeline", str(exc))
             return False
+        self._update_save_button()
         return True
 
     def _on_save_clicked(self) -> None:
         self._stash_pending_youtube()
-        if (
-            not self._blocks
-            and not self._pending
-            and not self._pending_youtube
-            and not self._trip_title_dirty()
-        ):
-            QMessageBox.information(self, "Timeline", "Nichts zum Speichern.")
+        if not self._has_unsaved_work():
             return
         if not self._persist_pending():
             return
@@ -785,6 +802,7 @@ class EntryWidget(QFrame):
     media_tab_changed = Signal(int)
     item_rating_changed = Signal(object)
     open_on_map = Signal(str)
+    content_changed = Signal()
 
     def __init__(
         self,
@@ -921,6 +939,8 @@ class EntryWidget(QFrame):
         self.notes_edit.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.notes_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self.notes_edit.textChanged.connect(self._fit_notes)
+        self.title_edit.textChanged.connect(self.content_changed.emit)
+        self.notes_edit.textChanged.connect(self.content_changed.emit)
         media_items, track_items = split_media_and_tracks(items)
         media_count = len(media_items)
         track_count = len(track_items)
@@ -1186,6 +1206,7 @@ class EntryWidget(QFrame):
             return
         self._youtube_urls = list(parse_youtube_urls(stored))
         self._refresh_links()
+        self.content_changed.emit()
 
     def _request_dissolve(self) -> None:
         self.dissolve_requested.emit(self._entity_id)

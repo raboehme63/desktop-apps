@@ -4,7 +4,7 @@
 | --- | --- |
 | Version | 1.0 |
 | Stand | 27. August 2026 |
-| Bezugsversion Software | Phase 7 erweitert, Software **R1.0.0** |
+| Bezugsversion Software | Phase 7 erweitert, Software **R1.1.0** |
 | Bezug | [pflichtenheft.md](pflichtenheft.md), [konzept.md](konzept.md), [packaging/README.md](../packaging/README.md) |
 
 Diese Dokumentation beschreibt **Teststrategie, Automatisierung, manuelle Prüfung und Abdeckungslücken**. Sie ist die Testdoku zum Pflichtenheft, kein Ersatz für pytest-Ausgaben.
@@ -26,7 +26,7 @@ Diese Dokumentation beschreibt **Teststrategie, Automatisierung, manuelle Prüfu
 | --- | --- | --- | --- |
 | Unit | `packages/travelcore/tests/` | pytest | Typen, Hash, Zeit, GPS, Provider, HEIC-Container, GPX/IGC/KML, Interpolation, ExifTool-JSON, Thumbnails, Orientierung, Timeline, Abschnitte |
 | Integration | `packages/travelcore/tests/test_indexer.py`, `test_database.py`, `test_timeline.py`; `tests/integration/` | pytest | Projektordner, Schema, Index → SQLite, Timeline-Sync, Re-Open |
-| GUI-Rauch | `tests/test_gui_smoke.py` | pytest + Qt offscreen | Hauptfenster, sechs Seiten, Inspektor, Register, Titel mit Version |
+| GUI-Rauch | `tests/test_gui_smoke.py` | pytest + Qt offscreen | Hauptfenster, sechs Seiten, Inspektor, Register, Titel mit Version, Timeline-Speichern nur bei Abschnitten/Texten/Reisetitel/YouTube |
 | Paketierung | `packaging/` | manuell nach `build.ps1` | Frozen-EXE startet, Alembic/Karte, kein Python nötig (MT-22) |
 | Manuell | dieses Dokument, Abschnitt 7 | Windows-Desktop | Import echter HEIC/JPEG, Liste, Timeline, Abschnitte, Karte, Inspektor |
 | Statisch | Repository-Wurzel | Ruff, später pyright | Stil, Imports, grundlegende Typen |
@@ -62,7 +62,31 @@ Konfiguration: `[tool.pytest.ini_options]` in der Repository-`pyproject.toml` (`
 
 GUI-Rauchtest setzt `QT_QPA_PLATFORM=offscreen`, falls nicht gesetzt.
 
-### 3.3 Testdatenregel
+### 3.3 Hilfsprogramm JSON → GPX
+
+`scripts/json_routes_to_gpx.py` wandelt Polar-Trainings-JSON mit nichtleerer
+`routes`-Sektion in eine GPX-Datei neben der JSON-Datei. Aufruf und Kurzhilfe:
+[README.md](../README.md) (Abschnitt *JSON nach GPX*). Tests:
+`tests/test_json_routes_to_gpx.py`.
+
+```powershell
+.\.venv\Scripts\python.exe scripts\json_routes_to_gpx.py -h
+.\.venv\Scripts\python.exe scripts\json_routes_to_gpx.py -f D:\tracks\session.json
+.\.venv\Scripts\python.exe scripts\json_routes_to_gpx.py -d D:\tracks -r
+```
+
+```
+usage: json_routes_to_gpx.py [-h] [-f DATEI] [-d VERZEICHNIS] [-r]
+
+Erzeugt GPX-Tracks aus JSON-Dateien mit nichtleerer Routes-Sektion.
+
+  -f DATEI        einzelne JSON-Datei
+  -d VERZEICHNIS  Ordner mit JSON-Dateien
+  -r              mit -d auch Unterverzeichnisse einbeziehen
+```
+
+
+### 3.4 Testdatenregel
 
 | Erlaubt | Verboten |
 | --- | --- |
@@ -179,15 +203,15 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 | `test_project_survives_close_and_reopen` | `tests/integration/test_project_lifecycle.py` | Index überlebt Re-Open |
 | `test_exporters_share_interface` | `test_interfaces.py` | HTML/PDF/LaTeX/CEWE sind `Exporter` |
 | `test_protocols_are_importable` | `test_interfaces.py` | `MetadataProvider`, `RankingStrategy`, `MapBackend` |
-| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R1.0.0, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister |
+| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R1.1.0, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister |
 
 ### 4.7 GPX und zeitliche Zuordnung — FA-040 bis FA-042
 
 | Test | Datei | Prüft |
 | --- | --- | --- |
 | `test_parse_gpx_track_and_segment` | `test_gpx_parse.py` | Punkte, Höhe, UTC-Zeit, Segment-ID |
-| `test_convert_file_writes_sibling_gpx` | `tests/test_json_routes_to_gpx.py` | Polar-JSON Routes → GPX neben der Datei |
-| `test_directory_mode_prints_dots_and_counts` | `tests/test_json_routes_to_gpx.py` | `-d` / `-r`, Punkte und Zähler |
+| `test_convert_file_writes_sibling_gpx` | `tests/test_json_routes_to_gpx.py` | Polar-JSON Routes → GPX neben der Datei (Hilfsskript) |
+| `test_directory_mode_prints_dots_and_counts` | `tests/test_json_routes_to_gpx.py` | `-d` / `-r`, Punkte und Zähler `JSON n, GPX m` |
 | `test_summarize_mean_of_first_points_and_start_time` | `test_gpx_parse.py` | Mittelwert der ersten Punkte, erste Trackzeit |
 | `test_summarize_uses_first_timed_point_even_if_later` | `test_gpx_parse.py` | Startzeit ist der erste Punkt **mit** Zeit |
 | `test_summarize_untimed_points_have_position_but_no_start` | `test_gpx_parse.py` | Position ohne `recorded_at` |
@@ -318,7 +342,7 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 | `test_date_and_title_from_filename` | `test_timeline_texts.py` | Datum im Dateinamen |
 | `test_combine_imported_texts_uses_first_title` | `test_timeline_texts.py` | mehrere Texte, erster Titel |
 
-### 4.11 Reiseabschnitte und Titelbild — FA-065 bis FA-067, FA-083
+### 4.11 Reiseabschnitte und Titelbild — FA-064 bis FA-067, FA-083
 
 | Test | Datei | Prüft |
 | --- | --- | --- |
@@ -332,6 +356,8 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 | `test_transfer_mode_is_optional_and_can_be_multiple` | `test_timeline_sections.py` | mehrere Verkehrsmittel |
 | `test_update_section_kind_switches_stay_and_transfer` | `test_timeline_sections.py` | Typ Aufenthalt ↔ Transfer |
 | `test_apply_pending_sections_is_preview_only` | `test_timeline_sections.py` | Overlay schreibt nicht |
+| `test_timeline_save_button_only_when_dirty` | `tests/test_gui_smoke.py` | Speichern nur bei Abschnitten, Reisetitel, Text, YouTube |
+| `test_timeline_leave_without_prompt_when_only_text_dirty` | `tests/test_gui_smoke.py` | Seitenwechsel ohne Rückfrage bei nur dirty Text |
 | `test_set_entry_cover_on_day_and_section` | `test_timeline_sections.py` | Foto als Eintrags-Titelbild |
 | `test_set_entry_cover_accepts_gps_track` | `test_timeline_sections.py` | Track als Eintrags-Titelbild |
 
@@ -368,16 +394,16 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 | `test_orient_image_applies_exif_then_user_rotation` | `test_orientation.py` | EXIF zuerst, dann Nutzer |
 | `test_can_rotate_photos_and_videos_not_tracks` | `test_orientation.py` | Tracks nicht drehbar |
 
-### 4.15 GUI-Rauch — FA-082, FA-090, FA-102, FA-103, FA-105
+### 4.15 GUI-Rauch — FA-064, FA-082, FA-090, FA-102, FA-103, FA-105
 
 | Test | Datei | Prüft |
 | --- | --- | --- |
-| `test_app_window_title_includes_version` | `tests/test_gui_smoke.py` | `Reisetagebuch R1.0.0` |
+| `test_app_window_title_includes_version` | `tests/test_gui_smoke.py` | `Reisetagebuch R1.1.0` |
 | `test_entry_widget_separates_tracks_from_media` | `tests/test_gui_smoke.py` | getrennte Galerien |
 | `test_entry_widget_track_can_be_cover` | `tests/test_gui_smoke.py` | T-Chip auf Track |
 | `test_entry_widget_shows_cover_in_heading` | `tests/test_gui_smoke.py` | 72-px-Cover in der Karte |
 | `test_entry_widget_section_has_to_map_button` | `tests/test_gui_smoke.py` | Zur Karte an Abschnitt und Tag |
-| `test_map_view_focus_group_centers_section_card` | `tests/test_gui_smoke.py` | MapView fokussiert die Abschnittskarte; Tagebuchtext und YouTube-Thumbs rechts |
+| `test_map_view_focus_group_centers_section_card` | `tests/test_gui_smoke.py` | MapView fokussiert die Abschnittskarte; Tagebuchtext rechts, YouTube-Thumbs unten rechts auf der Karte |
 | `test_map_notes_edit_shows_save_cancel_discard` | `tests/test_gui_smoke.py` | Nach Edit Speichern, Abbrechen, Verwerfen |
 | `test_map_notes_switch_card_opens_save_dialog` | `tests/test_gui_smoke.py` | Fokuswechsel bei ungespeichertem Tagebuchtext: Dialog Speichern/Abbrechen/Verwerfen |
 | `test_entry_widget_media_tab_filters_favorites` | `tests/test_gui_smoke.py` | Register filtert Favoriten |
@@ -385,6 +411,8 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 | `test_photos_rating_applies_to_timeline_gallery` | `tests/test_gui_smoke.py` | Medien-Bewertung erscheint in der Timeline |
 | `test_media_tabs_change_only_on_click` | `tests/test_gui_smoke.py` | Mausrad wechselt keinen Reiter |
 | `test_timeline_global_register_applies_to_all_days` | `tests/test_gui_smoke.py` | globales Register |
+| `test_timeline_save_button_only_when_dirty` | `tests/test_gui_smoke.py` | Speichern aktiv bei Reisetitel, Text, YouTube, Pending-Abschnitt; sonst inaktiv |
+| `test_timeline_leave_without_prompt_when_only_text_dirty` | `tests/test_gui_smoke.py` | `confirm_leave` ohne Dialog bei nur dirty Text |
 | `test_scroll_offset_to_widget_top_uses_host_not_page_chrome` | `tests/test_gui_smoke.py` | Reveal ignoriert Reisetitel über der Liste |
 | `test_reveal_group_puts_section_top_at_list_top` | `tests/test_gui_smoke.py` | Doppelklick scrollt Abschnittskopf an den Listenanfang |
 | `test_gallery_rating_hotspots` | `tests/test_gui_smoke.py` | Bewertungs-Chips |
@@ -410,7 +438,7 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 
 ## 5. Abdeckung gegen das Pflichtenheft
 
-### 5.1 Gut abgedeckt (Phase 7 erweitert, R1.0.0)
+### 5.1 Gut abgedeckt (Phase 7 erweitert, R1.1.0)
 
 - Dateiklassifikation und rekursiver Scan
 - SHA-256 und Skip unveränderter Dateien
@@ -418,6 +446,7 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 - JPEG-GPS und Kamera
 - HEIC-GPS/Kamera ohne ExifTool (ISO 6709, eingebettetes TIFF, Apple-Boxen)
 - GPX-Parsing inkl. zeitloser und leerer Tracks, Interpolation, keine Überschreibung von EXIF-GPS
+- Hilfsskript Polar-JSON `routes` → Sibling-GPX (`tests/test_json_routes_to_gpx.py`)
 - IGC-Parsing, Pilot, DHV-Leonardo-Link überlebt Re-Import
 - KML/GeoJSON-Parser für Track-Vorschauen (kein Ingest)
 - JPEG-Thumbnails, HEIC-Vorschau (Windows-Shell/WIC oder eingebettetes JPEG), Originale unverändert
@@ -426,8 +455,8 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 - Sortierstatus Favorit/Reserve/Aussortiert inkl. Fallback auf Favoriten-Flag
 - Import bricht bei einer defekten Datei (JPEG oder GPX) nicht ab
 - Projekt anlegen, Schema (Abschnitte, URLs, Cover, Drehung), Wiederöffnen, `settings.toml` und Pfad-Rebase
-- Karte: Titelbild-Kreise je Abschnitt/Resttag, Verbindungslinien zwischen Tag- und Aufenthaltskreisen, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad (Fotokegel, Reserve), Leiste darunter, Tagebuchtext und YouTube rechts, Detail mit Tracklinie und Fotomarkern (Stapel naher Fotos bis Zoom 16), Foto-Popup, offline ohne OSM
-- Timeline: Tage aus Aufnahmezeit, manuelle Texte bleiben, Ortsvorschläge, `used_in_journal`
+- Karte: Titelbild-Kreise je Abschnitt/Resttag, Verbindungslinien zwischen Tag- und Aufenthaltskreisen, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad (Fotokegel, Reserve), Leiste darunter, Tagebuchtext rechts, YouTube-Thumbs unten rechts auf der Karte, Detail mit Tracklinie und Fotomarkern (Stapel naher Fotos bis Zoom 16), Foto-Popup, offline ohne OSM
+- Timeline: Tage aus Aufnahmezeit, manuelle Texte bleiben, Ortsvorschläge, `used_in_journal`; Speichern-Button nur bei Abschnitten/Texten/Reisetitel/YouTube
 - Reiseabschnitte, Resttage, Pending-Vorschau, Eintrags-Titelbild (Foto und Track)
 - YouTube- und DHV-Leonardo-URL-Normalisierung
 - Anzeigedrehung (Index, Cachepfad, Re-Import, Inspektor ohne Originalschreiben)
@@ -439,7 +468,7 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 | Lücke | FA | Grund / nächste Phase |
 | --- | --- | --- |
 | Visuelle Marker-Vorschau / Bedienung in Qt | FA-050–FA-053 | Szene und Bridge in `test_maps.py` / `test_gui_smoke.py`; visuell MT-12 |
-| Timeline-Bedienung | FA-060–FA-069, FA-080 | Logik in `test_timeline*.py`; visuell MT-13, MT-18–MT-21 |
+| Timeline-Bedienung | FA-060–FA-069, FA-080 | Logik in `test_timeline*.py`; Speichern-Button `test_gui_smoke.py`; visuell MT-13, MT-18–MT-21 |
 | Windows-Endnutzerpaket | FA-140–FA-144 | kein pytest; manuell MT-22 nach `packaging/build.ps1` |
 | Galeriefilter in der UI | FA-101 | Logik der Liste automatisiert; Filter nur MT-09 |
 | Zuletzt verwendete Projekte in der UI | FA-091 | `recent.json` ohne Oberfläche; manuell nicht zwingend |
@@ -477,7 +506,7 @@ Schweregrade für manuelle Funde:
 
 ---
 
-## 7. Manuelle Testfälle (Phase 3 bis 7, Software R1.0.0, inkl. Windows-Paket)
+## 7. Manuelle Testfälle (Phase 3 bis 7, Software R1.1.0, inkl. Windows-Paket)
 
 Voraussetzung: App starten mit
 
@@ -582,7 +611,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Leiste: Fokus | nur die zentrierte Karte in voller Größe, die anderen etwas kleiner |
 | Leiste: Titelbild | füllt die Kartenfläche ohne sichtbare Ränder |
 | Leiste: Zähler oben | Fotos, GPX-Tracks, IGC (Gleitschirm), YouTube-Logo als Symbol+Zahl; Reserve nur bei Zahnrad-Option |
-| Einfachklick auf eine Leistenkarte | Karte zentriert, Zoom bleibt; rechts der Tagebucheintrag, nach Edit Speichern/Abbrechen/Verwerfen, darunter YouTube-Thumbs (zwei nebeneinander) falls vorhanden |
+| Einfachklick auf eine Leistenkarte | Karte zentriert, Zoom bleibt; rechts der Tagebucheintrag, nach Edit Speichern/Abbrechen/Verwerfen; YouTube-Thumbs unten rechts auf der Karte übereinander (erster Link unten) |
 | Doppelklick auf eine Leistenkarte | Seite **Timeline**, derselbe Eintrag mit Kopfzeile oben in der Liste (unter Reisetitel und Werkzeugleiste) |
 | Leiste nach links/rechts ziehen oder Mausrad | Karten verschieben sich horizontal; Klick trifft die Karte, nicht die OSM-Kacheln |
 | Hineinzoomen, dann eine Leistenkarte anklicken | die Karte schwenkt auf diesen Eintrag, **Zoom bleibt** |
@@ -602,14 +631,19 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Schritt | Erwartung |
 | --- | --- |
 | Nach Import Seite **Timeline** öffnen bzw. **Timeline aktualisieren** | ein Tag je Aufnahmedatum; Fotos am Kalendertag der Aufnahmezeit; Auto-Ereignis mit Medienzähler |
+| Timeline ohne ungespeicherte Abschnitte, Texte, Reisetitel oder YouTube | **Speichern** ist inaktiv |
+| Reisetitel, Titel, Tagebuchtext oder YouTube ändern bzw. neuen Abschnitt anlegen | **Speichern** wird aktiv; Rücknahme der Änderung macht ihn wieder inaktiv |
+| Bewertung, Titelbild oder DHV-Leonardo an einem **gespeicherten** Eintrag | sofort in der DB; **Speichern** bleibt inaktiv |
 | Reisetitel oben ändern, **Speichern**, Projekt schließen und öffnen | Titel noch da; erneuter Timeline-Abgleich überschreibt ihn nicht |
 | GPS-Fotos am selben Ort | kein automatischer Ortsname; Tag zeigt das Datum |
 | Ort löschen, erneut abgleichen | kein neuer Auto-Ortsname |
 | Timeline: Titel und Text speichern, Projekt schließen und öffnen | Text noch da, `origin=manual`; erneuter Timeline-Abgleich überschreibt den Text nicht |
-| Timeline: Typ **Aufenthalt** bzw. **Transfer** an einem Tag | Abschnitt erscheint; Speichern nötig; Typ **Tag** löst wieder auf |
-| Timeline: mehrere Fotos markieren, **Neuen Reiseabschnitt erstellen** (Aufenthalt) | Abschnitt erscheint; Tage bleiben; ohne Speichern und Verlassen fragt nach |
+| Timeline: Typ **Aufenthalt** bzw. **Transfer** an einem Tag | Abschnitt erscheint; **Speichern** nötig und aktiv; Typ **Tag** löst wieder auf |
+| Timeline: mehrere Fotos markieren, **Neuen Reiseabschnitt erstellen** (Aufenthalt) | Abschnitt erscheint; Tage bleiben; **Speichern** aktiv; ohne Speichern und Verlassen: Dialog Speichern/Verwerfen/Abbrechen |
 | Transfer mit mehreren Verkehrsmitteln, **Speichern**, ⊟ auflösen | Dateien wieder auf Tagen |
-| YouTube im ⋯-Menü, Dialog-OK, **ohne** Speichern die Timeline verlassen und verwerfen | YouTube nicht in der DB |
+| YouTube im ⋯-Menü, Dialog-OK | **Speichern** wird aktiv; ohne Speichern die Timeline verlassen: Dialog Verwerfen/Abbrechen; nach Verwerfen YouTube nicht in der DB |
+| Nur Titel oder Tagebuchtext ändern und die Timeline verlassen | keine Rückfrage; die Edits bleiben in der Timeline, bis **Speichern**; Schließen des Fensters verwirft sie |
+| **Timeline aktualisieren** bei geändertem Titel/Text | Texte werden mitgeschrieben; **Speichern** bleibt aktiv, wenn Abschnitte oder YouTube noch ungespeichert sind |
 | DHV-Leonardo extra an gespeichertem Tag, Dialog-OK | sofort in der DB; nie als „DAV“ bezeichnet |
 | Chip **T** auf Foto und auf Track | Cover in der Kartenüberschrift; Video hat kein T |
 | **Zur Karte** an einem gespeicherten Reiseabschnitt oder Tag | Seite **Karte**, passende Leistenkarte fokussiert |
@@ -646,8 +680,8 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| App ohne Projekt | Titelleiste `Reisetagebuch R1.0.0` |
-| Projekt öffnen | `Reisetagebuch R1.0.0 - {Projekttitel}` |
+| App ohne Projekt | Titelleiste `Reisetagebuch R1.1.0` |
+| Projekt öffnen | `Reisetagebuch R1.1.0 - {Projekttitel}` |
 
 ### MT-22 Windows-Paket (FA-140–FA-144)
 
@@ -655,7 +689,7 @@ Voraussetzung: `packaging/build.ps1` erfolgreich; optional Inno Setup 6 für die
 
 | Schritt | Erwartung |
 | --- | --- |
-| `dist/Reisetagebuch/Reisetagebuch.exe` starten (ohne venv, ohne `python` auf dem PATH) | Fenster `Reisetagebuch R1.0.0`; kein Python-Fehlerdialog |
+| `dist/Reisetagebuch/Reisetagebuch.exe` starten (ohne venv, ohne `python` auf dem PATH) | Fenster `Reisetagebuch R1.1.0`; kein Python-Fehlerdialog |
 | Neues Projekt anlegen, JPEG-Ordner importieren | Index und Thumbnails wie in der Entwicklungsumgebung; Originale unverändert |
 | Seite **Karte** | WebEngine zeigt die Karte (nicht nur den HTML-Pfad) |
 | `%LOCALAPPDATA%\TravelJournal` | `config.json` / `recent.json` wie bisher, nicht im Programmordner |
@@ -682,7 +716,8 @@ Diese Fälle werden mit der jeweiligen Phase verbindlich.
 | --- | --- |
 | Jede Codeänderung an `travelcore.metadata` oder Import | `pytest` vollständig |
 | HEIC-/GPS-Parser | zusätzlich `test_heic_gps.py`, `test_indexer.py`, manuell MT-03 |
-| Timeline / Abschnitte | `test_timeline.py`, `test_timeline_sections.py`, manuell MT-13 |
+| Timeline / Abschnitte | `test_timeline.py`, `test_timeline_sections.py`, `tests/test_gui_smoke.py` (Speichern-Button), manuell MT-13 |
+| Hilfsskript JSON → GPX | `tests/test_json_routes_to_gpx.py`; Aufruf im README |
 | Karte / Leiste / Kreis-Detail | `test_maps.py`, `tests/test_gui_smoke.py` (Map-Fälle), manuell MT-12 |
 | Inspektor / Drehung / Register | `test_orientation.py`, `tests/test_gui_smoke.py`, manuell MT-18–MT-21 |
 | Windows-Paket (`packaging/`) | manuell MT-22 (kein pytest) |
