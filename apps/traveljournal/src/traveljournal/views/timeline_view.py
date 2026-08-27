@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QPoint, Qt, QTimer, Signal
 from PySide6.QtGui import QPixmap, QResizeEvent, QTextOption, QWheelEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -98,6 +98,16 @@ def media_tab_index(key: str) -> int:
     return 0
 
 
+_REVEAL_TOP_PAD = 12
+
+
+def scroll_offset_to_widget_top(host: QWidget, child: QWidget, *, padding: int = _REVEAL_TOP_PAD) -> int:
+    """Scrollbar value that puts ``child``'s top at the top of the scroll host."""
+
+    top = child.mapTo(host, QPoint(0, 0)).y()
+    return max(0, top - padding)
+
+
 class ClickTabBar(QTabBar):
     """Tabs change only on click. Wheel events scroll the timeline instead."""
 
@@ -126,6 +136,7 @@ _COVER_HEAD = 72
 class TimelineView(QWidget):
     status_message = Signal(str)
     timeline_changed = Signal()
+    open_on_map = Signal(str)
 
     def __init__(self, workspace: Workspace, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -141,6 +152,8 @@ class TimelineView(QWidget):
         self._excluded_ids: set[int] = set()
         self._displayed_selection: set[int] = set()
         self._syncing_tabs = False
+        self._loaded_trip_title = ""
+        self._pending_reveal: EntryWidget | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 28)
@@ -148,6 +161,21 @@ class TimelineView(QWidget):
 
         title = QLabel("Timeline")
         title.setObjectName("pageTitle")
+        root.addWidget(title)
+
+        trip_row = QHBoxLayout()
+        trip_row.setSpacing(10)
+        trip_label = QLabel("Reisetitel")
+        trip_label.setObjectName("pageSubtitle")
+        self._trip_title = QLineEdit()
+        self._trip_title.setObjectName("tripTitleEdit")
+        self._trip_title.setPlaceholderText("Titel der Reise")
+        self._trip_title.setClearButtonEnabled(True)
+        self._trip_title.setEnabled(False)
+        trip_row.addWidget(trip_label)
+        trip_row.addWidget(self._trip_title, 1)
+        root.addLayout(trip_row)
+
         self._subtitle = QLabel(
             "Tage, Transfers und Aufenthalte chronologisch untereinander. "
             "Typ je Karte ändern, oder Objekte markieren und einen Abschnitt anlegen. "
@@ -157,7 +185,6 @@ class TimelineView(QWidget):
         )
         self._subtitle.setObjectName("pageSubtitle")
         self._subtitle.setWordWrap(True)
-        root.addWidget(title)
         root.addWidget(self._subtitle)
 
         toolbar = QHBoxLayout()
@@ -265,6 +292,7 @@ class TimelineView(QWidget):
             self._pending.clear()
             self._pending_youtube.clear()
             self._fill_entries()
+            self._set_trip_title_field(None)
             self._subtitle.setText("Bitte ein Projekt öffnen.")
             return
         try:
@@ -287,6 +315,7 @@ class TimelineView(QWidget):
         if snapshot is None:
             self._snapshot = None
             self._fill_entries()
+            self._set_trip_title_field(None)
             return
         shown = apply_pending_sections(snapshot, self._pending)
         self._snapshot = shown
@@ -294,8 +323,9 @@ class TimelineView(QWidget):
         sections = len(shown.sections)
         unsaved_n = len(self._pending) + len(self._pending_youtube)
         unsaved = f" {unsaved_n} ungespeichert." if unsaved_n else ""
+        self._set_trip_title_field(shown)
         self._subtitle.setText(
-            f"{shown.title}: {sections} Abschnitte, {leftover} Tage.{unsaved} "
+            f"{sections} Abschnitte, {leftover} Tage.{unsaved} "
             "Auswahl von Fotos, Videos und Tracks erzeugt einen Abschnitt; die Zeit kommt aus den Objekten."
         )
         self._fill_entries()
@@ -307,6 +337,7 @@ class TimelineView(QWidget):
         self._pending.clear()
         self._pending_youtube.clear()
         self._fill_entries()
+        self._set_trip_title_field(None)
         self._subtitle.setText(
             "Index wird geladen…" if self.workspace.current is not None else "Bitte ein Projekt öffnen."
         )
@@ -330,7 +361,7 @@ class TimelineView(QWidget):
                     self._empty.setText("Index wird geladen…")
                 else:
                     self._empty.setText("Keine Tage in der Timeline.")
-                self._save_button.setEnabled(False)
+                self._save_button.setEnabled(self._snapshot is not None)
                 self._create_button.setEnabled(False)
                 return
             self._empty.setVisible(False)
@@ -352,11 +383,10 @@ class TimelineView(QWidget):
                 )
                 block.selection_changed.connect(self._on_block_selection_changed)
                 block.dissolve_requested.connect(self._dissolve_section)
-                block.kind_changed.connect(
-                    lambda kind, widget=block: self._change_entry_kind(widget, kind)
-                )
+                block.kind_changed.connect(lambda kind, widget=block: self._change_entry_kind(widget, kind))
                 block.media_tab_changed.connect(self._on_block_media_tab)
                 block.item_rating_changed.connect(self._on_item_rating)
+                block.open_on_map.connect(self.open_on_map.emit)
                 block.gallery.item_activated.connect(self._open_inspector)
                 block.track_gallery.item_activated.connect(self._open_inspector)
                 self._blocks.append(block)
@@ -408,14 +438,11 @@ class TimelineView(QWidget):
         sender = self.sender()
         if isinstance(sender, GalleryView):
             block = sender.parent()
-            if isinstance(block, EntryWidget):
-                if sender is block.gallery:
-                    sequence = block.inspectable_media()
+            if isinstance(block, EntryWidget) and sender is block.gallery:
+                sequence = block.inspectable_media()
         else:
-                    sequence = block.track_gallery.items()
-        window = MediaInspectorWindow(
-            item, items=sequence, workspace=self.workspace, parent=self.window()
-        )
+            sequence = block.track_gallery.items()
+        window = MediaInspectorWindow(item, items=sequence, workspace=self.workspace, parent=self.window())
         window.rating_changed.connect(self._on_item_rating)
         window.rotation_changed.connect(self._on_item_rating)
         window.show()
@@ -509,9 +536,7 @@ class TimelineView(QWidget):
     def _dissolve_section(self, section_id: int) -> bool:
         box = QMessageBox(self)
         box.setWindowTitle("Reiseabschnitt auflösen")
-        box.setText(
-            "Diesen Reiseabschnitt auflösen? Die Medien erscheinen wieder bei den zugehörigen Tagen."
-        )
+        box.setText("Diesen Reiseabschnitt auflösen? Die Medien erscheinen wieder bei den zugehörigen Tagen.")
         box.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
         box.button(QMessageBox.StandardButton.Ok).setText("OK")
         box.button(QMessageBox.StandardButton.Cancel).setText("Abbrechen")
@@ -593,19 +618,37 @@ class TimelineView(QWidget):
         self.status_message.emit("Abschnittstyp geändert.")
 
     def reveal_group(self, group_key: str) -> None:
-        """Scroll the matching day or section into view (from the map strip)."""
+        """Scroll so the matching day or section starts at the top of the list."""
 
         self.ensure_loaded()
+        block = self._block_for_group_key(group_key)
+        if block is None:
+            return
+        self._pending_reveal = block
+        QTimer.singleShot(0, self._apply_pending_reveal)
+        QTimer.singleShot(32, self._apply_pending_reveal)
+
+    def _block_for_group_key(self, group_key: str) -> EntryWidget | None:
         kind, ident = parse_group_key(group_key)
         if kind is None or ident is None:
-            return
+            return None
         for block in self._blocks:
             if kind == "section" and block.entity_kind() == "section" and block.entity_id() == ident:
-                self._scroll.ensureWidgetVisible(block, 48, 48)
-                return
+                return block
             if kind == "day" and block.entity_kind() == "day" and block.entity_id() == ident:
-                self._scroll.ensureWidgetVisible(block, 48, 48)
-                return
+                return block
+        return None
+
+    def _apply_pending_reveal(self) -> None:
+        block = self._pending_reveal
+        if block is None or block not in self._blocks:
+            return
+        host = self._scroll.widget()
+        if host is None:
+            return
+        bar = self._scroll.verticalScrollBar()
+        value = scroll_offset_to_widget_top(host, block)
+        bar.setValue(min(value, bar.maximum()))
 
     def _selected_items(self) -> list[GalleryItem]:
         items: list[GalleryItem] = []
@@ -617,6 +660,36 @@ class TimelineView(QWidget):
                 seen.add(item.source_file_id)
                 items.append(item)
         return items
+
+    def _trip_title_dirty(self) -> bool:
+        return self._trip_title.text().strip() != (self._loaded_trip_title or "").strip()
+
+    def _set_trip_title_field(self, snapshot: TimelineSnapshot | None) -> None:
+        if snapshot is None:
+            self._trip_title.clear()
+            self._trip_title.setEnabled(False)
+            self._loaded_trip_title = ""
+            return
+        self._trip_title.setEnabled(True)
+        if not self._trip_title_dirty():
+            self._trip_title.setText(snapshot.title)
+            self._loaded_trip_title = snapshot.title
+
+    def _commit_trip_title(self) -> bool:
+        snapshot = self._snapshot
+        if snapshot is None or not self._trip_title_dirty():
+            return True
+        cleaned = self._trip_title.text().strip()
+        if not cleaned:
+            self._trip_title.setText(self._loaded_trip_title)
+            return True
+        try:
+            self.workspace.save_trip_title(snapshot.trip_id, cleaned)
+        except ProjectError as exc:
+            QMessageBox.warning(self, "Timeline", str(exc))
+            return False
+        self._loaded_trip_title = cleaned
+        return True
 
     def _sync_pending_from_widgets(self) -> None:
         by_id = {spec.local_id: spec for spec in self._pending}
@@ -690,9 +763,11 @@ class TimelineView(QWidget):
             return True
         self._sync_pending_from_widgets()
         dirty = [block for block in self._blocks if block.is_dirty()]
-        if not dirty:
+        if not dirty and not self._trip_title_dirty():
             return True
         try:
+            if not self._commit_trip_title():
+                return False
             for block in dirty:
                 kind, entity_id, title, notes = block.values()
                 if entity_id < 0:
@@ -710,7 +785,12 @@ class TimelineView(QWidget):
 
     def _on_save_clicked(self) -> None:
         self._stash_pending_youtube()
-        if not self._blocks and not self._pending and not self._pending_youtube:
+        if (
+            not self._blocks
+            and not self._pending
+            and not self._pending_youtube
+            and not self._trip_title_dirty()
+        ):
             QMessageBox.information(self, "Timeline", "Nichts zum Speichern.")
             return
         if not self._persist_pending():
@@ -730,6 +810,7 @@ class EntryWidget(QFrame):
     kind_changed = Signal(str)
     media_tab_changed = Signal(int)
     item_rating_changed = Signal(object)
+    open_on_map = Signal(str)
 
     def __init__(
         self,
@@ -830,6 +911,15 @@ class EntryWidget(QFrame):
         self._kind_combo.currentIndexChanged.connect(self._on_kind_combo)
         heading_row.addWidget(self._kind_combo, 0, Qt.AlignmentFlag.AlignTop)
         heading_row.addWidget(heading, 1)
+        self._to_map_button = QPushButton("Zur Karte", self)
+        self._to_map_button.setObjectName("entryToMap")
+        saved = self._entity_id > 0
+        self._to_map_button.setEnabled(saved)
+        self._to_map_button.setToolTip(
+            "Eintrag auf der Karte zeigen" if saved else "Nach dem Speichern auf der Karte sichtbar"
+        )
+        self._to_map_button.clicked.connect(self._request_open_on_map)
+        heading_row.addWidget(self._to_map_button, 0, Qt.AlignmentFlag.AlignTop)
         if self._kind == "section":
             dissolve = QToolButton(self)
             dissolve.setObjectName("entryMenu")
@@ -1126,6 +1216,15 @@ class EntryWidget(QFrame):
     def _request_dissolve(self) -> None:
         self.dissolve_requested.emit(self._entity_id)
 
+    def _request_open_on_map(self) -> None:
+        if self._entity_id <= 0:
+            return
+        if self._kind == "section":
+            self.open_on_map.emit(f"section:{self._entity_id}")
+            return
+        if self._kind == "day":
+            self.open_on_map.emit(f"day:{self._entity_id}")
+
     def _edit_leonardo(self) -> None:
         if self.workspace is None or self._entity_id == 0:
             return
@@ -1145,8 +1244,7 @@ class EntryWidget(QFrame):
             QMessageBox.warning(self, "DHV-Leonardo", str(exc))
             return
         self._flights = [
-            (source_id, filename, igc_urls.get(source_id, url))
-            for source_id, filename, url in self._flights
+            (source_id, filename, igc_urls.get(source_id, url)) for source_id, filename, url in self._flights
         ]
         stored = serialize_leonardo_urls(dialog.extra_urls())
         self._leonardo_urls = list(parse_leonardo_urls(stored))

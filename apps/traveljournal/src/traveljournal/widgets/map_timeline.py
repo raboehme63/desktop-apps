@@ -31,9 +31,26 @@ from travelcore.timeline.sections import KIND_DAY, KIND_MOVEMENT
 CARD_WIDTH = 248
 CARD_HEIGHT = 148
 CARD_RADIUS = 22
-TRANSFER_DIAMETER = 111  # ~75 % of CARD_HEIGHT
+CARD_IDLE_SCALE = 0.70
+HEXAGON_CUT_RATIO = 0.28
 LINE_WIDTH = 36
 _FOCUS_DELAY_MS = 180
+
+
+def cover_dest_rect(target: QRectF, pixmap_width: float, pixmap_height: float) -> QRectF:
+    """Scale pixmap to cover ``target`` (crop overflow, no letterbox)."""
+
+    if pixmap_width <= 0 or pixmap_height <= 0 or target.width() <= 0 or target.height() <= 0:
+        return QRectF(target)
+    scale = max(target.width() / pixmap_width, target.height() / pixmap_height)
+    width = pixmap_width * scale
+    height = pixmap_height * scale
+    return QRectF(
+        target.x() + (target.width() - width) / 2,
+        target.y() + (target.height() - height) / 2,
+        width,
+        height,
+    )
 
 
 def nearest_card_index(centers: list[int], viewport_center: int) -> int | None:
@@ -42,6 +59,30 @@ def nearest_card_index(centers: list[int], viewport_center: int) -> int | None:
     if not centers:
         return None
     return min(range(len(centers)), key=lambda index: abs(centers[index] - viewport_center))
+
+
+def hexagon_cut(rect: QRectF) -> float:
+    """Horizontal inset of the left/right points of a lying hexagon."""
+
+    if rect.width() <= 0 or rect.height() <= 0:
+        return 0.0
+    return min(rect.height() * HEXAGON_CUT_RATIO, rect.width() * 0.22)
+
+
+def transfer_hexagon_path(rect: QRectF) -> QPainterPath:
+    """Lying hexagon: flat top and bottom, points left and right."""
+
+    cut = hexagon_cut(rect)
+    mid_y = rect.center().y()
+    path = QPainterPath()
+    path.moveTo(rect.left(), mid_y)
+    path.lineTo(rect.left() + cut, rect.top())
+    path.lineTo(rect.right() - cut, rect.top())
+    path.lineTo(rect.right(), mid_y)
+    path.lineTo(rect.right() - cut, rect.bottom())
+    path.lineTo(rect.left() + cut, rect.bottom())
+    path.closeSubpath()
+    return path
 
 
 class _LineWidget(QWidget):
@@ -67,7 +108,7 @@ class _CardWidget(QFrame):
         super().__init__(parent)
         self.card = card
         self.setObjectName("mapTimelineCard")
-        width, height = _card_size(card.card_kind)
+        width, height = _card_size(focused=False)
         self.setFixedSize(width, height)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setProperty("focused", False)
@@ -78,18 +119,16 @@ class _CardWidget(QFrame):
         if path is not None and path.is_file():
             loaded = QPixmap(str(path))
             if not loaded.isNull():
-                self._pixmap = loaded.scaled(
-                    width,
-                    height,
-                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
+                self._pixmap = loaded
         self._press: QPoint | None = None
         self._dragged = False
 
     def set_focused(self, focused: bool) -> None:
         self._focused = focused
         self.setProperty("focused", focused)
+        width, height = _card_size(focused=focused)
+        if self.width() != width or self.height() != height:
+            self.setFixedSize(width, height)
         self.style().unpolish(self)
         self.style().polish(self)
         self.update()
@@ -100,36 +139,45 @@ class _CardWidget(QFrame):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         rect = QRectF(self.rect()).adjusted(1.5, 1.5, -1.5, -1.5)
-        circular = self.card.card_kind == KIND_MOVEMENT
-        clip = QPainterPath()
-        if circular:
-            clip.addEllipse(rect)
-        else:
-            clip.addRoundedRect(rect, CARD_RADIUS, CARD_RADIUS)
+        hexagon = self.card.card_kind == KIND_MOVEMENT
+        radius = CARD_RADIUS if self._focused else CARD_RADIUS * CARD_IDLE_SCALE
+        clip = transfer_hexagon_path(rect) if hexagon else QPainterPath()
+        if not hexagon:
+            clip.addRoundedRect(rect, radius, radius)
         painter.setClipPath(clip)
         if self._pixmap.isNull():
             painter.fillRect(rect, QColor("#243044"))
         else:
-            x = rect.x() + (rect.width() - self._pixmap.width()) / 2
-            y = rect.y() + (rect.height() - self._pixmap.height()) / 2
-            painter.drawPixmap(int(x), int(y), self._pixmap)
-        fade_h = 56 if circular else 86
+            dest = cover_dest_rect(rect, float(self._pixmap.width()), float(self._pixmap.height()))
+            painter.drawPixmap(dest, self._pixmap, QRectF(self._pixmap.rect()))
+        fade_h = rect.height() * 0.58
         fade = QLinearGradient(rect.left(), rect.bottom() - fade_h, rect.left(), rect.bottom())
         fade.setColorAt(0.0, QColor(8, 12, 18, 0))
         fade.setColorAt(0.35, QColor(8, 12, 18, 70))
         fade.setColorAt(1.0, QColor(8, 12, 18, 190))
         painter.fillRect(rect, fade)
-        inset = 10 if circular else 12
-        text_h = 32 if circular else 40
+        scale = 1.0 if self._focused else CARD_IDLE_SCALE
+        side_pad = hexagon_cut(rect) if hexagon else 0.0
+        inset = max(8, int(side_pad + (8 if hexagon else 12) * scale))
+        text_h = max(22, int(40 * scale))
+        when_h = max(12, int(16 * scale))
         text = QRect(
             int(rect.left()) + inset,
-            int(rect.bottom()) - (text_h + 18),
+            int(rect.bottom()) - (text_h + when_h + 4),
             int(rect.width()) - 2 * inset,
             text_h,
         )
-        when = QRect(int(rect.left()) + inset, int(rect.bottom()) - 22, int(rect.width()) - 2 * inset, 16)
+        when = QRect(
+            int(rect.left()) + inset,
+            int(rect.bottom()) - (when_h + 4),
+            int(rect.width()) - 2 * inset,
+            when_h,
+        )
         title_font = QFont(self.font())
-        title_font.setPixelSize(13 if circular else 16)
+        if hexagon:
+            title_font.setPixelSize(14 if self._focused else 12)
+        else:
+            title_font.setPixelSize(16 if self._focused else 14)
         title_font.setWeight(QFont.Weight.DemiBold)
         painter.setFont(title_font)
         painter.setPen(QColor("#ffffff"))
@@ -139,7 +187,10 @@ class _CardWidget(QFrame):
             self.card.title,
         )
         when_font = QFont(self.font())
-        when_font.setPixelSize(10 if circular else 11)
+        if hexagon:
+            when_font.setPixelSize(10 if self._focused else 9)
+        else:
+            when_font.setPixelSize(11 if self._focused else 10)
         painter.setFont(when_font)
         painter.setPen(QColor("#e8edf5"))
         painter.drawText(
@@ -153,10 +204,7 @@ class _CardWidget(QFrame):
         border = QColor("#2eb8a0") if self._focused else QColor("#f4f7fb")
         painter.setPen(QPen(border, 2.0 if self._focused else 1.4))
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        if circular:
-            painter.drawEllipse(rect)
-        else:
-            painter.drawRoundedRect(rect, CARD_RADIUS, CARD_RADIUS)
+        painter.drawPath(clip)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
@@ -295,8 +343,8 @@ class MapTimelineStrip(QScrollArea):
         widget = next((item for item in self._widgets if item.card.group_key == group_key), None)
         if widget is None:
             return
-        self._scroll_widget_to_center(widget)
         self._apply_focus(group_key, force=True)
+        self._scroll_widget_to_center(widget)
 
     def sizeHint(self) -> QSize:  # noqa: N802
         return QSize(400, 164)
@@ -338,6 +386,7 @@ class MapTimelineStrip(QScrollArea):
     def _apply_focus(self, group_key: str, *, force: bool = False) -> None:
         for widget in self._widgets:
             widget.set_focused(widget.card.group_key == group_key)
+        self._update_end_padding()
         if group_key == self._focused_key and not force:
             return
         self._focused_key = group_key
@@ -358,15 +407,15 @@ class MapTimelineStrip(QScrollArea):
         self.horizontalScrollBar().setValue(center - self.viewport().width() // 2)
 
 
-def _card_size(card_kind: str) -> tuple[int, int]:
-    if card_kind == KIND_MOVEMENT:
-        return TRANSFER_DIAMETER, TRANSFER_DIAMETER
-    return CARD_WIDTH, CARD_HEIGHT
+def _card_size(*, focused: bool) -> tuple[int, int]:
+    scale = 1.0 if focused else CARD_IDLE_SCALE
+    return max(1, round(CARD_WIDTH * scale)), max(1, round(CARD_HEIGHT * scale))
 
 
 def _paint_calendar_badge(painter: QPainter, rect: QRectF) -> None:
-    size = 22.0
-    box = QRectF(rect.right() - size - 8, rect.top() + 8, size, size)
+    size = max(16.0, rect.height() * 22.0 / CARD_HEIGHT)
+    inset = max(6.0, rect.height() * 8.0 / CARD_HEIGHT)
+    box = QRectF(rect.right() - size - inset, rect.top() + inset, size, size)
     painter.setPen(QPen(QColor("#f4f7fb"), 1.2))
     painter.setBrush(QColor(8, 12, 18, 175))
     painter.drawRoundedRect(box, 4, 4)

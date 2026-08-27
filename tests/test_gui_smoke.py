@@ -39,6 +39,8 @@ def test_main_window_starts() -> None:
     assert window.timeline_view._media_tabs.count() == 4
     assert window.timeline_view._media_tabs.tabText(0) == "Alle"
     assert window.timeline_view._media_tabs.tabText(1) == "Favoriten"
+    assert window.timeline_view._trip_title.placeholderText() == "Titel der Reise"
+    assert not window.timeline_view._trip_title.isEnabled()
     _ = app
 
 
@@ -340,6 +342,118 @@ def test_entry_widget_shows_cover_in_heading(tmp_path: Path) -> None:
     _ = app
 
 
+def test_entry_widget_section_has_to_map_button() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, datetime
+
+    from PySide6.QtWidgets import QApplication, QPushButton
+
+    from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelineSection
+    from traveljournal.views.timeline_view import EntryWidget
+
+    app = QApplication.instance() or QApplication([])
+    stamp = datetime(2025, 5, 15, 8, 0, tzinfo=UTC)
+    section = TimelineSection(
+        id=7,
+        kind="stay",
+        mode=None,
+        title="Bozen",
+        notes=None,
+        started_at=stamp,
+        ended_at=stamp,
+        location_name=None,
+        location_from=None,
+        location_to=None,
+        origin="manual",
+    )
+    widget = EntryWidget(TimelineEntry(started_at=stamp, section=section))
+    button = widget.findChild(QPushButton, "entryToMap")
+    assert button is not None
+    assert button.isEnabled()
+    keys: list[str] = []
+    widget.open_on_map.connect(keys.append)
+    button.click()
+    assert keys == ["section:7"]
+
+    pending = TimelineSection(
+        id=-1,
+        kind="stay",
+        mode=None,
+        title="Neu",
+        notes=None,
+        started_at=stamp,
+        ended_at=stamp,
+        location_name=None,
+        location_from=None,
+        location_to=None,
+        origin="manual",
+    )
+    unsaved = EntryWidget(TimelineEntry(started_at=stamp, section=pending))
+    pending_btn = unsaved.findChild(QPushButton, "entryToMap")
+    assert pending_btn is not None
+    assert not pending_btn.isEnabled()
+
+    day = TimelineDay(
+        id=1,
+        day_index=0,
+        date=stamp.date(),
+        title=None,
+        notes=None,
+        origin="auto",
+        photos=(),
+    )
+    leftover = EntryWidget(TimelineEntry(started_at=stamp, leftover_day=day))
+    day_btn = leftover.findChild(QPushButton, "entryToMap")
+    assert day_btn is not None
+    assert day_btn.isEnabled()
+    day_keys: list[str] = []
+    leftover.open_on_map.connect(day_keys.append)
+    day_btn.click()
+    assert day_keys == ["day:1"]
+    _ = app
+
+
+def test_map_view_focus_group_centers_section_card() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.maps.groups import MapTimelineCard
+    from travelcore.timeline.sections import KIND_STAY
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.map_view import MapView
+
+    app = QApplication.instance() or QApplication([])
+    view = MapView(Workspace())
+    view._stack.setCurrentWidget(view._web_host)
+    view._timeline.set_cards(
+        (
+            MapTimelineCard(
+                group_key="section:1",
+                title="Eins",
+                time_label="am 01.05.2025",
+                latitude=46.0,
+                longitude=11.0,
+                card_kind=KIND_STAY,
+            ),
+            MapTimelineCard(
+                group_key="section:7",
+                title="Sieben",
+                time_label="am 02.05.2025",
+                latitude=47.0,
+                longitude=12.0,
+                card_kind=KIND_STAY,
+            ),
+        )
+    )
+    view.resize(800, 500)
+    view.show()
+    app.processEvents()
+    view.focus_group("section:7")
+    app.processEvents()
+    assert view._timeline.focused_key() == "section:7"
+    _ = app
+
+
 def test_entry_widget_media_tab_filters_favorites() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from datetime import UTC, datetime
@@ -474,6 +588,109 @@ def test_timeline_global_register_applies_to_all_days(tmp_path: Path, monkeypatc
     assert workspace.timeline_media_tab() == "reserve"
     view.confirm_leave()
     assert workspace.timeline_media_tab() == "reserve"
+    _ = app
+
+
+def test_scroll_offset_to_widget_top_uses_host_not_page_chrome() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
+
+    from traveljournal.views.timeline_view import scroll_offset_to_widget_top
+
+    app = QApplication.instance() or QApplication([])
+    page = QWidget()
+    layout = QVBoxLayout(page)
+    chrome = QLabel("Reisetitel")
+    chrome.setFixedHeight(90)
+    layout.addWidget(chrome)
+    host = QWidget()
+    host_layout = QVBoxLayout(host)
+    host_layout.setContentsMargins(0, 0, 0, 0)
+    host_layout.setSpacing(16)
+    first = QLabel("eins")
+    first.setFixedHeight(400)
+    second = QLabel("zwei")
+    second.setFixedHeight(400)
+    host_layout.addWidget(first)
+    host_layout.addWidget(second)
+    layout.addWidget(host)
+    page.resize(480, 320)
+    page.show()
+    app.processEvents()
+    first_offset = scroll_offset_to_widget_top(host, first, padding=12)
+    second_offset = scroll_offset_to_widget_top(host, second, padding=12)
+    assert first_offset == 0
+    assert second_offset == 400 + 16 - 12
+    _ = app
+
+
+def test_reveal_group_puts_section_top_at_list_top() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, datetime
+
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelinePhoto
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.timeline_view import (
+        EntryWidget,
+        TimelineView,
+        scroll_offset_to_widget_top,
+    )
+
+    app = QApplication.instance() or QApplication([])
+    stamp = datetime(2025, 5, 15, 8, 0, tzinfo=UTC)
+    photo = TimelinePhoto(
+        source_file_id=1,
+        filename="foto.jpg",
+        path="foto.jpg",
+        thumbnail_path=Path("."),
+        captured_at=stamp,
+        used_in_journal=False,
+        is_cover=False,
+        is_favorite=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        file_kind="photo",
+    )
+
+    def day(day_id: int) -> TimelineDay:
+        return TimelineDay(
+            id=day_id,
+            day_index=day_id - 1,
+            date=stamp.date(),
+            title=None,
+            notes=None,
+            origin="auto",
+            photos=(photo,),
+        )
+
+    workspace = Workspace()
+    view = TimelineView(workspace)
+    view.resize(720, 420)
+    view._empty.setVisible(False)
+    first = EntryWidget(TimelineEntry(started_at=stamp, leftover_day=day(1)), parent=view._host)
+    second = EntryWidget(TimelineEntry(started_at=stamp, leftover_day=day(2)), parent=view._host)
+    first.setMinimumHeight(520)
+    second.setMinimumHeight(520)
+    stretch = view._host_layout.takeAt(view._host_layout.count() - 1)
+    view._host_layout.addWidget(first)
+    view._host_layout.addWidget(second)
+    if stretch is not None:
+        view._host_layout.addItem(stretch)
+    view._blocks = [first, second]
+    view._host.setMinimumHeight(1200)
+    view.show()
+    view._host.adjustSize()
+    app.processEvents()
+    assert view._block_for_group_key("day:2") is second
+    view._pending_reveal = second
+    view._apply_pending_reveal()
+    bar = view._scroll.verticalScrollBar()
+    expected = scroll_offset_to_widget_top(view._host, second)
+    assert bar.maximum() >= expected
+    assert bar.value() == expected
+    assert expected > 0
     _ = app
 
 
@@ -827,9 +1044,75 @@ def test_map_view_refresh_uses_disk_cache_without_rebuild(tmp_path: Path, monkey
     _ = app
 
 
+def test_publish_map_display_writes_unique_file(tmp_path: Path) -> None:
+    from traveljournal.views.map_view import publish_map_display
+
+    html = tmp_path / "map.html"
+    html.write_text("<html>one</html>", encoding="utf-8")
+    first = publish_map_display(html, 1)
+    assert first.name == "map-1.html"
+    assert first.read_text(encoding="utf-8") == "<html>one</html>"
+    html.write_text("<html>two</html>", encoding="utf-8")
+    second = publish_map_display(html, 2)
+    assert second.name == "map-2.html"
+    assert second.read_text(encoding="utf-8") == "<html>two</html>"
+    assert not first.is_file()
+
+
+def test_map_view_applies_prepared_result_when_shown(tmp_path: Path) -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from gpx_fixtures import write_gpx
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.database.models import Project
+    from travelcore.database.project_store import ProjectStore
+    from travelcore.media.indexer import FileIndexer
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.map_view import MapView
+
+    app = QApplication.instance() or QApplication([])
+    store = ProjectStore()
+    opened = store.create(tmp_path / "reise_karte_pending", "Karte")
+    source = tmp_path / "media"
+    source.mkdir()
+    write_gpx(
+        source / "spur.gpx",
+        [
+            (46.0, 11.0, 260.0, "2025-05-15T13:31:50Z"),
+            (46.2, 11.2, 280.0, "2025-05-15T13:32:10Z"),
+        ],
+    )
+    with opened.session_factory() as session:
+        project = session.get(Project, opened.project_id)
+        assert project is not None
+        FileIndexer().index(session, project, source, generate_thumbnails=False)
+        session.commit()
+
+    workspace = Workspace()
+    workspace.current = opened
+    result = workspace.render_map()
+    view = MapView(workspace)
+    view._on_prepared(view._generation, opened.directory, result)
+    assert view._pending_result is result
+    assert view._stack.currentWidget() is view._message
+    view.show()
+    app.processEvents()
+    assert view._pending_result is None
+    assert "1 Titelbilder" in view._subtitle.text()
+    assert view._stack.currentWidget() is view._web_host
+    assert view._desired_seq == result.render_seq
+    rebuilt = workspace.render_map(force=True)
+    assert not rebuilt.from_cache
+    assert rebuilt.render_seq != result.render_seq
+    view._apply_result(rebuilt)
+    assert view._desired_seq == rebuilt.render_seq
+    assert view._loaded_seq != rebuilt.render_seq
+    _ = app
+
+
 def test_map_timeline_strip_centers_first_card() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtCore import QEvent, QPointF, QRectF, Qt
     from PySide6.QtGui import QMouseEvent
     from PySide6.QtWidgets import QApplication
 
@@ -837,14 +1120,37 @@ def test_map_timeline_strip_centers_first_card() -> None:
     from travelcore.timeline.sections import KIND_DAY, KIND_MOVEMENT, KIND_STAY
     from traveljournal.widgets.map_timeline import (
         CARD_HEIGHT,
+        CARD_IDLE_SCALE,
         CARD_WIDTH,
-        TRANSFER_DIAMETER,
         MapTimelineStrip,
+        cover_dest_rect,
+        hexagon_cut,
         nearest_card_index,
+        transfer_hexagon_path,
     )
+
+    dest = cover_dest_rect(QRectF(0, 0, 100, 50), 200, 200)
+    assert dest.width() == 100
+    assert dest.height() == 100
+    assert dest.left() <= 0
+    assert dest.right() >= 100
+    assert dest.top() <= 0
+    assert dest.bottom() >= 50
 
     assert nearest_card_index([], 0) is None
     assert nearest_card_index([10, 100, 220], 90) == 1
+
+    hex_rect = QRectF(0, 0, CARD_WIDTH, CARD_HEIGHT)
+    hex_path = transfer_hexagon_path(hex_rect)
+    cut = hexagon_cut(hex_rect)
+    assert cut == min(CARD_HEIGHT * 0.28, CARD_WIDTH * 0.22)
+    bounds = hex_path.boundingRect()
+    assert abs(bounds.width() - CARD_WIDTH) < 0.51
+    assert abs(bounds.height() - CARD_HEIGHT) < 0.51
+    assert hex_path.contains(QPointF(1, CARD_HEIGHT / 2))
+    assert not hex_path.contains(QPointF(1, 10))
+    assert hex_path.contains(QPointF(CARD_WIDTH / 2, CARD_HEIGHT - 8))
+    assert hexagon_cut(QRectF()) == 0.0
 
     app = QApplication.instance() or QApplication([])
     strip = MapTimelineStrip()
@@ -889,15 +1195,23 @@ def test_map_timeline_strip_centers_first_card() -> None:
     assert strip._widgets[1].property("focused") is False
     titles = [widget.card.title for widget in strip._widgets]
     assert titles == ["Eins", "Zwei", "Drei"]
+    idle_w = round(CARD_WIDTH * CARD_IDLE_SCALE)
+    idle_h = round(CARD_HEIGHT * CARD_IDLE_SCALE)
     assert strip._widgets[0].width() == CARD_WIDTH
     assert strip._widgets[0].height() == CARD_HEIGHT
-    assert strip._widgets[1].width() == TRANSFER_DIAMETER
-    assert strip._widgets[1].height() == TRANSFER_DIAMETER
+    assert strip._widgets[1].width() == idle_w
+    assert strip._widgets[1].height() == idle_h
+    assert strip._widgets[2].width() == idle_w
+    assert strip._widgets[2].height() == idle_h
     assert strip._widgets[2].property("cardKind") == KIND_DAY
     strip.center_on("section:2")
     app.processEvents()
     assert focused[-1] == "section:2"
     assert strip.focused_key() == "section:2"
+    assert strip._widgets[1].width() == CARD_WIDTH
+    assert strip._widgets[1].height() == CARD_HEIGHT
+    assert strip._widgets[0].width() == idle_w
+    assert strip._widgets[0].height() == idle_h
     lines = [child for child in strip._inner.children() if child.objectName() == "mapTimelineLine"]
     assert len(lines) == 2
     again = len(focused)

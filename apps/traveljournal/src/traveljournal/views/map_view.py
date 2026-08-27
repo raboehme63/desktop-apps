@@ -8,7 +8,7 @@ from time import monotonic
 from urllib.parse import parse_qs, unquote, urlparse
 
 from PySide6.QtCore import QFile, QIODevice, QObject, QThreadPool, QTimer, QUrl, Signal, Slot
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QDesktopServices, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -227,8 +227,71 @@ MAP_PAGE_SETUP_JS = """
     }
   }
   retryWrap();
+  window.traveljournalInvalidateSize = function() {
+    var map = findMap();
+    if (!map) {
+      return;
+    }
+    try {
+      map.invalidateSize({animate: false});
+    } catch (err) {}
+  };
+  window.traveljournalFitOverviewNow = function() {
+    window.traveljournalKeepFocus = false;
+    if (window.traveljournalFitOverview) {
+      window.traveljournalFitOverview();
+      return;
+    }
+    window.traveljournalInvalidateSize();
+  };
 })();
 """
+
+_INVALIDATE_JS = "if (window.traveljournalInvalidateSize) traveljournalInvalidateSize();"
+_FIT_OVERVIEW_JS = """
+(function() {
+  function run() {
+    if (window.traveljournalFitOverviewNow) {
+      window.traveljournalFitOverviewNow();
+      return true;
+    }
+    if (window.traveljournalFitOverview) {
+      window.traveljournalKeepFocus = false;
+      window.traveljournalFitOverview();
+      return true;
+    }
+    if (window.traveljournalInvalidateSize) {
+      window.traveljournalInvalidateSize();
+    }
+    return false;
+  }
+  if (run()) {
+    return;
+  }
+  var n = 0;
+  var timer = setInterval(function() {
+    n += 1;
+    if (run() || n > 40) {
+      clearInterval(timer);
+    }
+  }, 100);
+})();
+"""
+
+
+def publish_map_display(html_path: Path, seq: int) -> Path:
+    """Copy ``map.html`` to a unique name so WebEngine cannot reuse a stale document."""
+
+    dest = html_path.with_name(f"map-{int(seq)}.html")
+    dest.write_bytes(html_path.read_bytes())
+    target = dest.resolve()
+    for old in html_path.parent.glob("map-*.html"):
+        try:
+            if old.resolve() != target:
+                old.unlink()
+        except OSError:
+            continue
+    return dest
 
 
 class MapJsBridge(QObject):
@@ -320,6 +383,14 @@ class MapView(QWidget):
         self._generation = 0
         self._preparing = False
         self._shown_html: Path | None = None
+        self._desired_seq = 0
+        self._loaded_seq = 0
+        self._pending_url: QUrl | None = None
+        self._display_html: Path | None = None
+        self._pending_result: MapRenderResult | None = None
+        self._load_token = 0
+        self._map_focus_armed = False
+        self._fit_overview_on_load = False
         self._last_expand_key = ""
         self._last_expand_at = 0.0
         self._last_media_id = 0
@@ -327,6 +398,11 @@ class MapView(QWidget):
         self._detail_items: list[GalleryItem] = []
         self._detail_group_key = ""
         self._pending_focus = ""
+        self._requested_focus = ""
+        self._invalidate_timer = QTimer(self)
+        self._invalidate_timer.setSingleShot(True)
+        self._invalidate_timer.setInterval(80)
+        self._invalidate_timer.timeout.connect(self._invalidate_map_size)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 28)
@@ -370,8 +446,20 @@ class MapView(QWidget):
         self._stack.addWidget(self._web_host)
         root.addWidget(self._stack, 1)
 
-    def refresh(self) -> None:
-        self._show_cached_or_prepare(force=False)
+    def refresh(self, *, force: bool = False) -> None:
+        self._show_cached_or_prepare(force=force)
+
+    def focus_group(self, group_key: str) -> None:
+        """Center the strip on ``group_key`` after the map is shown (from Timeline)."""
+
+        self._requested_focus = group_key
+        if (
+            group_key
+            and self.isVisible()
+            and self._stack.currentWidget() is self._web_host
+            and self._timeline.card(group_key) is not None
+        ):
+            self._apply_requested_focus()
 
     def prepare_in_background(self, *, force: bool = False) -> None:
         """Warm ``cache/map.html`` after import or project open. Does not block the GUI."""
@@ -386,9 +474,17 @@ class MapView(QWidget):
         self._generation += 1
         self._preparing = False
         self._shown_html = None
+        self._desired_seq = 0
+        self._loaded_seq = 0
+        self._pending_url = None
+        self._display_html = None
+        self._pending_result = None
+        self._map_focus_armed = False
+        self._fit_overview_on_load = False
         self._detail_items = []
         self._detail_group_key = ""
         self._pending_focus = ""
+        self._requested_focus = ""
         self._youtube.set_urls(())
         self._timeline.set_cards(())
         self._timeline.setVisible(False)
@@ -396,6 +492,20 @@ class MapView(QWidget):
             self._show_message("Bitte ein Projekt öffnen.")
             return
         self._show_message("Index wird geladen…")
+
+    def showEvent(self, event: QShowEvent) -> None:  # noqa: N802
+        super().showEvent(event)
+        pending = self._pending_result
+        self._pending_result = None
+        if pending is not None:
+            self._apply_result(pending)
+            return
+        self._load_html_if_needed()
+        self._schedule_invalidate()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._schedule_invalidate()
 
     def _force_refresh(self) -> None:
         self._show_cached_or_prepare(force=True)
@@ -409,8 +519,7 @@ class MapView(QWidget):
             if cached is not None:
                 self._apply_result(cached)
                 return
-        self._show_message("Karte wird vorbereitet…" if not force else "Karte wird aktualisiert…")
-        self.status_message.emit(self._message.text())
+        self._show_busy("Karte wird vorbereitet…" if not force else "Karte wird aktualisiert…")
         self._start_worker(force=force)
 
     def _start_worker(self, *, force: bool) -> None:
@@ -422,11 +531,9 @@ class MapView(QWidget):
         self._generation += 1
         generation = self._generation
         self._preparing = True
-        worker = MapRenderRunnable(opened, force=force)
+        worker = MapRenderRunnable(opened, force=force, host=self)
         directory = opened.directory
-        worker.signals.finished.connect(
-            lambda result: self._on_prepared(generation, directory, result)
-        )
+        worker.signals.finished.connect(lambda result: self._on_prepared(generation, directory, result))
         worker.signals.failed.connect(lambda message: self._on_prepare_failed(generation, message))
         self._pool.start(worker)
 
@@ -440,7 +547,9 @@ class MapView(QWidget):
         if not isinstance(result, MapRenderResult):
             return
         if not self.isVisible():
+            self._pending_result = result
             return
+        self._pending_result = None
         self._apply_result(result)
 
     def _on_prepare_failed(self, generation: int, message: str) -> None:
@@ -449,13 +558,17 @@ class MapView(QWidget):
         self._preparing = False
         if not self.isVisible():
             return
-        self._show_message(message)
+        self._show_busy(message)
         self.status_message.emit(f"Karte: {message}")
 
     def _apply_result(self, result: MapRenderResult) -> None:
         self._subtitle.setText(result.summary_line())
         if result.empty or result.html_path is None:
             self._shown_html = None
+            self._desired_seq = 0
+            self._loaded_seq = 0
+            self._pending_url = None
+            self._display_html = None
             self._timeline.set_cards(())
             self._show_message(result.summary_line())
             self.status_message.emit("Karte: keine GPS-Daten")
@@ -463,22 +576,29 @@ class MapView(QWidget):
         html_path = result.html_path.resolve()
         if QWebEngineView is None:
             self._shown_html = None
+            self._desired_seq = 0
             self._show_message(f"Qt WebEngine ist nicht installiert. Die Karte liegt unter:\n{html_path}")
             return
         self._ensure_web()
         assert self._web is not None
-        same_page = (
-            self._shown_html is not None
-            and self._shown_html == html_path
-            and self._stack.currentWidget() is self._web_host
-        )
-        if not same_page or not result.from_cache:
-            self._web.setUrl(QUrl.fromLocalFile(str(html_path)))
-        else:
-            self._install_page_hooks()
         self._shown_html = html_path
+        self._desired_seq = result.render_seq
+        already_loaded = self._loaded_seq == result.render_seq and (
+            self._stack.currentWidget() is self._web_host
+        )
         self._stack.setCurrentWidget(self._web_host)
-        self._reload_timeline()
+        if already_loaded:
+            self._install_page_hooks()
+            self._reload_timeline(arm_focus=not self._fit_overview_on_load)
+            self._schedule_invalidate()
+        else:
+            self._fit_overview_on_load = not bool(self._requested_focus)
+            self._map_focus_armed = False
+            self._last_expand_key = ""
+            self._detail_group_key = ""
+            self._youtube.set_urls(())
+            self._reload_timeline(arm_focus=False)
+            self._load_html_if_needed()
         self.status_message.emit(result.summary_line())
 
     def _ensure_web(self) -> None:
@@ -507,10 +627,42 @@ class MapView(QWidget):
             settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
 
     def _on_web_loaded(self, ok: bool) -> None:
-        if not ok or self._web is None:
+        if self._web is None:
             return
+        pending = self._pending_url
+        if pending is not None:
+            self._pending_url = None
+            self._web.setUrl(pending)
+            return
+        if not ok or self._shown_html is None or self._display_html is None:
+            return
+        local = self._web.url().toLocalFile()
+        if not local:
+            return
+        try:
+            loaded = Path(local).resolve()
+        except OSError:
+            loaded = Path(local)
+        try:
+            expected = self._display_html.resolve()
+        except OSError:
+            expected = self._display_html
+        if loaded != expected:
+            return
+        self._loaded_seq = self._desired_seq
         self._install_page_hooks()
-        QTimer.singleShot(250, self._apply_pending_focus)
+        self._schedule_invalidate()
+        if self._requested_focus:
+            QTimer.singleShot(50, self._apply_requested_focus)
+            QTimer.singleShot(280, self._apply_requested_focus)
+            QTimer.singleShot(400, self._finish_requested_focus)
+            return
+        if self._fit_overview_on_load:
+            QTimer.singleShot(50, self._fit_map_overview)
+            QTimer.singleShot(280, self._fit_map_overview)
+            QTimer.singleShot(400, self._finish_overview_load)
+            return
+        QTimer.singleShot(0, self._arm_map_focus)
 
     def _install_page_hooks(self) -> None:
         if self._web is None:
@@ -520,7 +672,8 @@ class MapView(QWidget):
             self._web.page().runJavaScript(script)
         self._web.page().runJavaScript(MAP_PAGE_SETUP_JS)
 
-    def _reload_timeline(self) -> None:
+    def _reload_timeline(self, *, arm_focus: bool) -> None:
+        self._map_focus_armed = False
         if self.workspace.current is None:
             self._timeline.set_cards(())
             self._timeline.setVisible(False)
@@ -532,6 +685,73 @@ class MapView(QWidget):
             cards = ()
         self._timeline.set_cards(cards)
         self._timeline.setVisible(bool(cards))
+        if self._requested_focus:
+            QTimer.singleShot(0, self._apply_requested_focus)
+        elif arm_focus:
+            QTimer.singleShot(0, self._arm_map_focus)
+
+    def _load_html_if_needed(self) -> None:
+        if self._web is None or self._shown_html is None:
+            return
+        if not self.isVisible() or self._stack.currentWidget() is not self._web_host:
+            return
+        if self._loaded_seq == self._desired_seq and self._pending_url is None:
+            return
+        self._load_token += 1
+        token = self._load_token
+        QTimer.singleShot(0, lambda: self._load_html(token))
+
+    def _load_html(self, token: int) -> None:
+        if token != self._load_token or self._web is None or self._shown_html is None:
+            return
+        if not self.isVisible():
+            return
+        try:
+            display = publish_map_display(self._shown_html, self._desired_seq)
+        except OSError:
+            display = self._shown_html
+        self._display_html = display
+        self._pending_url = QUrl.fromLocalFile(str(display.resolve()))
+        self._web.setUrl(QUrl("about:blank"))
+
+    def _schedule_invalidate(self) -> None:
+        if self._web is None or self._stack.currentWidget() is not self._web_host:
+            return
+        self._invalidate_timer.start()
+
+    def _invalidate_map_size(self) -> None:
+        self._run_js(_INVALIDATE_JS)
+
+    def _fit_map_overview(self) -> None:
+        if self._requested_focus:
+            return
+        self._pending_focus = ""
+        self._run_js(_FIT_OVERVIEW_JS)
+
+    def _arm_map_focus(self) -> None:
+        self._map_focus_armed = True
+
+    def _finish_overview_load(self) -> None:
+        self._fit_overview_on_load = False
+        self._arm_map_focus()
+
+    def _apply_requested_focus(self) -> None:
+        key = self._requested_focus
+        if not key:
+            return
+        if self._timeline.card(key) is None:
+            return
+        self._map_focus_armed = True
+        self._timeline.center_on(key)
+        self._pending_focus = key
+        self._apply_pending_focus()
+
+    def _finish_requested_focus(self) -> None:
+        self._apply_requested_focus()
+        self._fit_overview_on_load = False
+        self._arm_map_focus()
+        if self._requested_focus and self._timeline.card(self._requested_focus) is not None:
+            self._requested_focus = ""
 
     def _run_js(self, script: str) -> None:
         if self._web is None or self._stack.currentWidget() is not self._web_host:
@@ -539,6 +759,8 @@ class MapView(QWidget):
         self._web.page().runJavaScript(script)
 
     def _on_timeline_focus(self, group_key: str) -> None:
+        if not self._map_focus_armed:
+            return
         if not group_key or group_key == self._last_expand_key:
             return
         self._pending_focus = group_key
@@ -596,10 +818,7 @@ class MapView(QWidget):
         self._detail_group_key = ""
         self._last_expand_key = ""
         self._youtube.set_urls(())
-        key = self._timeline.focused_key()
-        if key:
-            self._pending_focus = key
-            self._apply_pending_focus()
+        self._schedule_invalidate()
 
     def _on_open_media(self, source_file_id: int) -> None:
         now = monotonic()
@@ -635,6 +854,13 @@ class MapView(QWidget):
         window.show()
         window.raise_()
         window.activateWindow()
+
+    def _show_busy(self, text: str) -> None:
+        self.status_message.emit(text)
+        if self._shown_html is None or self._web is None:
+            self._show_message(text)
+            return
+        self._subtitle.setText(text)
 
     def _show_message(self, text: str) -> None:
         self._message.setText(text)

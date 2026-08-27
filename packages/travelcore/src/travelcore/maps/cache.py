@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from travelcore.maps.backend import OSM_LATIN_TILES, FoliumMapBackend
 from travelcore.maps.scene import MapScene, build_map_scene
 
-MAP_CACHE_VERSION = 22
+MAP_CACHE_VERSION = 24
 MAP_HTML_NAME = "map.html"
 MAP_STAMP_NAME = "map.stamp.json"
 
@@ -28,15 +28,13 @@ class MapRenderResult:
     tracks: int = 0
     flights: int = 0
     photos: int = 0
-    stays: int = 0
     places: int = 0
     groups: int = 0
+    render_seq: int = 0
 
     def summary_line(self) -> str:
         if self.empty:
-            return (
-                "Keine GPS-Daten im Index. Fotos mit Ort, GPX- oder IGC-Tracks importieren."
-            )
+            return "Keine GPS-Daten im Index. Fotos mit Ort, GPX- oder IGC-Tracks importieren."
         return (
             f"{self.groups} Titelbilder (Tage, Transfers und Aufenthalte). "
             "Klick auf ein Titelbild zeigt Fotos und Tracks dieses Eintrags."
@@ -134,14 +132,19 @@ def ensure_map_cache(
         counts = counts_from_scene(scene)
         html_path = map_html_path(project_dir)
         html_path.parent.mkdir(parents=True, exist_ok=True)
+        seq = _next_render_seq(project_dir)
         if scene.empty:
             if html_path.is_file():
                 html_path.unlink()
-            rendered = MapRenderResult(html_path=None, empty=True, from_cache=False, **counts)
+            rendered = MapRenderResult(html_path=None, empty=True, from_cache=False, render_seq=seq, **counts)
         else:
             FoliumMapBackend(tiles=tiles).render(scene, html_path)
             rendered = MapRenderResult(
-                html_path=html_path, empty=False, from_cache=False, **counts
+                html_path=html_path,
+                empty=False,
+                from_cache=False,
+                render_seq=seq,
+                **counts,
             )
     identity = map_cache_identity(
         db_path=db_path,
@@ -152,11 +155,11 @@ def ensure_map_cache(
         project_dir,
         identity,
         empty=rendered.empty,
+        render_seq=rendered.render_seq,
         counts={
             "tracks": rendered.tracks,
             "flights": rendered.flights,
             "photos": rendered.photos,
-            "stays": rendered.stays,
             "places": rendered.places,
             "groups": rendered.groups,
         },
@@ -167,7 +170,6 @@ def ensure_map_cache(
 def counts_from_scene(scene: MapScene) -> dict[str, int]:
     groups = sum(1 for item in scene.markers if item.kind == "cover")
     photos = sum(1 for item in scene.markers if item.kind in {"photo", "video"})
-    stays = sum(1 for item in scene.markers if item.kind == "overnight")
     places = sum(1 for item in scene.markers if item.kind == "place")
     flights = sum(1 for item in scene.polylines if item.kind == "flight")
     tracks = len(scene.polylines) - flights
@@ -175,7 +177,6 @@ def counts_from_scene(scene: MapScene) -> dict[str, int]:
         "tracks": tracks,
         "flights": flights,
         "photos": photos,
-        "stays": stays,
         "places": places,
         "groups": groups,
     }
@@ -203,9 +204,9 @@ def _result_from_stamp(
         tracks=int(stamp.get("tracks") or 0),
         flights=int(stamp.get("flights") or 0),
         photos=int(stamp.get("photos") or 0),
-        stays=int(stamp.get("stays") or 0),
         places=int(stamp.get("places") or 0),
         groups=int(stamp.get("groups") or 0),
+        render_seq=int(stamp.get("render_seq") or 0),
     )
 
 
@@ -220,11 +221,22 @@ def _read_stamp(project_dir: Path) -> dict[str, Any] | None:
     return raw if isinstance(raw, dict) else None
 
 
+def _next_render_seq(project_dir: Path) -> int:
+    stamp = _read_stamp(project_dir)
+    if stamp is None:
+        return 1
+    try:
+        return int(stamp.get("render_seq") or 0) + 1
+    except (TypeError, ValueError):
+        return 1
+
+
 def _write_stamp(
     project_dir: Path,
     identity: dict[str, Any],
     *,
     empty: bool,
+    render_seq: int,
     counts: dict[str, int],
 ) -> None:
     path = map_stamp_path(project_dir)
@@ -232,6 +244,7 @@ def _write_stamp(
     payload = {
         **identity,
         "empty": empty,
+        "render_seq": int(render_seq),
         **counts,
     }
     path.write_text(json.dumps(payload, ensure_ascii=True), encoding="utf-8")

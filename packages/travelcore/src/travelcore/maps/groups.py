@@ -11,7 +11,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from travelcore.database.models import (
-    OvernightStay,
     Place,
     Project,
     SectionMember,
@@ -102,7 +101,7 @@ def build_map_group_detail(
     size: int = 256,
     resolved: MapGroupRef | None = None,
 ) -> MapScene:
-    """Photos, videos, tracks, stays and places that belong to one overview entry."""
+    """Photos, videos, tracks and places that belong to one overview entry."""
 
     if resolved is None:
         resolved = resolve_map_group(session, project_id, group_key, thumbs_dir, size=size)
@@ -111,7 +110,7 @@ def build_map_group_detail(
     wanted = set(resolved.source_ids)
     photo_markers = _photo_markers_for_ids(session, project_id, thumbs_dir, size=size, source_ids=wanted)
     lines = track_polylines(session, project_id, source_file_ids=wanted)
-    extra = _stays_and_places_for_day(session, resolved.day_id) if resolved.day_id is not None else []
+    extra = _places_for_day(session, resolved.day_id) if resolved.day_id is not None else []
     markers = tuple(photo_markers + extra)
     return MapScene(markers=markers, polylines=tuple(lines), center=_center(markers, lines))
 
@@ -191,15 +190,22 @@ def parse_group_key(group_key: str) -> tuple[str | None, int | str | None]:
 
 
 def pick_cover_item(items: list[TimelinePhoto], cover_id: int | None) -> TimelinePhoto | None:
-    """Stored cover, otherwise the first list item that has GPS."""
+    """Stored cover, else first GPS photo, else first GPS track."""
 
     by_id = {item.source_file_id: item for item in items}
     if cover_id is not None and cover_id in by_id:
         return by_id[cover_id]
     for item in items:
-        if item.gps_latitude is not None and item.gps_longitude is not None:
+        if item.file_kind == FileKind.PHOTO.value and _item_has_gps(item):
+            return item
+    for item in items:
+        if item.file_kind == FileKind.GPS.value:
             return item
     return None
+
+
+def _item_has_gps(item: TimelinePhoto) -> bool:
+    return item.gps_latitude is not None and item.gps_longitude is not None
 
 
 def position_for_cover(
@@ -242,7 +248,7 @@ def _card_from_entry(entry: TimelineEntry) -> MapTimelineCard | None:
     chosen = pick_cover_item(items, cover_id)
     position = position_for_cover(chosen, items)
     if position is None and leftover is not None:
-        marker = _fallback_stay_or_place_marker(leftover, key, title)
+        marker = _fallback_place_marker(leftover, key, title)
         if marker is not None:
             position = (marker.latitude, marker.longitude)
     cover_path = chosen.thumbnail_path if chosen is not None else None
@@ -286,7 +292,7 @@ def _cover_marker_for_entry(entry: TimelineEntry) -> MapMarker | None:
     chosen = pick_cover_item(items, cover_id)
     position = position_for_cover(chosen, items)
     if position is None and leftover is not None:
-        return _fallback_stay_or_place_marker(leftover, key, label)
+        return _fallback_place_marker(leftover, key, label)
     if chosen is None or position is None:
         return None
     return _cover_marker(chosen, key, label, position)
@@ -312,20 +318,7 @@ def _cover_marker(
     )
 
 
-def _fallback_stay_or_place_marker(day: TimelineDay, group_key: str, label: str) -> MapMarker | None:
-    for stay in day.stays:
-        if stay.latitude is None or stay.longitude is None:
-            continue
-        return MapMarker(
-            latitude=stay.latitude,
-            longitude=stay.longitude,
-            label=label,
-            kind="cover",
-            day_key=group_key,
-            color="black",
-            subtitle=stay.location_name or stay.name,
-            group_key=group_key,
-        )
+def _fallback_place_marker(day: TimelineDay, group_key: str, label: str) -> MapMarker | None:
     for place in day.places:
         if place.latitude is None or place.longitude is None:
             continue
@@ -487,28 +480,8 @@ def _leftover_source_ids_for_day(
     ]
 
 
-def _stays_and_places_for_day(session: Session, day_id: int) -> list[MapMarker]:
+def _places_for_day(session: Session, day_id: int) -> list[MapMarker]:
     markers: list[MapMarker] = []
-    stays = session.scalars(
-        select(OvernightStay).where(
-            OvernightStay.day_id == day_id,
-            OvernightStay.latitude.is_not(None),
-            OvernightStay.longitude.is_not(None),
-        )
-    )
-    for stay in stays:
-        if stay.latitude is None or stay.longitude is None:
-            continue
-        markers.append(
-            MapMarker(
-                latitude=stay.latitude,
-                longitude=stay.longitude,
-                label=stay.location_name or stay.name,
-                kind="overnight",
-                day_key=_day_key(stay.stayed_on),
-                color="black",
-            )
-        )
     places = session.scalars(
         select(Place).where(
             Place.day_id == day_id,

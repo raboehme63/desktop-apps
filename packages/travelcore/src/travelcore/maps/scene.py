@@ -11,7 +11,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from travelcore.database.models import GpsPoint, GpsTrack, OvernightStay, Place, SourceFile, Trip, TripDay
+from travelcore.database.models import GpsPoint, GpsTrack, Place, SourceFile, Trip, TripDay
 from travelcore.media.orientation import normalize_rotation_degrees
 from travelcore.media.thumbnails import cached_thumbnail_path
 from travelcore.media.types import FileKind
@@ -207,35 +207,6 @@ def _photo_markers(
                 color=color,
                 subtitle=row.filename,
                 source_file_id=row.id,
-            )
-        )
-    return markers
-
-
-def _overnight_markers(session: Session, project_id: int) -> list[MapMarker]:
-    rows = session.scalars(
-        select(OvernightStay)
-        .join(TripDay, OvernightStay.day_id == TripDay.id)
-        .join(Trip, TripDay.trip_id == Trip.id)
-        .where(
-            Trip.project_id == project_id,
-            OvernightStay.latitude.is_not(None),
-            OvernightStay.longitude.is_not(None),
-        )
-    )
-    markers: list[MapMarker] = []
-    for stay in rows:
-        if stay.latitude is None or stay.longitude is None:
-            continue
-        label = stay.location_name or stay.name
-        markers.append(
-            MapMarker(
-                latitude=stay.latitude,
-                longitude=stay.longitude,
-                label=label,
-                kind="overnight",
-                day_key=_day_key(stay.stayed_on),
-                color="black",
             )
         )
     return markers

@@ -75,7 +75,6 @@ class FoliumMapBackend:
         track_layer = folium.FeatureGroup(name="Tracks", show=True)
         flight_layer = folium.FeatureGroup(name="Flugtracks (IGC)", show=True)
         flight_ends = folium.FeatureGroup(name="Start / Landung", show=True)
-        stay_layer = folium.FeatureGroup(name="Übernachtungen", show=True)
         place_layer = folium.FeatureGroup(name="Orte", show=True)
         day_clusters: dict[str, MarkerCluster] = {}
         has_flights = False
@@ -96,14 +95,6 @@ class FoliumMapBackend:
 
         for marker in scene.markers:
             popup = _popup_html(marker, output_html)
-            if marker.kind == "overnight":
-                folium.Marker(
-                    location=(marker.latitude, marker.longitude),
-                    tooltip=marker.label,
-                    popup=popup,
-                    icon=folium.Icon(color="black", icon="home", prefix="fa"),
-                ).add_to(stay_layer)
-                continue
             if marker.kind == "place":
                 folium.Marker(
                     location=(marker.latitude, marker.longitude),
@@ -131,7 +122,6 @@ class FoliumMapBackend:
             flight_ends.add_to(fmap)
         for cluster in day_clusters.values():
             cluster.add_to(fmap)
-        stay_layer.add_to(fmap)
         place_layer.add_to(fmap)
         folium.LayerControl(collapsed=False).add_to(fmap)
         if has_flights:
@@ -419,9 +409,7 @@ def _overview_script(fmap: folium.Map, covers: folium.FeatureGroup) -> str:
           }});
         }} else {{
           var color = '#2a7ade';
-          if (item.kind === 'overnight') {{
-            color = '#111';
-          }} else if (item.kind === 'place') {{
+          if (item.kind === 'place') {{
             color = '#777';
           }}
           marker = L.circleMarker(latlng, {{

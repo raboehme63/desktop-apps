@@ -83,7 +83,7 @@ Nach dem Import ruft die App `sync_timeline` auf. Die Bibliothek:
 2. erzeugt oder aktualisiert `TripDay`-Zeilen je Kalendertag der Aufnahmezeit
 3. legt ein automatisches Ereignis pro Tag an (Medienzähler)
 4. schlägt Orte vor, wenn der Tag noch keine Orte hat
-5. löscht leere Auto-Tage ohne manuelle Texte, Orte oder Übernachtungen
+5. löscht leere Auto-Tage ohne manuelle Texte oder Orte
 
 Die Timeline-UI mischt **Reiseabschnitte** (`trip_sections` / `section_members`)
 und **Tage** (früher Resttage). Der Typ ist in der Oberfläche **Tag**, **Transfer**
@@ -91,10 +91,12 @@ oder **Aufenthalt**; gespeichert bleiben `stay` und `movement`, Tage ohne Abschn
 Neu angelegte Abschnitte sind `PendingSectionSpec` (negative `local_id`) bis
 Speichern. Overlay `apply_pending_sections` ist Vorschau.
 
-Manuelle Titel, Notizen, bestätigte Orte, Übernachtungen, Foto-Flags
+Manuelle Titel, Notizen, bestätigte Orte, Foto-Flags
 (`used_in_journal`, `is_cover`, `is_favorite`, `sort_status`), YouTube-URLs,
 Eintrags-Titelbilder (`cover_source_file_id`, Foto oder GPS-Track) und
 Anzeigedrehung (`rotation_degrees`) überleben Re-Sync bzw. Re-Import.
+Der Reisetitel (`trips.title`) folgt zuerst dem Projektnamen; nach manueller
+Eingabe in der Timeline (`origin=manual`) überschreibt der Abgleich ihn nicht.
 Fotos gehören über `captured_at` zu einem Tag; das Flag `used_in_journal`
 ändert die Zugehörigkeit nicht.
 
@@ -103,7 +105,7 @@ DHV-Leonardo-URLs am IGC-Track und an gespeicherten Tagen/Abschnitten
 schreiben beim Dialog-OK. Das Flugportal heißt ausschließlich DHV-Leonardo,
 nie DAV.
 
-Die Timeline legt Abschnitte an, schreibt Titel und Texte, setzt Bewertungen
+Die Timeline legt Abschnitte an, schreibt den Reisetitel sowie Titel und Texte, setzt Bewertungen
 und Eintrags-Titelbilder und öffnet den Medieninspektor. Änderungen
 aktualisieren Timeline, Karte und Galerie.
 
@@ -117,7 +119,7 @@ nur per Klick, nicht durch Mausrad.
 `build_map_scene` (delegiert an `build_map_overview`) und `build_map_timeline`
 in `travelcore.maps.groups` bauen die Übersicht: ein Titelbild je gespeichertem
 Tag, Transfer oder Aufenthalt
-(`cover_source_file_id`, sonst das erste Listenelement mit GPS). Position ist
+(`cover_source_file_id`, sonst das erste Foto mit GPS, sonst der erste GPS-Track). Position ist
 die Cover-GPS, sonst der Schwerpunkt der geotaggten Mitglieder. Unsaved
 Pending-Abschnitte erscheinen nicht auf der Karte.
 
@@ -128,8 +130,8 @@ Klick auf eine Leistenkarte ruft `traveljournalFocusCover` auf: Schwenken bei
 **unverändertem Zoom**. Doppelklick auf eine Leistenkarte öffnet denselben Eintrag
 in der Timeline. Klick auf einen Kreis (`group_key`) öffnet die
 Detailansicht (`traveljournalShowDetail`): Fotos, Videos, GPX-Linien,
-IGC-Flugtracks ab Zoom 10 (Start/Landung immer sichtbar), Übernachtungen und
-Orte. `resolve_map_group` liest nur den angeklickten Eintrag, nicht die ganze
+IGC-Flugtracks ab Zoom 10 (Start/Landung immer sichtbar) und Orte.
+`resolve_map_group` liest nur den angeklickten Eintrag, nicht die ganze
 Timeline. Klick auf ein Foto im Detail öffnet ein Leaflet-Popup mit Thumbnail;
 Doppelklick öffnet den Medieninspektor mit dem Original (wie Timeline).
 
@@ -155,8 +157,8 @@ Bereits in Phase 1 angelegt, schrittweise gefüllt:
 - `VideoMetadataProvider` – ffprobe-Adapter (noch nicht aktiv)
 - `Exporter` – HTML, PDF, LaTeX, CEWE (Implementierung ab Phase 8)
 - `MapBackend` – Folium/Leaflet, Übersicht als Titelbild-Kreise je Tag/Transfer/Aufenthalt,
-  Qt-Leiste unter der Karte (Tag mit Kalender, Transfer als Kreis), Detail mit GPX-Polylinien, IGC-Flugtracks ab Zoom 10
-  (Start/Landung immer sichtbar), Foto-Popup und Inspektor, Übernachtungen und Orte
+  Qt-Leiste unter der Karte (Tag mit Kalender, Transfer als liegendes Sechseck), Detail mit GPX-Polylinien, IGC-Flugtracks ab Zoom 10
+  (Start/Landung immer sichtbar), Foto-Popup und Inspektor, Orte
 - Timeline in `travelcore.timeline` – Tage, Transfers, Aufenthalte, Cover, Links;
   keine Ortsnamen an Foto-/Trackpositionen
 - KML/GeoJSON in `travelcore.gps` – Parser für Vorschauen, kein Ingest in `gps_tracks`

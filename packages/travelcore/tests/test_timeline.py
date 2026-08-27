@@ -9,7 +9,6 @@ from travelcore.database.project_store import OpenProject
 from travelcore.geolocation.stays import cluster_stays, haversine_m
 from travelcore.media.indexer import FileIndexer
 from travelcore.timeline import (
-    add_overnight_stay,
     add_place_suggestions,
     add_source_rotation,
     confirm_place,
@@ -17,6 +16,7 @@ from travelcore.timeline import (
     save_day_leonardo_urls,
     save_day_text,
     save_day_youtube_urls,
+    save_trip_title,
     set_cover_photo,
     set_photo_journal_flag,
     set_photo_sort_status,
@@ -93,6 +93,31 @@ def test_manual_day_text_survives_resync(open_project: OpenProject, tmp_path: Pa
     assert snapshot.days[0].title == "Bozen"
     assert snapshot.days[0].notes == "Ankunft am Abend."
     assert snapshot.days[0].origin == "manual"
+
+
+def test_manual_trip_title_survives_resync(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "ankunft.jpg",
+        datetime_original="2025:05:15 08:20:00",
+        offset_original="+02:00",
+    )
+    first = _index_and_sync(open_project, source)
+    assert first.title == "Testreise"
+    assert first.origin == "auto"
+    with open_project.session_factory() as session:
+        save_trip_title(session, first.trip_id, "Dolomiten 2025")
+        session.commit()
+
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        snapshot = sync_timeline(session, project)
+        session.commit()
+
+    assert snapshot.title == "Dolomiten 2025"
+    assert snapshot.origin == "manual"
 
 
 def test_youtube_urls_roundtrip_on_day(open_project: OpenProject, tmp_path: Path) -> None:
@@ -186,7 +211,7 @@ def test_place_suggestion_not_auto_assigned_to_gps_media(open_project: OpenProje
     assert synced.days[0].places[0].origin == "manual"
 
 
-def test_overnight_and_journal_flags(open_project: OpenProject, tmp_path: Path) -> None:
+def test_journal_flags_and_cover(open_project: OpenProject, tmp_path: Path) -> None:
     source = tmp_path / "media"
     source.mkdir()
     write_jpeg_with_exif(
@@ -195,18 +220,8 @@ def test_overnight_and_journal_flags(open_project: OpenProject, tmp_path: Path) 
         offset_original="+02:00",
     )
     snapshot = _index_and_sync(open_project, source)
-    day_id = snapshot.days[0].id
     photo_id = snapshot.days[0].photos[0].source_file_id
     with open_project.session_factory() as session:
-        add_overnight_stay(
-            session,
-            day_id,
-            name="Hotel",
-            location_name="Bozen",
-            latitude=46.5,
-            longitude=11.35,
-            description="Erste Nacht",
-        )
         set_photo_journal_flag(session, photo_id, True)
         set_cover_photo(session, open_project.project_id, photo_id)
         project = session.get(Project, open_project.project_id)
@@ -215,10 +230,6 @@ def test_overnight_and_journal_flags(open_project: OpenProject, tmp_path: Path) 
         session.commit()
 
     assert loaded is not None
-    stay = loaded.days[0].stays[0]
-    assert stay.name == "Hotel"
-    assert stay.location_name == "Bozen"
-    assert stay.origin == "manual"
     photo = loaded.days[0].photos[0]
     assert photo.used_in_journal is True
     assert photo.is_cover is True

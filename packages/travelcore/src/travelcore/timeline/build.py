@@ -13,7 +13,6 @@ from sqlalchemy.orm import Session
 from travelcore.config import AppSettings
 from travelcore.database.models import (
     Event,
-    OvernightStay,
     Photo,
     Place,
     Project,
@@ -52,7 +51,6 @@ from travelcore.timeline.types import (
     TimelinePlace,
     TimelineSection,
     TimelineSnapshot,
-    TimelineStay,
 )
 
 ORIGIN_AUTO = "auto"
@@ -151,7 +149,6 @@ def load_timeline(
                     for row, photo in day_media
                 ),
                 places=tuple(_place_view(item) for item in _places_for_day(session, day.id)),
-                stays=tuple(_stay_view(item) for item in _stays_for_day(session, day.id)),
                 events=tuple(_event_view(item) for item in _events_for_day(session, day.id)),
             )
         )
@@ -221,6 +218,17 @@ def save_day_text(session: Session, day_id: int, *, title: str, notes: str) -> N
     day.title = title.strip() or day.title
     day.notes = notes
     day.origin = ORIGIN_MANUAL
+
+
+def save_trip_title(session: Session, trip_id: int, title: str) -> None:
+    trip = session.get(Trip, trip_id)
+    if trip is None:
+        return
+    cleaned = title.strip()
+    if not cleaned:
+        return
+    trip.title = cleaned
+    trip.origin = ORIGIN_MANUAL
 
 
 def save_day_youtube_urls(session: Session, day_id: int, urls: list[str]) -> None:
@@ -380,38 +388,6 @@ def delete_place(session: Session, place_id: int) -> None:
         session.delete(place)
 
 
-def add_overnight_stay(
-    session: Session,
-    day_id: int,
-    *,
-    name: str,
-    location_name: str | None,
-    latitude: float | None,
-    longitude: float | None,
-    description: str | None,
-) -> OvernightStay:
-    day = session.get(TripDay, day_id)
-    stay = OvernightStay(
-        day_id=day_id,
-        name=name.strip() or "Übernachtung",
-        location_name=location_name.strip() if location_name else None,
-        stayed_on=day.date if day is not None else None,
-        latitude=latitude,
-        longitude=longitude,
-        description=description.strip() if description else None,
-        origin=ORIGIN_MANUAL,
-    )
-    session.add(stay)
-    session.flush()
-    return stay
-
-
-def delete_overnight_stay(session: Session, stay_id: int) -> None:
-    stay = session.get(OvernightStay, stay_id)
-    if stay is not None:
-        session.delete(stay)
-
-
 def _text_rows(session: Session, project_id: int) -> list[SourceFile]:
     return list(
         session.scalars(
@@ -530,8 +506,7 @@ def _drop_empty_auto_days(session: Session, trip_id: int, keep_ids: set[int]) ->
         if day.origin == ORIGIN_MANUAL or (day.notes or "").strip():
             continue
         places = _places_for_day(session, day.id)
-        stays = _stays_for_day(session, day.id)
-        if places or stays:
+        if places:
             continue
         for event in _events_for_day(session, day.id):
             session.delete(event)
@@ -540,14 +515,6 @@ def _drop_empty_auto_days(session: Session, trip_id: int, keep_ids: set[int]) ->
 
 def _places_for_day(session: Session, day_id: int) -> list[Place]:
     return list(session.scalars(select(Place).where(Place.day_id == day_id).order_by(Place.id.asc())))
-
-
-def _stays_for_day(session: Session, day_id: int) -> list[OvernightStay]:
-    return list(
-        session.scalars(
-            select(OvernightStay).where(OvernightStay.day_id == day_id).order_by(OvernightStay.id.asc())
-        )
-    )
 
 
 def _events_for_day(session: Session, day_id: int) -> list[Event]:
@@ -737,19 +704,6 @@ def _place_view(item: Place) -> TimelinePlace:
         latitude=item.latitude,
         longitude=item.longitude,
         confirmed=item.confirmed,
-        origin=item.origin,
-    )
-
-
-def _stay_view(item: OvernightStay) -> TimelineStay:
-    return TimelineStay(
-        id=item.id,
-        name=item.name,
-        location_name=item.location_name,
-        stayed_on=item.stayed_on,
-        latitude=item.latitude,
-        longitude=item.longitude,
-        description=item.description,
         origin=item.origin,
     )
 

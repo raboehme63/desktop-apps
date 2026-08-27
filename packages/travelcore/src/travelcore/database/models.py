@@ -202,7 +202,6 @@ class TripDay(Base):
     trip: Mapped[Trip] = relationship(back_populates="days")
     places: Mapped[list[Place]] = relationship(back_populates="day")
     events: Mapped[list[Event]] = relationship(back_populates="day")
-    overnight_stays: Mapped[list[OvernightStay]] = relationship(back_populates="day")
     text_notes: Mapped[list[TextNote]] = relationship(back_populates="day")
 
 
@@ -273,22 +272,6 @@ class Event(Base):
     origin: Mapped[str] = mapped_column(String(16), nullable=False, default="auto")
 
     day: Mapped[TripDay | None] = relationship(back_populates="events")
-
-
-class OvernightStay(Base):
-    __tablename__ = "overnight_stays"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    day_id: Mapped[int | None] = mapped_column(ForeignKey("trip_days.id"), nullable=True, index=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    location_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    stayed_on: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
-    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    origin: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")
-
-    day: Mapped[TripDay | None] = relationship(back_populates="overnight_stays")
 
 
 class TextNote(Base):

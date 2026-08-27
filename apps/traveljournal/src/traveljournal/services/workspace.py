@@ -320,6 +320,9 @@ class Workspace:
     def save_day_text(self, day_id: int, *, title: str, notes: str) -> None:
         self._mutate(lambda session: timeline_build.save_day_text(session, day_id, title=title, notes=notes))
 
+    def save_trip_title(self, trip_id: int, title: str) -> None:
+        self._mutate(lambda session: timeline_build.save_trip_title(session, trip_id, title))
+
     def save_section_text(self, section_id: int, *, title: str, notes: str) -> None:
         self._mutate(
             lambda session: timeline_sections.save_section_text(session, section_id, title=title, notes=notes)

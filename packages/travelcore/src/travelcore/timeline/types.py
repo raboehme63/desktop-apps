@@ -36,18 +36,6 @@ class TimelinePlace:
 
 
 @dataclass(frozen=True, slots=True)
-class TimelineStay:
-    id: int
-    name: str
-    location_name: str | None
-    stayed_on: datetime | None
-    latitude: float | None
-    longitude: float | None
-    description: str | None
-    origin: str
-
-
-@dataclass(frozen=True, slots=True)
 class TimelineEvent:
     id: int
     title: str
@@ -68,7 +56,6 @@ class TimelineDay:
     cover_source_file_id: int | None = None
     photos: tuple[TimelinePhoto, ...] = ()
     places: tuple[TimelinePlace, ...] = ()
-    stays: tuple[TimelineStay, ...] = ()
     events: tuple[TimelineEvent, ...] = ()
 
 

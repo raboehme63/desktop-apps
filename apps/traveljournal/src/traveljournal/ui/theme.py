@@ -55,6 +55,11 @@ QPushButton:disabled {
     background-color: #1a2030;
 }
 
+QPushButton#entryToMap {
+    padding: 4px 10px;
+    font-size: 12px;
+}
+
 QPushButton#primary {
     background-color: #2eb8a0;
     border: 1px solid #2eb8a0;
@@ -92,6 +97,12 @@ QLineEdit, QPlainTextEdit, QTextEdit {
     padding: 8px 10px;
     selection-background-color: #2eb8a0;
     selection-color: #06231e;
+}
+
+QLineEdit#tripTitleEdit {
+    font-size: 18px;
+    font-weight: 600;
+    padding: 10px 12px;
 }
 
 QTableWidget {

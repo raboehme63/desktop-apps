@@ -83,6 +83,8 @@ class MainWindow(QMainWindow):
         self.map_view.status_message.connect(self._set_status)
         self.map_view.open_in_timeline.connect(self._open_timeline_entry)
         self.timeline_view.status_message.connect(self._set_status)
+        self.timeline_view.timeline_changed.connect(self._on_timeline_changed)
+        self.timeline_view.open_on_map.connect(self._open_map_entry)
         self._sync_menu()
 
     def _build_menu(self) -> None:
@@ -204,13 +206,20 @@ class MainWindow(QMainWindow):
         if key == "photos":
             self.photos_view.refresh()
         if key == "map":
-            self.map_view.refresh()
+            self.map_view.refresh(force=previous == "timeline")
         if key == "timeline":
             self.timeline_view.ensure_loaded()
+
+    def _on_timeline_changed(self) -> None:
+        self.map_view.prepare_in_background(force=True)
 
     def _open_timeline_entry(self, group_key: str) -> None:
         self._show_page("timeline")
         self.timeline_view.reveal_group(group_key)
+
+    def _open_map_entry(self, group_key: str) -> None:
+        self.map_view.focus_group(group_key)
+        self._show_page("map")
 
     def _on_project_changed(self, name: str) -> None:
         self._sync_menu()

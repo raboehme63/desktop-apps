@@ -29,16 +29,6 @@ class Place(BaseModel):
     origin: str = "auto"
 
 
-class OvernightStay(BaseModel):
-    name: str
-    stayed_on: dt.date | None = None
-    location_name: str | None = None
-    latitude: float | None = None
-    longitude: float | None = None
-    description: str | None = None
-    origin: str = "manual"
-
-
 class Event(BaseModel):
     title: str
     occurred_at: dt.datetime | None = None
@@ -55,7 +45,6 @@ class TripDay(BaseModel):
     origin: str = "auto"
     places: list[Place] = Field(default_factory=list)
     events: list[Event] = Field(default_factory=list)
-    overnight_stays: list[OvernightStay] = Field(default_factory=list)
 
 
 class Trip(BaseModel):

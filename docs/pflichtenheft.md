@@ -47,7 +47,6 @@ Punkt 5 ist für **manuelle Reiseabschnitte** (Aufenthalt / Transfer) in der Tim
 
 ### 1.2 Wunschkriterien
 
-- Automatische Erkennung von Übernachtungsorten
 - Ortsnamen-Auflösung (Reverse-Geocoding) — nur lokal oder nach ausdrücklicher Freigabe
 - KI-Embeddings (z. B. CLIP) für Ähnlichkeit
 - Videoinhaltsanalyse über reine Metadaten und Vorschaubilder hinaus
@@ -67,6 +66,7 @@ Nicht Bestandteil des Produkts und ausdrücklich **nicht** zu implementieren:
 - automatisches Löschen von Originaldateien
 - jede Änderung an Originaldateien
 - macOS- oder Linux-Installer (Produktziel ist Windows 10/11)
+- Übernachtungen als eigenes Datenobjekt
 
 ---
 
@@ -182,12 +182,12 @@ Oberflächen-Einstellungen (zuletzt verwendeter Projekte-Ordner, Timeline-Medien
 
 | ID | Prio | Anforderung | Stand |
 | --- | --- | --- | --- |
-| FA-050 | Muss | Interaktive Karte: Track als Linie, Fotos als Marker, Übernachtungen, Abschnitte, Tagesgruppen. | umgesetzt (Übersicht: ein runder Kreis je Tag/Transfer/Aufenthalt; ohne Eintrags-Titelbild das erste Listenelement mit GPS. Klick auf den Kreis öffnet die Detailansicht mit Fotos, Videos, Tracks, Übernachtungen und Orten dieses Eintrags und passt den Ausschnitt daran an. IGC-Flugtracks im Detail ab Zoom 10 mit Start/Landung. **Reiseabschnitt schließen** oder Doppelklick in die freie Karte stellt Übersicht, Zoom und Ausschnitt wieder her) |
+| FA-050 | Muss | Interaktive Karte: Track als Linie, Fotos als Marker, Abschnitte, Tagesgruppen. | umgesetzt (Übersicht: ein runder Kreis je Tag/Transfer/Aufenthalt; ohne Eintrags-Titelbild das erste Foto mit GPS, sonst der erste GPS-Track. Klick auf den Kreis öffnet die Detailansicht mit Fotos, Videos, Tracks und Orten dieses Eintrags und passt den Ausschnitt daran an. IGC-Flugtracks im Detail ab Zoom 10 mit Start/Landung. **Reiseabschnitt schließen** oder Doppelklick in die freie Karte stellt Übersicht, Zoom und Ausschnitt wieder her) |
 | FA-051 | Soll | Klick auf Fotomarker zeigt Vorschau; nahe Marker können clustern. | umgesetzt (im Detail: Klick öffnet ein kleines Thumbnail-Popup auf der Karte; Doppelklick auf Thumbnail oder Foto-Symbol öffnet den Medieninspektor mit dem Original wie in der Timeline. Übersicht clustert nicht — ein Kreis je Eintrag) |
 | FA-052 | Muss | Kartenbackend hinter `MapBackend` austauschbar; erste Version Folium/Leaflet. | umgesetzt |
-| FA-053 | Muss | Unter der Karte eine horizontale Leiste mit kompakten Timeline-Karten (Titelbild, Titel, Zeitraum) in Reise-Reihenfolge. **Tag:** Kalendersymbol oben rechts. **Aufenthalt:** bisherige Rechteckkarte. **Transfer:** Kreis mit ca. 75 % der Höhe der anderen Karten. Ziehen und Mausrad blättern seitlich. Einfachklick zentriert den Eintrag **ohne Zoomänderung**. Doppelklick auf eine Abschnittskarte öffnet denselben Eintrag in der **Timeline**. Doppelklick in die freie Karte zeigt alle Kreise. | umgesetzt (Qt-Leiste unter dem WebView, nicht als Overlay über den Kacheln) |
+| FA-053 | Muss | Unter der Karte eine horizontale Leiste mit kompakten Timeline-Karten (Titelbild, Titel, Zeitraum) in Reise-Reihenfolge. **Tag:** Kalendersymbol oben rechts. **Aufenthalt:** Rechteckkarte. **Transfer:** liegendes Sechseck (oben/unten flach, Spitzen links/rechts), gleiche Größe wie die anderen Karten; Beschriftung etwas kleiner. Titelbilder füllen die Karte ohne Ränder (Cover). Unfokussierte Karten etwas kleiner, die fokussierte in voller Größe. Ziehen und Mausrad blättern seitlich. Beim Öffnen der Karte (und nach **Karte aktualisieren**) Übersicht aller Titelbild-Kreise, wie nach Doppelklick in die freie Fläche. Einfachklick in der Leiste zentriert den Eintrag **ohne Zoomänderung**. Doppelklick auf eine Abschnittskarte öffnet denselben Eintrag in der **Timeline**, Kopf des Abschnitts oben in der Liste. Doppelklick in die freie Karte zeigt alle Kreise. Nach Änderungen in der Timeline erscheint die Karte beim Öffnen ohne extra Aktualisieren. | umgesetzt (Qt-Leiste unter dem WebView, nicht als Overlay über den Kacheln) |
 
-### 4.6 Timeline, Orte, Übernachtungen
+### 4.6 Timeline und Orte
 
 | ID | Prio | Anforderung | Stand |
 | --- | --- | --- | --- |
@@ -195,13 +195,12 @@ Oberflächen-Einstellungen (zuletzt verwendeter Projekte-Ordner, Timeline-Medien
 | FA-061 | Muss | Ebenen: Reise, Reisetag, Abschnitt, Ort/Aufenthalt, Ereignis, Medienobjekt, Textnotiz. | teilweise (Reise/Tag/Abschnitt/Ort/Ereignis/Medien/Text; Abschnitte manuell in der Timeline; Tage ohne Abschnitt bleiben tageszentriert) |
 | FA-062 | Soll | Aufenthalte aus GPS: konfigurierbarer Radius und Mindestdauer; nur als Vorschlag. | teilweise (Funktion vorhanden, Import erzeugt keine Ortsnamen an Foto-/Video-/Trackpositionen; Datum reicht) |
 | FA-063 | Muss | Benutzer bestätigt, ändert oder löscht vorgeschlagene Orte. | umgesetzt |
-| FA-064 | Muss | Übernachtungen manuell markierbar (Datum, Ort, GPS, Name, Beschreibung, Fotos). | teilweise (Datum, Ort, GPS, Name, Beschreibung; Fotos an der Übernachtung später) |
 
 ### 4.6a Reiseabschnitte, Links, Tage
 
 | ID | Prio | Anforderung | Stand |
 | --- | --- | --- | --- |
-| FA-065 | Muss | Der Benutzer erzeugt Reiseabschnitte aus einer Mehrfachauswahl: **Aufenthalt** (`stay`) oder **Transfer** (`movement`). Der Typ jedes Eintrags ist in der Timeline änderbar: **Tag** (bisher Resttag), **Transfer**, **Aufenthalt**. Transfer darf mehrere Verkehrsmittel haben (Bus, Bahn, Flug, zu Fuß, Auto, Rad, Boot, sonstiges). Die Zeitspanne folgt den Objekten (`am …` bzw. `von … bis …`). | umgesetzt |
+| FA-065 | Muss | Der Benutzer erzeugt Reiseabschnitte aus einer Mehrfachauswahl: **Aufenthalt** (`stay`) oder **Transfer** (`movement`). Der Typ jedes Eintrags ist in der Timeline änderbar: **Tag** (bisher Resttag), **Transfer**, **Aufenthalt**. Transfer darf mehrere Verkehrsmittel haben (Bus, Bahn, Flug, zu Fuß, Auto, Rad, Boot, sonstiges). Die Zeitspanne folgt den Objekten (`am …` bzw. `von … bis …`). An gespeicherten Abschnitten und Tagen **Zur Karte** öffnet die Karte und fokussiert die passende Karte in der Leiste. | umgesetzt |
 | FA-066 | Muss | Medien, die keinem Abschnitt gehören, bleiben als **Tage** sichtbar. Timeline mischt Tage, Transfers und Aufenthalte chronologisch. Auflösen (⊟) oder Typ **Tag** gibt die Dateien an die Tage zurück. | umgesetzt |
 | FA-067 | Muss | Neu angelegte Abschnitte existieren nur im Speicher (`PendingSectionSpec`, negative `local_id`), bis **Speichern**. Verlassen der Timeline ohne Speichern fragt nach. Overlay `apply_pending_sections` ist Vorschau, kein Schreiben. | umgesetzt |
 | FA-068 | Muss | YouTube-Links gehören zu Tag oder Abschnitt. Sie werden **nur** mit Timeline-**Speichern** persistiert, nie still beim Dialog-OK. Nur YouTube-Hosts; Duplikate entfallen. | umgesetzt |
@@ -222,7 +221,7 @@ Auswahlmodell in der Timeline: erster und letzter Klick füllen den Bereich dazw
 
 | ID | Prio | Anforderung | Stand |
 | --- | --- | --- | --- |
-| FA-080 | Muss | Tagebuch vollständig bearbeitbar: Tage, Orte, GPS, Ereignisse, Texte, Fotos, Reihenfolge, Übernachtungen, Titelbilder, Abschnitte. | teilweise (Bearbeitung in der Timeline: Tage, Titel/Text, Abschnitte, Eintrags-Titelbilder; `used_in_journal`, Übernachtungen und Reise-Titelbild `is_cover` in `travelcore`, ohne eigene UI-Seite; kein Umsortieren von Fotos auf andere Tage, keine Ereignis-Reihenfolge) |
+| FA-080 | Muss | Tagebuch vollständig bearbeitbar: Tage, Orte, GPS, Ereignisse, Texte, Fotos, Reihenfolge, Titelbilder, Abschnitte. | teilweise (Bearbeitung in der Timeline: Reisetitel, Tage, Titel/Text, Abschnitte, Eintrags-Titelbilder; `used_in_journal` und Reise-Titelbild `is_cover` in `travelcore`, ohne eigene UI; kein Umsortieren von Fotos auf andere Tage, keine Ereignis-Reihenfolge) |
 | FA-081 | Muss | Automatisch erzeugte und manuelle Daten sind unterscheidbar (`origin=auto\|manual`). | umgesetzt |
 | FA-082 | Muss | Jedes Foto trägt einen Sortierstatus `favorite` / `reserve` / `rejected` (oder leer). `is_favorite` bleibt synchron. Leerer Status plus altes Favoriten-Flag gilt als Favorit (`effective_sort_status`). Klick auf den aktiven Status hebt ihn auf. Abgelehnte Vorschaubilder sind abgedunkelt. Speichern sofort. | umgesetzt |
 | FA-083 | Muss | Zwei Titelbilder: (1) **Reise-Titelbild** `Photo.is_cover`; (2) **Eintrags-Titelbild** `cover_source_file_id` an Tag oder Abschnitt, Chip **T** auf Foto- **und Track**-Thumbs, 72-px-Vorschau in der Timeline-Kartenüberschrift. Videos sind keine Titelbilder. An gespeicherten Einträgen sofort; an ungespeicherten Abschnitten erst mit Speichern. | teilweise (Eintrags-Titelbild in der Timeline; Reise-Titelbild nur in `travelcore`, ohne UI) |
@@ -254,7 +253,7 @@ Auswahlmodell in der Timeline: erster und letzter Klick füllen den Bereich dazw
 | ID | Prio | Anforderung | Stand |
 | --- | --- | --- | --- |
 | FA-110 | Muss | SQLite + SQLAlchemy 2 + Alembic-Migrationen. | umgesetzt |
-| FA-111 | Muss | Tabellen u. a. für Projekte, Quelldateien, Fotos, Videos, Tracks, Punkte, Reise, Tage, Orte, Ereignisse, Übernachtungen, Texte, Analysen, Ähnlichkeitsgruppen, Exportkonfiguration. | teilweise (Schema inkl. `trip_sections`, `section_members`, URL- und Cover-Spalten, `photos.sort_status`, `source_files.rotation_degrees`; Alembic 001–011; Analysen/Ähnlichkeit/Exportzeilen ungenutzt bis Phase 8–10) |
+| FA-111 | Muss | Tabellen u. a. für Projekte, Quelldateien, Fotos, Videos, Tracks, Punkte, Reise, Tage, Orte, Ereignisse, Texte, Analysen, Ähnlichkeitsgruppen, Exportkonfiguration. | teilweise (Schema inkl. `trip_sections`, `section_members`, URL- und Cover-Spalten, `photos.sort_status`, `source_files.rotation_degrees`; Alembic 001–012; Analysen/Ähnlichkeit/Exportzeilen ungenutzt bis Phase 8–10) |
 | FA-112 | Muss | Projektordner mit `project.sqlite`, `settings.toml`, `thumbnails/`, `cache/`, `exports/`, `logs/`. | umgesetzt |
 | FA-113 | Muss | Projekt schließen und wieder öffnen erhält Index und Einstellungen. | umgesetzt |
 | FA-114 | Muss | Cache: Thumbnails, Metadaten, Analysen, Hashes; keine Vollanalyse unveränderter Dateien. | teilweise (Hash/mtime/Thumbnails/`cache/map_tiles`; Analysen Phase 9) |
@@ -320,7 +319,7 @@ Mindestens zu speichernde Informationen — Details im Datenbankschema:
 - **Datei-Fehler:** Pfad, Phase, Meldung
 - **Foto / Video:** Favorit, Sortierstatus, Tagebuch-Nutzung (`used_in_journal`), Reise-Titelbild (`is_cover`), Herkunft auto/manual; die Tageszugehörigkeit folgt der Aufnahmezeit, nicht dem Häkchen
 - **Track / Trackpunkt:** Geometrie und Zeit (GPX/IGC); IGC zusätzlich Pilot und optionaler DHV-Leonardo-Link
-- **Reise / Tag / Abschnitt / Abschnittmitglied / Ort / Ereignis / Notiz / Übernachtung**
+- **Reise / Tag / Abschnitt / Abschnittmitglied / Ort / Ereignis / Notiz**
 - **Tag und Abschnitt:** YouTube-URLs, DHV-Leonardo-URLs, Eintrags-Titelbild (`cover_source_file_id`)
 - **Fotoanalyse / Ähnlichkeitsgruppe / Exportkonfiguration**
 
@@ -332,8 +331,8 @@ Mindestens zu speichernde Informationen — Details im Datenbankschema:
 | --- | --- | --- |
 | Projekt | Name, Ordnerpfad, Anlegen, Öffnen, Speichern, Einstellungen (`settings.toml`); Fenstertitel mit Version R1.0.0 | plus zuletzt verwendete Projekte in der UI |
 | Import | Pfadwahl, Analyse, Fortschritt, Zähler, vollständige Dateitabelle, Vorschau aller Galerie-Typen außer Text | unverändert |
-| Timeline | Tage, Transfers und Aufenthalte gemischt, Typ je Karte, Titel/Text, Mehrfachauswahl, Anlegen/Auflösen, Medien vs. Tracks, Register nur per Klick, Bewertungen, T-Titelbild (Foto und Track), ⋯-Menü YouTube/DHV-Leonardo, Medieninspektor (Blättern, Zoom, Drehen) | plus verdichtete Timeline-Karten auf der Timeline-Seite, Ereignis-Reihenfolge |
-| Karte | Runde Titelbild-Kreise, Leiste darunter (Tag mit Kalender, Transfer als Kreis, Aufenthalt unverändert), Einfachklick Leistenkarte → zentrieren, Doppelklick → Timeline, Klick Kreis → Detail, Foto-Popup dann Inspektor, offline ohne OSM | unverändert |
+| Timeline | Reisetitel oben, Tage, Transfers und Aufenthalte gemischt, Typ je Karte, Titel/Text, Mehrfachauswahl, Anlegen/Auflösen, Medien vs. Tracks, Register nur per Klick, Bewertungen, T-Titelbild (Foto und Track), ⋯-Menü YouTube/DHV-Leonardo, Medieninspektor (Blättern, Zoom, Drehen) | plus verdichtete Timeline-Karten auf der Timeline-Seite, Ereignis-Reihenfolge |
+| Karte | Runde Titelbild-Kreise, Leiste darunter (Tag mit Kalender, Transfer als liegendes Sechseck in gleicher Kartengröße, Fokus größer), Einfachklick Leistenkarte → zentrieren, Doppelklick → Timeline, Klick Kreis → Detail, Foto-Popup dann Inspektor, offline ohne OSM | unverändert |
 | Fotos | Galerie, Filter (Jahr/Ort/Typ inkl. Video/Tracks/Favorit/nicht im Tagebuch), Bewertungen, Inspektor | plus Qualität, Dubletten |
 | Export | Platzhalter | HTML, PDF, LaTeX, CEWE (CEWE zunächst inaktiv) |
 

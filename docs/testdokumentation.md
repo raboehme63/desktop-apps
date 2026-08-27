@@ -255,7 +255,7 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 | --- | --- | --- |
 | `test_downsample_keeps_endpoints` | `test_maps.py` | Trackpunkte werden ausgedünnt, Start/Ende bleiben |
 | `test_map_scene_has_track_and_photo` | `test_maps.py` | Übersicht ein Cover, Detail: Polylinie + Fotomarker |
-| `test_map_scene_includes_overnight_and_place` | `test_maps.py` | Übernachtung und Ort im Detail des Resttags |
+| `test_map_scene_includes_place` | `test_maps.py` | Ort im Detail des Tags |
 | `test_folium_overview_cover_uses_expand_url` | `test_maps.py` | rundes Cover, Expand-Bridge, Zoom-Halt, Popup-Skript |
 | `test_timeline_js_cards_uses_relative_cover` | `test_maps.py` | Timeline-Karten relative Cover-Pfade |
 | `test_leaflet_payload_includes_source_file_id` | `test_maps.py` | Detail-Payload: `source_file_id`, Thumbnail-Popup |
@@ -264,15 +264,18 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 | `test_map_scene_includes_igc_flight` | `test_maps.py` | IGC-Polylinie, Pilot, DHV-Link, Zoom-Skript |
 | `test_map_cache_reuses_html_when_inputs_unchanged` | `test_maps.py` | Disk-Cache ohne Rebuild |
 | `test_map_cache_rebuilds_when_provider_or_force_changes` | `test_maps.py` | Cache-Invalidierung |
-| `test_pick_cover_item_uses_first_list_item_with_gps` | `test_maps.py` | ohne Titelbild erstes Listenelement mit GPS |
+| `test_pick_cover_item_uses_first_gps_photo` | `test_maps.py` | ohne Titelbild erstes Foto mit GPS |
+| `test_pick_cover_item_uses_first_gps_track_without_photo_fix` | `test_maps.py` | ohne GPS-Foto erster GPS-Track |
 | `test_parse_group_key_accepts_section_day_and_loose` | `test_maps.py` | `section:` / `day:` / `loose:` |
 | `test_build_map_timeline_cards_from_section` | `test_maps.py` | Leistenkarten aus Abschnitt |
 | `test_parse_map_bridge_url_reads_group_key` | `tests/test_gui_smoke.py` | Expand-URL und Konsolen-Bridge |
 | `test_map_view_refresh_uses_disk_cache_without_rebuild` | `tests/test_gui_smoke.py` | MapView zeigt Cache; Leiste unter dem WebView |
-| `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Leiste zentriert die erste Karte |
+| `test_publish_map_display_writes_unique_file` | `tests/test_gui_smoke.py` | WebEngine lädt eine neue HTML-Kopie nach Rebuild |
+| `test_map_view_applies_prepared_result_when_shown` | `tests/test_gui_smoke.py` | Hintergrund-Karte wird beim Öffnen der Seite übernommen |
+| `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Leiste zentriert die erste Karte; Transfer-Sechseck gleiche Kartengröße; Fokus größer |
 | `test_inspector_map_opens_thumbnail_then_original_on_double_click` | `tests/test_gui_smoke.py` | Inspektor: Vorschau, Doppelklick Original |
 
-### 4.10 Timeline — FA-014, FA-060 bis FA-064, FA-080 bis FA-082
+### 4.10 Timeline — FA-014, FA-060 bis FA-063, FA-080 bis FA-082
 
 | Test | Datei | Prüft |
 | --- | --- | --- |
@@ -280,8 +283,9 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 | `test_cluster_stays_splits_distant_points` | `test_timeline.py` | entfernte Punkte bleiben getrennt |
 | `test_sync_timeline_creates_one_day_per_date` | `test_timeline.py` | zwei Aufnahmedaten → zwei Tage, Auto-Ereignis „1 Medien“ |
 | `test_manual_day_text_survives_resync` | `test_timeline.py` | Titel/Text `origin=manual` bleibt nach Sync |
+| `test_manual_trip_title_survives_resync` | `test_timeline.py` | Reisetitel `origin=manual` bleibt nach Sync |
 | `test_place_suggestion_not_auto_assigned_to_gps_media` | `test_timeline.py` | Import vergibt keinen Ortsnamen; opt-in-Vorschlag und Bestätigen |
-| `test_overnight_and_journal_flags` | `test_timeline.py` | Übernachtung, `used_in_journal`, Titelbild |
+| `test_journal_flags_and_cover` | `test_timeline.py` | `used_in_journal`, Titelbild |
 | `test_youtube_urls_roundtrip_on_day` | `test_timeline.py` | YouTube-URLs am Tag |
 | `test_leonardo_urls_roundtrip_on_day` | `test_timeline.py` | DHV-Leonardo-URLs am Tag |
 | `test_sync_prefills_title_and_notes_from_imported_text` | `test_timeline.py` | TXT/MD füllt leeren Tag |
@@ -354,9 +358,13 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 | `test_entry_widget_separates_tracks_from_media` | `tests/test_gui_smoke.py` | getrennte Galerien |
 | `test_entry_widget_track_can_be_cover` | `tests/test_gui_smoke.py` | T-Chip auf Track |
 | `test_entry_widget_shows_cover_in_heading` | `tests/test_gui_smoke.py` | 72-px-Cover in der Karte |
+| `test_entry_widget_section_has_to_map_button` | `tests/test_gui_smoke.py` | Zur Karte an Abschnitt und Tag |
+| `test_map_view_focus_group_centers_section_card` | `tests/test_gui_smoke.py` | MapView fokussiert die Abschnittskarte |
 | `test_entry_widget_media_tab_filters_favorites` | `tests/test_gui_smoke.py` | Register filtert Favoriten |
 | `test_media_tabs_change_only_on_click` | `tests/test_gui_smoke.py` | Mausrad wechselt keinen Reiter |
 | `test_timeline_global_register_applies_to_all_days` | `tests/test_gui_smoke.py` | globales Register |
+| `test_scroll_offset_to_widget_top_uses_host_not_page_chrome` | `tests/test_gui_smoke.py` | Reveal ignoriert Reisetitel über der Liste |
+| `test_reveal_group_puts_section_top_at_list_top` | `tests/test_gui_smoke.py` | Doppelklick scrollt Abschnittskopf an den Listenanfang |
 | `test_gallery_rating_hotspots` | `tests/test_gui_smoke.py` | Bewertungs-Chips |
 | `test_media_inspector_shows_original_and_ratings` | `tests/test_gui_smoke.py` | Inspektor mit Chips |
 | `test_media_inspector_rotates_display_without_writing_original` | `tests/test_gui_smoke.py` | Drehen, Original-mtime gleich |
@@ -367,6 +375,8 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 | `test_youtube_links_dialog_add_and_delete` | `tests/test_gui_smoke.py` | YouTube-Dialog |
 | `test_parse_map_bridge_url_reads_group_key` | `tests/test_gui_smoke.py` | Karten-Expand-Bridge |
 | `test_map_view_refresh_uses_disk_cache_without_rebuild` | `tests/test_gui_smoke.py` | Karten-Cache; Leiste unter dem WebView |
+| `test_publish_map_display_writes_unique_file` | `tests/test_gui_smoke.py` | WebEngine lädt eine neue HTML-Kopie nach Rebuild |
+| `test_map_view_applies_prepared_result_when_shown` | `tests/test_gui_smoke.py` | Hintergrund-Karte wird beim Öffnen der Seite übernommen |
 | `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Timeline-Leiste zentriert |
 | `test_inspector_map_opens_thumbnail_then_original_on_double_click` | `tests/test_gui_smoke.py` | Vorschau, dann Original |
 | `test_normalize_timeline_media_tab` | `tests/test_workspace.py` | gültige Tab-Namen |
@@ -393,7 +403,7 @@ Stand nach `pytest --collect-only`: **222 Tests** (26. August 2026). Neue Tests 
 - Import bricht bei einer defekten Datei (JPEG oder GPX) nicht ab
 - Projekt anlegen, Schema (Abschnitte, URLs, Cover, Drehung), Wiederöffnen, `settings.toml` und Pfad-Rebase
 - Karte: Titelbild-Kreise je Abschnitt/Resttag, Leiste darunter, Detail mit Tracklinie und Fotomarkern, Foto-Popup, offline ohne OSM
-- Timeline: Tage aus Aufnahmezeit, manuelle Texte bleiben, Ortsvorschläge, Übernachtungen, `used_in_journal`
+- Timeline: Tage aus Aufnahmezeit, manuelle Texte bleiben, Ortsvorschläge, `used_in_journal`
 - Reiseabschnitte, Resttage, Pending-Vorschau, Eintrags-Titelbild (Foto und Track)
 - YouTube- und DHV-Leonardo-URL-Normalisierung
 - Anzeigedrehung (Index, Cachepfad, Re-Import, Inspektor ohne Originalschreiben)
@@ -536,11 +546,15 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | ein runder Kreis je Tag, Transfer oder Aufenthalt; ohne gesetztes Titelbild das erste Listenelement mit GPS; darunter die Timeline-Leiste mit denselben Einträgen |
+| Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | ein runder Kreis je Tag, Transfer oder Aufenthalt; ohne gesetztes Titelbild das erste Foto mit GPS, sonst der erste GPS-Track; darunter die Timeline-Leiste mit denselben Einträgen; **Übersicht aller Kreise** im Ausschnitt |
+| Nach Änderungen in der Timeline Seite **Karte** öffnen | Karte erscheint ohne extra **Karte aktualisieren**, Übersicht aller Kreise |
+| **Karte aktualisieren** | Karte lädt neu und zeigt wieder die Übersicht aller Kreise |
 | Leiste: Tag-Karte | Kalendersymbol oben rechts |
-| Leiste: Transfer-Karte | Kreis, kleiner als die Rechteckkarten |
+| Leiste: Transfer-Karte | liegendes Sechseck, gleiche Größe wie Rechteckkarten; Schrift etwas kleiner |
+| Leiste: Fokus | nur die zentrierte Karte in voller Größe, die anderen etwas kleiner |
+| Leiste: Titelbild | füllt die Kartenfläche ohne sichtbare Ränder |
 | Einfachklick auf eine Leistenkarte | Karte zentriert, Zoom bleibt |
-| Doppelklick auf eine Leistenkarte | Seite **Timeline**, selber Eintrag sichtbar |
+| Doppelklick auf eine Leistenkarte | Seite **Timeline**, derselbe Eintrag mit Kopfzeile oben in der Liste (unter Reisetitel und Werkzeugleiste) |
 | Leiste nach links/rechts ziehen oder Mausrad | Karten verschieben sich horizontal; Klick trifft die Karte, nicht die OSM-Kacheln |
 | Hineinzoomen, dann eine Leistenkarte anklicken | die Karte schwenkt auf diesen Eintrag, **Zoom bleibt** |
 | Doppelklick in die freie (nicht belegte) Kartenfläche | Übersicht: alle Kreise im Ausschnitt |
@@ -548,7 +562,6 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Freie Karte: offene Hand (Verschieben); über einem Kreis: Zeiger (Auswahl) | der Kreis-Klick öffnet das Detail, startet kein Zoomen |
 | Klick auf ein viereckiges Foto-Symbol im Detail | kleines Thumbnail-Popup auf der Karte (nicht sofort der Inspektor) |
 | Doppelklick auf das Thumbnail (oder das Foto-Symbol) | Medieninspektor mit dem **Original**, Blättern/Zoom/Drehen wie in der Timeline |
-| Übernachtung mit GPS in der Datenbank | erscheint nach Klick auf den Tag; ohne Medien als Fallback-Titelbild |
 | Bestätigter Ort | erscheint im Detail des Tags |
 
 ### MT-13 Timeline
@@ -556,6 +569,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Schritt | Erwartung |
 | --- | --- |
 | Nach Import Seite **Timeline** öffnen bzw. **Timeline aktualisieren** | ein Tag je Aufnahmedatum; Fotos am Kalendertag der Aufnahmezeit; Auto-Ereignis mit Medienzähler |
+| Reisetitel oben ändern, **Speichern**, Projekt schließen und öffnen | Titel noch da; erneuter Timeline-Abgleich überschreibt ihn nicht |
 | GPS-Fotos am selben Ort | kein automatischer Ortsname; Tag zeigt das Datum |
 | Ort löschen, erneut abgleichen | kein neuer Auto-Ortsname |
 | Timeline: Titel und Text speichern, Projekt schließen und öffnen | Text noch da, `origin=manual`; erneuter Timeline-Abgleich überschreibt den Text nicht |
@@ -565,6 +579,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | YouTube im ⋯-Menü, Dialog-OK, **ohne** Speichern die Timeline verlassen und verwerfen | YouTube nicht in der DB |
 | DHV-Leonardo extra an gespeichertem Tag, Dialog-OK | sofort in der DB; nie als „DAV“ bezeichnet |
 | Chip **T** auf Foto und auf Track | Cover in der Kartenüberschrift; Video hat kein T |
+| **Zur Karte** an einem gespeicherten Reiseabschnitt oder Tag | Seite **Karte**, passende Leistenkarte fokussiert |
 
 ### MT-18 Medieninspektor
 
@@ -649,7 +664,7 @@ Ein Phasenabschluss ohne grüne Automatisierung gilt als nicht abgenommen.
 
 | Datum | Kommando | Ergebnis |
 | --- | --- | --- |
-| 27.08.2026 | `python -m pytest` im Projekt-venv | 239 bestanden |
+| 27.08.2026 | `python -m pytest` im Projekt-venv | 241 bestanden |
 | 26.08.2026 | `python -m pytest` im Projekt-venv | 222 bestanden |
 | 18.08.2026 | `python -m pytest` im Projekt-venv | 98 bestanden |
 

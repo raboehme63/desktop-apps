@@ -147,11 +147,17 @@ class MapRenderSignals(QObject):
 class MapRenderRunnable(QRunnable):
     """Build or reuse ``cache/map.html`` off the GUI thread."""
 
-    def __init__(self, open_project: OpenProject, *, force: bool = False) -> None:
+    def __init__(
+        self,
+        open_project: OpenProject,
+        *,
+        force: bool = False,
+        host: QObject | None = None,
+    ) -> None:
         super().__init__()
         self.open_project = open_project
         self.force = force
-        self.signals = MapRenderSignals()
+        self.signals = MapRenderSignals(host)
         self.setAutoDelete(True)
 
     def run(self) -> None:

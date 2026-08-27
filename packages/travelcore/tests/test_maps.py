@@ -7,7 +7,7 @@ from igc_fixtures import bozen_points, write_igc
 from jpeg_fixtures import write_jpeg_with_exif
 from sqlalchemy import select
 
-from travelcore.database.models import OvernightStay, Place, Project, SourceFile, Trip, TripDay
+from travelcore.database.models import Place, Project, SourceFile, Trip, TripDay
 from travelcore.database.project_store import OpenProject
 from travelcore.gps.ingest import set_track_external_url
 from travelcore.maps import (
@@ -70,9 +70,7 @@ def test_map_scene_has_track_and_photo(open_project: OpenProject, tmp_path: Path
         assert len(covers) == 1
         assert covers[0].group_key is not None
         assert covers[0].group_key.startswith("loose:")
-        detail = build_map_group_detail(
-            session, open_project.project_id, covers[0].group_key, thumbs
-        )
+        detail = build_map_group_detail(session, open_project.project_id, covers[0].group_key, thumbs)
     photos = [item for item in detail.markers if item.kind == "photo"]
     assert len(photos) == 1
     assert photos[0].subtitle == "platz.jpg"
@@ -82,7 +80,7 @@ def test_map_scene_has_track_and_photo(open_project: OpenProject, tmp_path: Path
     assert detail.polylines[0].points[0] == (46.0, 11.0)
 
 
-def test_map_scene_includes_overnight_and_place(open_project: OpenProject) -> None:
+def test_map_scene_includes_place(open_project: OpenProject) -> None:
     now = datetime(2025, 5, 15, tzinfo=UTC)
     with open_project.session_factory() as session:
         trip = Trip(project_id=open_project.project_id, title="Test", origin="auto")
@@ -91,17 +89,6 @@ def test_map_scene_includes_overnight_and_place(open_project: OpenProject) -> No
         day = TripDay(trip_id=trip.id, day_index=0, date=now, origin="manual")
         session.add(day)
         session.flush()
-        session.add(
-            OvernightStay(
-                day_id=day.id,
-                name="Hotel",
-                location_name="Bozen",
-                stayed_on=now,
-                latitude=46.5,
-                longitude=11.35,
-                origin="manual",
-            )
-        )
         session.add(
             Place(
                 day_id=day.id,
@@ -120,14 +107,11 @@ def test_map_scene_includes_overnight_and_place(open_project: OpenProject) -> No
         covers = [item for item in scene.markers if item.kind == "cover"]
         assert len(covers) == 1
         assert covers[0].group_key is not None
-        detail = build_map_group_detail(
-            session, open_project.project_id, covers[0].group_key, thumbs
-        )
+        detail = build_map_group_detail(session, open_project.project_id, covers[0].group_key, thumbs)
     kinds = {item.kind for item in detail.markers}
-    assert "overnight" in kinds
     assert "place" in kinds
-    stay = next(item for item in detail.markers if item.kind == "overnight")
-    assert stay.label == "Bozen"
+    place = next(item for item in detail.markers if item.kind == "place")
+    assert place.label == "Markt"
 
 
 def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
@@ -284,9 +268,7 @@ def test_map_scene_includes_igc_flight(open_project: OpenProject, tmp_path: Path
         covers = [item for item in overview.markers if item.kind == "cover"]
         assert len(covers) == 1
         assert covers[0].group_key is not None
-        scene = build_map_group_detail(
-            session, open_project.project_id, covers[0].group_key, thumbs
-        )
+        scene = build_map_group_detail(session, open_project.project_id, covers[0].group_key, thumbs)
 
     assert len(scene.polylines) == 1
     flight = scene.polylines[0]
@@ -352,6 +334,7 @@ def test_map_cache_reuses_html_when_inputs_unchanged(
     }
     first = ensure_map_cache(**kwargs)
     assert not first.from_cache
+    assert first.render_seq == 1
     assert first.html_path == map_html_path(open_project.directory)
     assert first.html_path is not None and first.html_path.is_file()
     html = first.html_path.read_text(encoding="utf-8")
@@ -364,6 +347,7 @@ def test_map_cache_reuses_html_when_inputs_unchanged(
     second = ensure_map_cache(**kwargs)
     assert second.from_cache
     assert second.tracks == first.tracks
+    assert second.render_seq == first.render_seq
     assert calls["n"] == 1
 
 
@@ -395,6 +379,9 @@ def test_map_cache_rebuilds_when_provider_or_force_changes(
     assert calls["n"] == 2
     ensure_map_cache(**kwargs, map_provider="offline", force=True)
     assert calls["n"] == 3
+    forced = ensure_map_cache(**kwargs, map_provider="offline", force=True)
+    assert not forced.from_cache
+    assert forced.render_seq >= 2
 
 
 def test_map_cache_empty_project_stamps_without_html(open_project: OpenProject) -> None:
@@ -424,7 +411,13 @@ def test_map_cache_empty_project_stamps_without_html(open_project: OpenProject) 
     assert second.empty
 
 
-def _timeline_photo(name: str, *, file_id: int, latitude: float | None) -> TimelinePhoto:
+def _timeline_photo(
+    name: str,
+    *,
+    file_id: int,
+    latitude: float | None,
+    file_kind: str = "photo",
+) -> TimelinePhoto:
     return TimelinePhoto(
         source_file_id=file_id,
         filename=name,
@@ -436,19 +429,32 @@ def _timeline_photo(name: str, *, file_id: int, latitude: float | None) -> Timel
         is_favorite=False,
         gps_latitude=latitude,
         gps_longitude=11.0 if latitude is not None else None,
-        file_kind="photo",
+        file_kind=file_kind,
     )
 
 
-def test_pick_cover_item_uses_first_list_item_with_gps() -> None:
+def test_pick_cover_item_uses_first_gps_photo() -> None:
     items = [
-        _timeline_photo("ohne.jpg", file_id=1, latitude=None),
-        _timeline_photo("mit.jpg", file_id=2, latitude=46.5),
-        _timeline_photo("spaeter.jpg", file_id=3, latitude=47.0),
+        _timeline_photo("route.gpx", file_id=1, latitude=46.0, file_kind="gps"),
+        _timeline_photo("ohne.jpg", file_id=2, latitude=None),
+        _timeline_photo("mit.jpg", file_id=3, latitude=46.5),
+        _timeline_photo("spaeter.jpg", file_id=4, latitude=47.0),
     ]
     chosen = pick_cover_item(items, None)
     assert chosen is not None
     assert chosen.filename == "mit.jpg"
+
+
+def test_pick_cover_item_uses_first_gps_track_without_photo_fix() -> None:
+    items = [
+        _timeline_photo("ohne.jpg", file_id=1, latitude=None),
+        _timeline_photo("clip.mp4", file_id=2, latitude=46.4, file_kind="video"),
+        _timeline_photo("route.gpx", file_id=3, latitude=46.5, file_kind="gps"),
+        _timeline_photo("later.gpx", file_id=4, latitude=47.0, file_kind="gps"),
+    ]
+    chosen = pick_cover_item(items, None)
+    assert chosen is not None
+    assert chosen.filename == "route.gpx"
 
 
 def test_pick_cover_item_falls_back_when_stored_cover_missing() -> None:
