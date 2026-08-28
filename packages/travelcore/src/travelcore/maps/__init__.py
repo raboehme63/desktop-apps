@@ -1,6 +1,6 @@
 """Map backend abstraction. Folium/Leaflet is one implementation, not the API."""
 
-from travelcore.maps.backend import FoliumMapBackend, MapBackend, leaflet_payload, timeline_js_cards
+from travelcore.maps.backend import FoliumMapBackend, MapBackend
 from travelcore.maps.cache import (
     MapRenderResult,
     ensure_map_cache,
@@ -17,6 +17,7 @@ from travelcore.maps.groups import (
     parse_group_key,
     stay_links_from_entries,
 )
+from travelcore.maps.interaction import interaction_config, leaflet_payload, timeline_js_cards
 from travelcore.maps.scene import (
     COVER_ICON_PX,
     FLIGHT_LINE_MIN_ZOOM,
@@ -51,6 +52,7 @@ __all__ = [
     "downsample_points",
     "ensure_map_cache",
     "is_map_cache_current",
+    "interaction_config",
     "leaflet_payload",
     "map_cache_identity",
     "parse_group_key",

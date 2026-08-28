@@ -22,16 +22,8 @@ def test_leaflet_excerpt_paints_red_track_on_stub_tiles() -> None:
 
     image = render_leaflet_excerpt([list(_TRACK)], 64, fetch=fetch)
     assert image.size == (64, 64)
-    pixels = [
-        image.getpixel((column, row))
-        for row in range(image.height)
-        for column in range(image.width)
-    ]
-    mapped = sum(
-        1
-        for pixel in pixels
-        if all(abs(pixel[index] - _MAP[index]) <= 12 for index in range(3))
-    )
+    pixels = [image.getpixel((column, row)) for row in range(image.height) for column in range(image.width)]
+    mapped = sum(1 for pixel in pixels if all(abs(pixel[index] - _MAP[index]) <= 12 for index in range(3)))
     red = sum(
         1 for pixel in pixels if pixel[0] > 90 and pixel[0] > pixel[1] + 40 and pixel[0] > pixel[2] + 40
     )
@@ -41,11 +33,7 @@ def test_leaflet_excerpt_paints_red_track_on_stub_tiles() -> None:
 
 def test_leaflet_excerpt_falls_back_to_black_without_tiles() -> None:
     image = render_leaflet_excerpt([list(_TRACK)], 64, fetch=lambda _z, _x, _y: None)
-    pixels = [
-        image.getpixel((column, row))
-        for row in range(image.height)
-        for column in range(image.width)
-    ]
+    pixels = [image.getpixel((column, row)) for row in range(image.height) for column in range(image.width)]
     black = sum(1 for pixel in pixels if pixel[0] < 40 and pixel[1] < 40 and pixel[2] < 40)
     red = sum(
         1 for pixel in pixels if pixel[0] > 90 and pixel[0] > pixel[1] + 40 and pixel[0] > pixel[2] + 40

@@ -65,9 +65,7 @@ def list_gallery_items(
         .outerjoin(Photo, Photo.source_file_id == SourceFile.id)
         .where(
             SourceFile.project_id == project_id,
-            SourceFile.file_kind.in_(
-                (FileKind.PHOTO.value, FileKind.VIDEO.value, FileKind.GPS.value)
-            ),
+            SourceFile.file_kind.in_((FileKind.PHOTO.value, FileKind.VIDEO.value, FileKind.GPS.value)),
         )
         .order_by(SourceFile.captured_at.asc().nulls_last(), SourceFile.filename.asc())
     )

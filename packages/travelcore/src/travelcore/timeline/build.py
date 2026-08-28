@@ -324,9 +324,7 @@ def set_cover_photo(session: Session, project_id: int, source_file_id: int) -> N
         )
 
 
-def set_entry_cover(
-    session: Session, kind: str, entity_id: int, source_file_id: int | None
-) -> None:
+def set_entry_cover(session: Session, kind: str, entity_id: int, source_file_id: int | None) -> None:
     """Store one title image per leftover day or section. Compact views come later."""
 
     if kind == "section":

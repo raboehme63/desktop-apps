@@ -37,6 +37,7 @@ def normalize_stay_link_color(value: object) -> str:
         return "#" + "".join(char * 2 for char in text[1:]).lower()
     return text.lower()
 
+
 _HEADER = """# Reisetagebuch – Projekteinstellungen
 # Liegt im Projektordner. Änderungen auch über Projekt → Einstellungen.
 

@@ -152,6 +152,7 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
         center=(46.75, 11.6),
     )
     text = FoliumMapBackend().render(scene, tmp_path / "overview.html").read_text(encoding="utf-8")
+    assert "window.traveljournalConfig" in text
     assert "data-group-key" in text
     assert "section:1" in text
     assert "border-radius: 50%" in text
@@ -264,7 +265,7 @@ def test_overview_offline_omits_satellite(tmp_path: Path) -> None:
 
 
 def test_timeline_js_cards_uses_relative_cover(tmp_path: Path) -> None:
-    from travelcore.maps.backend import timeline_js_cards
+    from travelcore.maps import timeline_js_cards
     from travelcore.maps.groups import MapTimelineCard
 
     html_path = tmp_path / "cache" / "map.html"
@@ -291,7 +292,7 @@ def test_timeline_js_cards_uses_relative_cover(tmp_path: Path) -> None:
 
 
 def test_leaflet_payload_includes_source_file_id(tmp_path: Path) -> None:
-    from travelcore.maps.backend import leaflet_payload
+    from travelcore.maps import leaflet_payload
 
     html_path = tmp_path / "map.html"
     html_path.write_text("<html></html>", encoding="utf-8")
@@ -336,6 +337,38 @@ def test_leaflet_payload_includes_source_file_id(tmp_path: Path) -> None:
     assert headed["heading"] == 90.0
     assert headed["fov"] == 63.0
     assert headed["sort_status"] == "reserve"
+
+
+def test_interaction_config_is_declarative_payload(tmp_path: Path) -> None:
+    from travelcore.maps import interaction_config
+
+    html_path = tmp_path / "map.html"
+    html_path.write_text("<html></html>", encoding="utf-8")
+    scene = MapScene(
+        markers=(
+            MapMarker(
+                latitude=46.0,
+                longitude=11.0,
+                label="Tag",
+                kind="cover",
+                group_key="loose:1",
+            ),
+        ),
+        stay_links=(
+            StayLink(
+                start=(46.0, 11.0),
+                end=(47.0, 12.0),
+                start_key="loose:1",
+                end_key="loose:2",
+            ),
+        ),
+        center=(46.5, 11.5),
+    )
+    config = interaction_config(scene, html_path, link_color="#ffffff")
+    assert config["cover_px"] == COVER_ICON_PX
+    assert config["stay_links"][0]["start_key"] == "loose:1"
+    assert "detail" in config
+    assert config["link_color"] == "#ffffff"
 
 
 def test_detail_stacks_nearby_photos_until_zoom_17(tmp_path: Path) -> None:

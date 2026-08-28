@@ -5,7 +5,8 @@ from __future__ import annotations
 import logging
 import time
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -28,7 +29,7 @@ from travelcore.database.models import (
 from travelcore.exceptions import MetadataError, ProjectError
 from travelcore.gps.ingest import ingest_gps_tracks
 from travelcore.gps.match import DERIVED_SOURCES
-from travelcore.media.extract import ExtractRequest, FileFacts, extract_many
+from travelcore.media.extract import ExtractRequest, FileFacts, extract_many, init_extract_worker
 from travelcore.media.hashing import sha256_file
 from travelcore.media.scanner import ScannedFile, is_skipped_source_path, scan_source_directory
 from travelcore.media.thumbnails import ensure_photo_and_video_rows, generate_project_thumbnails
@@ -37,7 +38,8 @@ from travelcore.metadata.apply import apply_metadata
 from travelcore.metadata.composite import DefaultMetadataProvider
 from travelcore.metadata.provider import MetadataProvider
 from travelcore.metadata.time import filesystem_captured_time
-from travelcore.parallel import resolve_worker_count
+from travelcore.parallel import WorkerPool, resolve_worker_count
+from travelcore.pipeline import PipelineStage, run_pipeline
 from travelcore.project_settings import ProjectSettings, load_project_settings, update_source_root
 
 logger = logging.getLogger(__name__)
@@ -74,6 +76,36 @@ class IndexResult:
     by_kind: dict[str, int] = field(default_factory=dict)
 
 
+@dataclass
+class IndexContext:
+    """Shared state for one import run. Stages read and write this object."""
+
+    indexer: FileIndexer
+    session: Session
+    project: Project
+    source_root: Path
+    result: IndexResult
+    workers: int
+    pool: WorkerPool | None = None
+    progress: ProgressCallback | None = None
+    checkpoint: CheckpointCallback | None = None
+    checkpoint_every: int = _DEFAULT_CHECKPOINT_EVERY
+    project_dir: Path | None = None
+    generate_thumbnails: bool = True
+    gps_delta: int = 120
+    scanned_files: list[ScannedFile] = field(default_factory=list)
+    existing: dict[str, SourceFile] = field(default_factory=dict)
+    facts_by_path: dict[str, FileFacts] = field(default_factory=dict)
+    unchanged_gps_ids: set[int] = field(default_factory=set)
+    stored: ProjectSettings | None = None
+
+
+def default_index_stages() -> tuple[PipelineStage, ...]:
+    """TravelJournal import: scan, extract, persist, GPS, optional previews."""
+
+    return (ScanStage(), ExtractStage(), PersistStage(), GpsIngestStage(), PreviewStage())
+
+
 class FileIndexer:
     """Create or refresh the central source-file index.
 
@@ -88,12 +120,16 @@ class FileIndexer:
         metadata_provider: MetadataProvider | None = None,
         settings: AppSettings | None = None,
         max_workers: int | None = None,
+        pool: WorkerPool | None = None,
+        stages: Sequence[PipelineStage] | None = None,
     ) -> None:
         self.compute_hash = compute_hash
         self._owns_provider = metadata_provider is None
         self.metadata_provider = metadata_provider or DefaultMetadataProvider.from_environment()
         self.settings = settings or AppSettings()
         self.max_workers = max_workers
+        self._pool = pool
+        self._stages = stages
 
     def index(
         self,
@@ -122,126 +158,33 @@ class FileIndexer:
             except (OSError, ProjectError) as exc:
                 logger.warning("Project settings not updated: %s", exc)
 
-        if progress is not None:
-            progress(
-                IndexProgress(
-                    current=0,
-                    total=0,
-                    path=str(source_root),
-                    message="Verzeichnis wird durchsucht…",
-                )
-            )
-        scanned_files = list(scan_source_directory(source_root))
-        total = len(scanned_files)
-        result = IndexResult(scanned=total)
-        counts: Counter[str] = Counter()
         workers = self._resolve_workers(stored)
-        if progress is not None:
-            found = f"{total} Dateien gefunden" if total else "Keine unterstützten Dateien gefunden"
-            progress(
-                IndexProgress(
-                    current=0,
-                    total=total,
-                    path=str(source_root),
-                    message=found,
-                )
-            )
-
-        existing = {
-            row.path: row
-            for row in session.scalars(select(SourceFile).where(SourceFile.project_id == project.id))
-        }
-        _drop_skipped_source_files(session, existing)
-
-        last_checkpoint = 0.0
-        interval = max(checkpoint_every, 1)
-
-        def maybe_checkpoint(index: int) -> None:
-            nonlocal last_checkpoint
-            if checkpoint is None or total == 0:
-                return
-            now = time.monotonic()
-            count_due = index == 1 or index == total or index % interval == 0
-            time_due = now - last_checkpoint >= _CHECKPOINT_MIN_SECONDS
-            if not count_due and not time_due:
-                return
-            session.flush()
-            checkpoint()
-            last_checkpoint = now
-
+        pool_cm = (
+            nullcontext(self._pool)
+            if self._pool is not None
+            else WorkerPool(max_workers=workers, initializer=init_extract_worker)
+        )
+        ctx = IndexContext(
+            indexer=self,
+            session=session,
+            project=project,
+            source_root=source_root,
+            result=IndexResult(),
+            workers=workers,
+            pool=self._pool,
+            progress=progress,
+            checkpoint=checkpoint,
+            checkpoint_every=checkpoint_every,
+            project_dir=project_dir,
+            generate_thumbnails=generate_thumbnails,
+            gps_delta=gps_delta,
+            stored=stored,
+        )
         try:
-            facts_by_path = self._extract_facts(scanned_files, existing, workers, progress)
-            unchanged_gps_ids: set[int] = set()
-
-            for index, scanned in enumerate(scanned_files, start=1):
-                path_str = str(scanned.path)
-                if progress is not None:
-                    progress(
-                        IndexProgress(
-                            current=index,
-                            total=total,
-                            path=path_str,
-                            message=f"Indexiere {scanned.filename}",
-                        )
-                    )
-                try:
-                    action, metadata_error = self._upsert_file(
-                        session,
-                        project,
-                        scanned,
-                        existing.get(path_str),
-                        facts_by_path.get(path_str),
-                    )
-                    if action == "indexed":
-                        result.indexed += 1
-                    elif action == "updated":
-                        result.updated += 1
-                    else:
-                        result.skipped_unchanged += 1
-                        row = existing.get(path_str)
-                        if (
-                            scanned.kind == FileKind.GPS
-                            and row is not None
-                            and row.id is not None
-                            and row.sha256
-                            and row.sha256 == sha256_file(scanned.path)
-                        ):
-                            unchanged_gps_ids.add(row.id)
-                    if action in {"indexed", "updated"} and scanned.kind in {
-                        FileKind.PHOTO,
-                        FileKind.VIDEO,
-                    }:
-                        result.media_changed = True
-                    if metadata_error:
-                        result.errors += 1
-                    counts[scanned.kind.value] += 1
-                except OSError as exc:
-                    result.errors += 1
-                    logger.exception("Failed to index %s", path_str)
-                    session.add(
-                        FileError(
-                            project_id=project.id,
-                            path=path_str,
-                            stage="index",
-                            message=str(exc),
-                        )
-                    )
-                maybe_checkpoint(index)
-
-            result.by_kind = dict(counts)
-            session.flush()
-            self._ingest_gps(
-                session,
-                project,
-                result,
-                progress,
-                gps_delta,
-                skip_unchanged_ids=unchanged_gps_ids,
-            )
-            session.flush()
-            if generate_thumbnails:
-                self.build_previews(session, project, result, progress, project_dir)
-            return result
+            with pool_cm as pool:
+                ctx.pool = pool
+                run_pipeline(ctx, self._stages or default_index_stages())
+            return ctx.result
         finally:
             if self._owns_provider:
                 closer = getattr(self.metadata_provider, "close", None)
@@ -254,6 +197,7 @@ class FileIndexer:
         existing: dict[str, SourceFile],
         workers: int,
         progress: ProgressCallback | None,
+        pool: WorkerPool | None = None,
     ) -> dict[str, FileFacts]:
         requests: list[ExtractRequest] = []
         chunk = self.settings.hash_chunk_size
@@ -262,6 +206,8 @@ class FileIndexer:
             row = existing.get(path_str)
             unchanged = row is not None and _unchanged(row, scanned)
             need_hash = self.compute_hash and not unchanged
+            if unchanged and scanned.kind == FileKind.GPS and self.compute_hash:
+                need_hash = True
             need_meta = _needs_metadata(row, scanned)
             if not need_hash and not need_meta:
                 continue
@@ -294,6 +240,7 @@ class FileIndexer:
             provider=self.metadata_provider,
             max_workers=workers,
             progress=on_progress,
+            pool=pool,
         )
 
     def _resolve_workers(self, stored: ProjectSettings | None) -> int:
@@ -313,6 +260,7 @@ class FileIndexer:
         progress: ProgressCallback | None,
         max_delta_seconds: int | None = None,
         skip_unchanged_ids: set[int] | None = None,
+        pool: WorkerPool | None = None,
     ) -> None:
         def on_gps_progress(current: int, total: int, path: str, stage: str = "track") -> None:
             if progress is None:
@@ -341,6 +289,8 @@ class FileIndexer:
             max_delta_seconds=max_delta_seconds or self.settings.gps_match_max_delta_seconds,
             progress=on_gps_progress,
             skip_unchanged_ids=skip_unchanged_ids,
+            max_workers=self.max_workers,
+            pool=pool,
         )
         result.tracks_ingested = gps_result.tracks
         result.tracks_skipped = gps_result.skipped
@@ -356,6 +306,7 @@ class FileIndexer:
         result: IndexResult,
         progress: ProgressCallback | None,
         project_dir: Path | None,
+        pool: WorkerPool | None = None,
     ) -> None:
         folder = project_dir or _project_dir_from_session(session)
         if folder is None:
@@ -391,6 +342,7 @@ class FileIndexer:
             size=self.settings.default_thumbnail_size,
             progress=on_thumb_progress,
             max_workers=workers,
+            pool=pool,
         )
         result.thumbnails_written = thumbs.written
         result.thumbnails_skipped = thumbs.skipped
@@ -407,10 +359,19 @@ class FileIndexer:
             raise OSError(facts.io_error)
 
         if existing is not None and _unchanged(existing, scanned):
-            existing.status = "ok"
-            existing.error_message = None
-            metadata_error = self._apply_facts(session, project, existing, scanned, facts)
-            return "skipped", metadata_error
+            facts_hash = facts.sha256 if facts is not None else None
+            if (
+                scanned.kind == FileKind.GPS
+                and facts_hash
+                and existing.sha256
+                and facts_hash != existing.sha256
+            ):
+                pass
+            else:
+                existing.status = "ok"
+                existing.error_message = None
+                metadata_error = self._apply_facts(session, project, existing, scanned, facts)
+                return "skipped", metadata_error
 
         digest = _digest_from_facts(facts, scanned, self.compute_hash)
         now = datetime.now(tz=UTC)
@@ -507,6 +468,168 @@ class FileIndexer:
                 row.timezone_name = None
                 row.timezone_unknown = True
             return True
+
+
+class ScanStage:
+    name = "scan"
+
+    def run(self, ctx: IndexContext) -> None:
+        if ctx.progress is not None:
+            ctx.progress(
+                IndexProgress(
+                    current=0,
+                    total=0,
+                    path=str(ctx.source_root),
+                    message="Verzeichnis wird durchsucht…",
+                )
+            )
+        ctx.scanned_files = list(scan_source_directory(ctx.source_root))
+        ctx.result.scanned = len(ctx.scanned_files)
+        if ctx.progress is not None:
+            total = ctx.result.scanned
+            found = f"{total} Dateien gefunden" if total else "Keine unterstützten Dateien gefunden"
+            ctx.progress(
+                IndexProgress(
+                    current=0,
+                    total=total,
+                    path=str(ctx.source_root),
+                    message=found,
+                )
+            )
+        ctx.existing = {
+            row.path: row
+            for row in ctx.session.scalars(select(SourceFile).where(SourceFile.project_id == ctx.project.id))
+        }
+        _drop_skipped_source_files(ctx.session, ctx.existing)
+
+
+class ExtractStage:
+    name = "extract"
+
+    def run(self, ctx: IndexContext) -> None:
+        ctx.facts_by_path = ctx.indexer._extract_facts(
+            ctx.scanned_files,
+            ctx.existing,
+            ctx.workers,
+            ctx.progress,
+            pool=ctx.pool,
+        )
+
+
+class PersistStage:
+    name = "persist"
+
+    def run(self, ctx: IndexContext) -> None:
+        session = ctx.session
+        project = ctx.project
+        result = ctx.result
+        existing = ctx.existing
+        facts_by_path = ctx.facts_by_path
+        scanned_files = ctx.scanned_files
+        total = len(scanned_files)
+        counts: Counter[str] = Counter()
+        last_checkpoint = 0.0
+        interval = max(ctx.checkpoint_every, 1)
+
+        def maybe_checkpoint(index: int) -> None:
+            nonlocal last_checkpoint
+            if ctx.checkpoint is None or total == 0:
+                return
+            now = time.monotonic()
+            count_due = index == 1 or index == total or index % interval == 0
+            time_due = now - last_checkpoint >= _CHECKPOINT_MIN_SECONDS
+            if not count_due and not time_due:
+                return
+            session.flush()
+            ctx.checkpoint()
+            last_checkpoint = now
+
+        for index, scanned in enumerate(scanned_files, start=1):
+            path_str = str(scanned.path)
+            if ctx.progress is not None:
+                ctx.progress(
+                    IndexProgress(
+                        current=index,
+                        total=total,
+                        path=path_str,
+                        message=f"Indexiere {scanned.filename}",
+                    )
+                )
+            try:
+                action, metadata_error = ctx.indexer._upsert_file(
+                    session,
+                    project,
+                    scanned,
+                    existing.get(path_str),
+                    facts_by_path.get(path_str),
+                )
+                if action == "indexed":
+                    result.indexed += 1
+                elif action == "updated":
+                    result.updated += 1
+                else:
+                    result.skipped_unchanged += 1
+                    row = existing.get(path_str)
+                    if scanned.kind == FileKind.GPS and row is not None and row.id is not None:
+                        facts = facts_by_path.get(path_str)
+                        digest = facts.sha256 if facts is not None else row.sha256
+                        if digest and digest == row.sha256:
+                            ctx.unchanged_gps_ids.add(row.id)
+                if action in {"indexed", "updated"} and scanned.kind in {
+                    FileKind.PHOTO,
+                    FileKind.VIDEO,
+                }:
+                    result.media_changed = True
+                if metadata_error:
+                    result.errors += 1
+                counts[scanned.kind.value] += 1
+            except OSError as exc:
+                result.errors += 1
+                logger.exception("Failed to index %s", path_str)
+                session.add(
+                    FileError(
+                        project_id=project.id,
+                        path=path_str,
+                        stage="index",
+                        message=str(exc),
+                    )
+                )
+            maybe_checkpoint(index)
+
+        result.by_kind = dict(counts)
+        session.flush()
+
+
+class GpsIngestStage:
+    name = "gps"
+
+    def run(self, ctx: IndexContext) -> None:
+        ctx.indexer._ingest_gps(
+            ctx.session,
+            ctx.project,
+            ctx.result,
+            ctx.progress,
+            ctx.gps_delta,
+            skip_unchanged_ids=ctx.unchanged_gps_ids,
+            pool=ctx.pool,
+        )
+        ctx.session.flush()
+
+
+class PreviewStage:
+    name = "preview"
+
+    def run(self, ctx: IndexContext) -> None:
+        if not ctx.generate_thumbnails:
+            return
+        ctx.indexer.build_previews(
+            ctx.session,
+            ctx.project,
+            ctx.result,
+            ctx.progress,
+            ctx.project_dir,
+            pool=ctx.pool,
+        )
 
 
 def _digest_from_facts(facts: FileFacts | None, scanned: ScannedFile, compute_hash: bool) -> str | None:

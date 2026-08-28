@@ -5,7 +5,9 @@ from __future__ import annotations
 import io
 import logging
 import math
+import sys
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,7 +26,7 @@ from travelcore.media.heic_win import decode_windows_thumbnail
 from travelcore.media.heif_items import extract_heif_jpeg_item
 from travelcore.media.orientation import apply_display_rotation, normalize_rotation_degrees
 from travelcore.media.types import GPS_EXTENSIONS, PHOTO_EXTENSIONS, VIDEO_EXTENSIONS, FileKind
-from travelcore.parallel import map_in_threads
+from travelcore.parallel import WorkerPool, map_in_processes
 from travelcore.project_settings import load_project_settings
 
 logger = logging.getLogger(__name__)
@@ -136,9 +138,7 @@ def _write_track_thumbnail(
     if not segments:
         return None
     try:
-        image = _render_track_image(
-            segments, size, tile_cache=tile_cache, use_map_tiles=use_map_tiles
-        )
+        image = _render_track_image(segments, size, tile_cache=tile_cache, use_map_tiles=use_map_tiles)
         destination.parent.mkdir(parents=True, exist_ok=True)
         image.save(destination, format="JPEG", quality=90, optimize=True)
     except (OSError, ValueError) as exc:
@@ -232,6 +232,7 @@ def generate_project_thumbnails(
     size: int = 256,
     progress: ProgressFn | None = None,
     max_workers: int | None = None,
+    pool: WorkerPool | None = None,
 ) -> ThumbnailResult:
     """Create missing thumbnails for photos, videos, and GPS tracks. Originals are read-only."""
 
@@ -240,9 +241,7 @@ def generate_project_thumbnails(
         session.scalars(
             select(SourceFile).where(
                 SourceFile.project_id == project.id,
-                SourceFile.file_kind.in_(
-                    (FileKind.PHOTO.value, FileKind.VIDEO.value, FileKind.GPS.value)
-                ),
+                SourceFile.file_kind.in_((FileKind.PHOTO.value, FileKind.VIDEO.value, FileKind.GPS.value)),
             )
         )
     )
@@ -281,23 +280,18 @@ def generate_project_thumbnails(
     total = max(len(rows), 1)
     done = result.skipped
 
-    def on_progress(completed: int, _job_total: int) -> None:
-        if progress is None:
-            return
-        current = min(done + completed, total)
-        path = jobs[min(completed, len(jobs)) - 1].source if jobs and completed else ""
-        progress(current, total, path)
-
     if not jobs:
         if progress is not None:
             progress(total, total, "")
         return result
 
-    outcomes = map_in_threads(
-        render_thumbnail_batch,
+    outcomes = _render_thumbnail_jobs(
         jobs,
         max_workers=max_workers,
-        progress=on_progress,
+        pool=pool,
+        progress=progress,
+        total=total,
+        skipped=done,
     )
     for _source, _destination, ok in outcomes:
         if ok:
@@ -305,6 +299,67 @@ def generate_project_thumbnails(
         else:
             result.failed += 1
     return result
+
+
+def _needs_com_preview(source: str) -> bool:
+    """True when Windows Shell/WIC must run on an STA thread, not in a process pool."""
+
+    if sys.platform != "win32":
+        return False
+    suffix = Path(source).suffix.lower()
+    return suffix in _HEIC_SUFFIXES or suffix in _RAW_SUFFIXES or suffix in VIDEO_EXTENSIONS
+
+
+def _init_com_thread() -> None:
+    from travelcore.media.heic_win import ensure_com
+
+    ensure_com()
+
+
+def _render_thumbnail_jobs(
+    jobs: list[ThumbnailJob],
+    *,
+    max_workers: int | None,
+    pool: WorkerPool | None,
+    progress: ProgressFn | None,
+    total: int,
+    skipped: int,
+) -> list[tuple[str, str, bool]]:
+    cpu_jobs = [job for job in jobs if not _needs_com_preview(job.source)]
+    com_jobs = [job for job in jobs if _needs_com_preview(job.source)]
+    outcomes: list[tuple[str, str, bool]] = []
+
+    def on_cpu(completed: int, _job_total: int) -> None:
+        if progress is None:
+            return
+        path = cpu_jobs[min(completed, len(cpu_jobs)) - 1].source if cpu_jobs and completed else ""
+        progress(min(skipped + completed, total), total, path)
+
+    com_executor: ThreadPoolExecutor | None = None
+    com_future = None
+    if com_jobs:
+        com_executor = ThreadPoolExecutor(max_workers=1, initializer=_init_com_thread)
+        com_future = com_executor.submit(render_thumbnail_batch, tuple(com_jobs))
+    try:
+        if cpu_jobs:
+            outcomes.extend(
+                map_in_processes(
+                    render_thumbnail_batch,
+                    cpu_jobs,
+                    max_workers=max_workers,
+                    progress=on_cpu,
+                    pool=pool,
+                )
+            )
+        if com_future is not None:
+            outcomes.extend(com_future.result())
+            if progress is not None:
+                path = com_jobs[-1].source if com_jobs else ""
+                progress(min(skipped + len(jobs), total), total, path)
+    finally:
+        if com_executor is not None:
+            com_executor.shutdown(wait=True)
+    return outcomes
 
 
 def _track_tile_cache(thumbs_dir: Path) -> tuple[str, bool]:

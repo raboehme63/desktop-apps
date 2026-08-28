@@ -234,9 +234,7 @@ class GalleryView(QListView):
         self._show_cover = show_cover
 
     def set_multi_select(self, enabled: bool) -> None:
-        mode = (
-            QListView.SelectionMode.MultiSelection if enabled else QListView.SelectionMode.SingleSelection
-        )
+        mode = QListView.SelectionMode.MultiSelection if enabled else QListView.SelectionMode.SingleSelection
         self.setSelectionMode(mode)
 
     def set_expand_to_fit(self, enabled: bool) -> None:

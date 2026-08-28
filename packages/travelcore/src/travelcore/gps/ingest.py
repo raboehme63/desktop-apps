@@ -8,12 +8,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, insert, select
 from sqlalchemy.orm import Session
 
 from travelcore.database.models import FileError, GpsPoint, GpsTrack, Project, SourceFile
-from travelcore.exceptions import GpsError
-from travelcore.gps.igc import parse_igc
 from travelcore.gps.match import (
     DERIVED_SOURCES,
     PROTECTED_SOURCES,
@@ -26,8 +24,10 @@ from travelcore.gps.match import (
     match_position,
     media_time_utc,
 )
-from travelcore.gps.parse import ParsedTrack, parse_gpx
+from travelcore.gps.parse import ParsedTrack
+from travelcore.gps.parsers import TrackParseOutcome, parse_track_batch, parser_for_path
 from travelcore.gps.types import GpsFix, TrackPoint
+from travelcore.parallel import WorkerPool, map_in_processes
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,6 @@ ProgressFn = Callable[[int, int, str, str], None]
 SOURCE_TRACK = "gpx_track"
 SOURCE_IGC_TRACK = "igc_track"
 _TRACK_POSITION_SOURCES = {SOURCE_TRACK, SOURCE_IGC_TRACK}
-_TRACK_SUFFIXES = {".gpx": parse_gpx, ".igc": parse_igc}
 REPRESENTATIVE_POINT_LIMIT = 20
 TRACK_POSITION_CONFIDENCE = 0.9
 
@@ -67,6 +66,8 @@ def ingest_gps_tracks(
     max_delta_seconds: int = 120,
     progress: ProgressFn | None = None,
     skip_unchanged_ids: set[int] | frozenset[int] | None = None,
+    max_workers: int | None = None,
+    pool: WorkerPool | None = None,
 ) -> GpsIngestResult:
     """Parse GPX and IGC source files, store points, and match media without EXIF GPS.
 
@@ -74,6 +75,7 @@ def ingest_gps_tracks(
     nearby geotagged photos, then GPX, then IGC.
 
     Unchanged source files that already have stored points are not parsed again.
+    Parsing runs in worker processes; SQLite writes stay on this thread.
     """
 
     result = GpsIngestResult()
@@ -87,33 +89,38 @@ def ingest_gps_tracks(
         )
     )
     total = max(len(gps_rows), 1)
+    pending: list[SourceFile] = []
     for index, row in enumerate(gps_rows, start=1):
         skip_this = row.id in skip_ids and _source_has_stored_points(session, row.id)
-        if progress is not None:
-            progress(index, total, row.path, "skip" if skip_this else "track")
         if skip_this:
+            if progress is not None:
+                progress(index, total, row.path, "skip")
             result.skipped += 1
             continue
-        suffix = Path(row.path).suffix.lower()
-        parser = _TRACK_SUFFIXES.get(suffix)
-        if parser is None:
+        if parser_for_path(Path(row.path)) is None:
             continue
-        try:
-            parsed = parser(Path(row.path))
-        except GpsError as exc:
-            stage = "igc" if suffix == ".igc" else "gpx"
-            logger.warning("%s parse failed for %s: %s", stage.upper(), row.path, exc)
+        pending.append(row)
+
+    parsed_by_path = _parse_pending_tracks(pending, max_workers=max_workers, pool=pool)
+    for index, row in enumerate(pending, start=1):
+        if progress is not None:
+            progress(index, total, row.path, "track")
+        outcome = parsed_by_path.get(row.path)
+        if outcome is None:
+            continue
+        if outcome.error:
+            logger.warning("%s parse failed for %s: %s", outcome.stage.upper(), row.path, outcome.error)
             session.add(
                 FileError(
                     project_id=project.id,
                     path=row.path,
-                    stage=stage,
-                    message=str(exc),
+                    stage=outcome.stage,
+                    message=outcome.error,
                 )
             )
             result.errors += 1
             continue
-        stored = _replace_tracks(session, project, row, parsed)
+        stored = _replace_tracks(session, project, row, outcome.tracks)
         result.tracks += stored[0]
         result.points += stored[1]
 
@@ -152,6 +159,24 @@ def ingest_gps_tracks(
     if progress is not None:
         progress(media_total, media_total, "", "done")
     return result
+
+
+def _parse_pending_tracks(
+    pending: list[SourceFile],
+    *,
+    max_workers: int | None,
+    pool: WorkerPool | None,
+) -> dict[str, TrackParseOutcome]:
+    if not pending:
+        return {}
+    paths = [row.path for row in pending]
+    outcomes = map_in_processes(
+        parse_track_batch,
+        paths,
+        max_workers=max_workers,
+        pool=pool,
+    )
+    return {item.path: item for item in outcomes}
 
 
 def _should_match(row: SourceFile) -> bool:
@@ -200,19 +225,20 @@ def _replace_tracks(
         )
         session.add(track)
         session.flush()
-        session.add_all(
+        session.execute(
+            insert(GpsPoint),
             [
-                GpsPoint(
-                    track_id=track.id,
-                    segment_id=point.segment_id,
-                    latitude=point.latitude,
-                    longitude=point.longitude,
-                    altitude=point.altitude,
-                    recorded_at=point.recorded_at,
-                    sequence_index=point.sequence_index,
-                )
+                {
+                    "track_id": track.id,
+                    "segment_id": point.segment_id,
+                    "latitude": point.latitude,
+                    "longitude": point.longitude,
+                    "altitude": point.altitude,
+                    "recorded_at": point.recorded_at,
+                    "sequence_index": point.sequence_index,
+                }
                 for point in item.points
-            ]
+            ],
         )
         track_count += 1
         point_count += len(item.points)

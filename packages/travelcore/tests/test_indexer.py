@@ -452,6 +452,37 @@ def test_indexer_skips_unchanged_gpx_track_rewrite(open_project: OpenProject, tm
     assert same_ids == point_ids
 
 
+def test_indexer_does_not_rehash_unchanged_gpx(
+    open_project: OpenProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_gpx(
+        source / "spur.gpx",
+        [
+            (46.0, 11.0, 260.0, "2025-05-15T13:31:50Z"),
+            (46.2, 11.2, 280.0, "2025-05-15T13:32:10Z"),
+        ],
+    )
+    indexer = FileIndexer()
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        indexer.index(session, project, source, generate_thumbnails=False)
+        session.commit()
+
+    def fail_hash(_path: Path, *, chunk_size: int = 0) -> str:
+        raise AssertionError("unchanged GPS must not be hashed on the writer thread")
+
+    monkeypatch.setattr("travelcore.media.indexer.sha256_file", fail_hash)
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        second = FileIndexer().index(session, project, source, generate_thumbnails=False)
+        session.commit()
+    assert second.tracks_skipped == 1
+
+
 def test_indexer_untimed_gpx_sets_position_without_date(open_project: OpenProject, tmp_path: Path) -> None:
     source = tmp_path / "media"
     source.mkdir()

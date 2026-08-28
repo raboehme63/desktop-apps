@@ -23,6 +23,7 @@ class AppSettings(BaseSettings):
             return None
         text = str(value).strip()
         return text or None
+
     default_thumbnail_size: int = Field(default=256, ge=64, le=1024)
     hash_chunk_size: int = Field(default=1024 * 1024, ge=4096)
     stay_radius_meters: float = Field(default=150.0, gt=0)

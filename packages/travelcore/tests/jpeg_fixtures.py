@@ -56,9 +56,7 @@ def write_jpeg_with_exif(
         exif_ifd[Base.FocalLengthIn35mmFilm] = focal_length_35mm
         exif[Base.FocalLengthIn35mmFilm] = focal_length_35mm
     need_gps = (
-        (latitude is not None and longitude is not None)
-        or heading is not None
-        or dest_bearing is not None
+        (latitude is not None and longitude is not None) or heading is not None or dest_bearing is not None
     )
     if need_gps:
         gps_ifd = exif.get_ifd(IFD.GPSInfo)
@@ -100,4 +98,3 @@ def jpeg_exif_app1(path: Path) -> bytes:
             return payload
         offset += 2 + length
     raise ValueError(f"{path} has no EXIF APP1 segment")
-

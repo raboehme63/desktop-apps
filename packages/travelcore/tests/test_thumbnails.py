@@ -232,9 +232,7 @@ def _assert_red_on_map(path: Path, *, size: int) -> None:
         assert image.size == (size, size)
         assert image.format == "JPEG"
         pixels = [
-            image.getpixel((column, row))
-            for row in range(image.height)
-            for column in range(image.width)
+            image.getpixel((column, row)) for row in range(image.height) for column in range(image.width)
         ]
     mapped = sum(1 for pixel in pixels if _near_color(pixel, map_color, delta=40))
     red = sum(
@@ -249,9 +247,7 @@ def _assert_red_on_black(path: Path, *, size: int) -> None:
         assert image.size == (size, size)
         assert image.format == "JPEG"
         pixels = [
-            image.getpixel((column, row))
-            for row in range(image.height)
-            for column in range(image.width)
+            image.getpixel((column, row)) for row in range(image.height) for column in range(image.width)
         ]
     black = sum(1 for pixel in pixels if pixel[0] < 40 and pixel[1] < 40 and pixel[2] < 40)
     red = sum(

@@ -272,7 +272,7 @@ class Workspace:
 
         opened = self._require_open()
         thumbs, size = self._thumbs_and_size()
-        from travelcore.maps.backend import leaflet_payload
+        from travelcore.maps import leaflet_payload
         from travelcore.maps.groups import build_map_group_detail, resolve_map_group
 
         html_path = opened.directory / "cache" / "map.html"

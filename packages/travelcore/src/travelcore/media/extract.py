@@ -16,7 +16,7 @@ from travelcore.media.hashing import sha256_file
 from travelcore.metadata.composite import DefaultMetadataProvider
 from travelcore.metadata.provider import CapturedTime, MediaMetadata, MetadataProvider
 from travelcore.metadata.time import filesystem_captured_time
-from travelcore.parallel import map_in_processes, resolve_worker_count
+from travelcore.parallel import WorkerPool, map_in_processes, resolve_worker_count
 
 ProgressFn = Callable[[int, int, str], None]
 
@@ -64,6 +64,7 @@ def extract_many(
     provider: MetadataProvider | None = None,
     max_workers: int | None = None,
     progress: ProgressFn | None = None,
+    pool: WorkerPool | None = None,
 ) -> dict[str, FileFacts]:
     """Extract facts for many files. SQLite is not used here."""
 
@@ -85,6 +86,7 @@ def extract_many(
             max_workers=workers,
             progress=on_progress,
             initializer=_init_extract_worker,
+            pool=pool,
         )
     else:
         active = provider or _process_provider()
@@ -130,6 +132,9 @@ def _process_provider() -> DefaultMetadataProvider:
 
 def _init_extract_worker() -> None:
     atexit.register(_shutdown_extract_worker)
+
+
+init_extract_worker = _init_extract_worker
 
 
 def _shutdown_extract_worker() -> None:

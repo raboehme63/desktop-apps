@@ -80,6 +80,12 @@ def decode_heic_preview(path: Path, *, size: int = 256) -> Image.Image | None:
     return decode_windows_thumbnail(path, size=size)
 
 
+def ensure_com() -> None:
+    """Initialize COM on the current thread (STA). Safe to call more than once."""
+
+    _ensure_com()
+
+
 def decode_windows_thumbnail(path: Path, *, size: int = 256) -> Image.Image | None:
     """Return a Shell/WIC thumbnail for any path Windows can preview."""
 

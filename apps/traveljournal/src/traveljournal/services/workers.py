@@ -15,6 +15,7 @@ from travelcore.exceptions import ProjectError
 from travelcore.maps import ensure_map_cache
 from travelcore.media.indexer import FileIndexer, IndexProgress, IndexResult
 from travelcore.media.thumbnails import generate_project_thumbnails
+from travelcore.parallel import WorkerPool
 from travelcore.project_settings import DEFAULT_STAY_LINK_COLOR, load_project_settings
 
 if TYPE_CHECKING:
@@ -38,48 +39,51 @@ class IndexRunnable(QRunnable):
 
     def run(self) -> None:
         try:
-            indexer = FileIndexer(compute_hash=True)
+            settings = AppSettings()
+            with WorkerPool(max_workers=settings.worker_count) as pool:
+                indexer = FileIndexer(compute_hash=True, pool=pool)
 
-            def on_progress(item: IndexProgress) -> None:
-                self.signals.progress.emit(item.current, item.total, item.path, item.message)
+                def on_progress(item: IndexProgress) -> None:
+                    self.signals.progress.emit(item.current, item.total, item.path, item.message)
 
-            with session_scope(self.open_project.session_factory) as session:
-                project = session.get(Project, self.open_project.project_id)
-                if project is None:
-                    raise RuntimeError("Projektzeile fehlt.")
+                with session_scope(self.open_project.session_factory) as session:
+                    project = session.get(Project, self.open_project.project_id)
+                    if project is None:
+                        raise RuntimeError("Projektzeile fehlt.")
 
-                def checkpoint() -> None:
-                    session.commit()
-                    self.signals.files_ready.emit()
+                    def checkpoint() -> None:
+                        session.commit()
+                        self.signals.files_ready.emit()
 
-                result: IndexResult = indexer.index(
-                    session,
-                    project,
-                    self.source_root,
-                    progress=on_progress,
-                    project_dir=self.open_project.directory,
-                    generate_thumbnails=False,
-                    checkpoint=checkpoint,
+                    result: IndexResult = indexer.index(
+                        session,
+                        project,
+                        self.source_root,
+                        progress=on_progress,
+                        project_dir=self.open_project.directory,
+                        generate_thumbnails=False,
+                        checkpoint=checkpoint,
+                    )
+                on_progress(
+                    IndexProgress(
+                        current=0,
+                        total=1,
+                        path="",
+                        message="Vorschaubilder werden erzeugt…",
+                    )
                 )
-            on_progress(
-                IndexProgress(
-                    current=0,
-                    total=1,
-                    path="",
-                    message="Vorschaubilder werden erzeugt…",
-                )
-            )
-            with session_scope(self.open_project.session_factory) as session:
-                project = session.get(Project, self.open_project.project_id)
-                if project is None:
-                    raise RuntimeError("Projektzeile fehlt.")
-                indexer.build_previews(
-                    session,
-                    project,
-                    result,
-                    on_progress,
-                    self.open_project.directory,
-                )
+                with session_scope(self.open_project.session_factory) as session:
+                    project = session.get(Project, self.open_project.project_id)
+                    if project is None:
+                        raise RuntimeError("Projektzeile fehlt.")
+                    indexer.build_previews(
+                        session,
+                        project,
+                        result,
+                        on_progress,
+                        self.open_project.directory,
+                        pool=pool,
+                    )
             self.signals.finished.emit(result)
         except Exception as exc:  # noqa: BLE001 - surface any import failure to the UI
             self.signals.failed.emit(str(exc))
