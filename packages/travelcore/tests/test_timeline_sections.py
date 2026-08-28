@@ -21,10 +21,12 @@ from travelcore.timeline import (
     delete_section,
     dissolve_section,
     expand_range_selection,
+    format_card_dates,
     format_scroll_date,
     format_section_duration,
     format_section_span,
     format_section_when,
+    insert_dates_between,
     load_timeline,
     move_members,
     park_media,
@@ -72,6 +74,15 @@ def test_format_section_span_uses_object_dates() -> None:
     assert format_section_span(None, None) == "ohne Zeit"
 
 
+def test_format_card_dates_omits_am_von_bis() -> None:
+    start = datetime(2026, 11, 11, 8, 0, tzinfo=UTC)
+    same_day = datetime(2026, 11, 11, 18, 0, tzinfo=UTC)
+    later = datetime(2026, 11, 21, 9, 0, tzinfo=UTC)
+    assert format_card_dates(start, same_day) == "11.11.2026"
+    assert format_card_dates(start, later) == "11.11.2026 - 21.11.2026"
+    assert format_card_dates(None, None) == "Ohne Datum"
+
+
 def test_format_scroll_date_is_compact() -> None:
     start = datetime(2025, 5, 14, 8, 0, tzinfo=UTC)
     same_day = datetime(2025, 5, 14, 18, 30, tzinfo=UTC)
@@ -83,6 +94,19 @@ def test_format_scroll_date_is_compact() -> None:
     assert format_scroll_date(start, later_month) == "14.05.–10.08.2025"
     assert format_scroll_date(start, later_year) == "14.05.2025–02.01.2026"
     assert format_scroll_date(None, None) == "Ohne Datum"
+
+
+def test_insert_dates_between_uses_open_gap() -> None:
+    assert insert_dates_between(date(2025, 5, 14), date(2025, 5, 20)) == (
+        date(2025, 5, 15),
+        date(2025, 5, 19),
+    )
+    assert insert_dates_between(date(2025, 5, 14), date(2025, 5, 15)) == (
+        date(2025, 5, 14),
+        date(2025, 5, 14),
+    )
+    assert insert_dates_between(date(2025, 8, 10), None) == (date(2025, 8, 10), date(2025, 8, 10))
+    assert insert_dates_between(None, date(2025, 8, 1)) == (date(2025, 8, 1), date(2025, 8, 1))
 
 
 def test_format_section_duration_and_when() -> None:

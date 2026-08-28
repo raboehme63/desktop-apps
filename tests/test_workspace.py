@@ -127,6 +127,22 @@ def test_pool_width_persists(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN0
     assert workspace.pool_width() == 220
 
 
+def test_inspector_geometry_persists(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.widgets.media_inspector import INSPECTOR_DEFAULT_SIZE, clamp_inspector_size
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    workspace = Workspace()
+    assert workspace.inspector_size() == INSPECTOR_DEFAULT_SIZE
+    assert workspace.inspector_maximized() is False
+    workspace.set_inspector_geometry(1100, 640)
+    assert workspace.inspector_size() == (1100, 640)
+    workspace.set_inspector_geometry(80, 20, maximized=True)
+    assert workspace.inspector_size() == clamp_inspector_size(80, 20)
+    assert workspace.inspector_maximized() is True
+    assert clamp_inspector_size("nope", None) == INSPECTOR_DEFAULT_SIZE
+
+
 def test_pool_media_tab_persists(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     from traveljournal.services import workspace as workspace_mod
 

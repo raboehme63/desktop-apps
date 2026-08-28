@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
@@ -86,11 +88,13 @@ class MainWindow(QMainWindow):
         self.photos_view.rating_changed.connect(self.map_view.apply_media_rating)
         self.map_view.status_message.connect(self._set_status)
         self.map_view.open_in_timeline.connect(self._open_timeline_entry)
+        self.map_view.insert_section.connect(self._insert_section_between)
         self.map_view.rating_changed.connect(self.timeline_view.apply_media_rating)
         self.map_view.rating_changed.connect(self.photos_view.apply_media_rating)
         self.timeline_view.status_message.connect(self._set_status)
         self.timeline_view.timeline_changed.connect(self._on_timeline_changed)
         self.timeline_view.open_on_map.connect(self._open_map_entry)
+        self.timeline_view.open_media_on_map.connect(self._open_map_media)
         self._sync_menu()
 
     def _build_menu(self) -> None:
@@ -228,8 +232,21 @@ class MainWindow(QMainWindow):
         self._show_page("timeline")
         self.timeline_view.reveal_group(group_key)
 
+    def _insert_section_between(self, span: object) -> None:
+        if not isinstance(span, tuple) or len(span) != 2:
+            return
+        start, end = span
+        if not isinstance(start, date) or not isinstance(end, date):
+            return
+        if self.timeline_view.create_section_between(start, end):
+            self._show_page("timeline")
+
     def _open_map_entry(self, group_key: str) -> None:
         self.map_view.focus_group(group_key)
+        self._show_page("map")
+
+    def _open_map_media(self, group_key: str, source_file_id: int) -> None:
+        self.map_view.focus_group_media(group_key, source_file_id)
         self._show_page("map")
 
     def _on_project_changed(self, name: str) -> None:

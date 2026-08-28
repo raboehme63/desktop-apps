@@ -167,8 +167,14 @@ QComboBox, QDateEdit, QSpinBox {
     color: #e8edf5;
 }
 
-QComboBox::drop-down {
+QDateEdit {
+    min-width: 168px;
+}
+
+QComboBox::drop-down,
+QDateEdit::drop-down {
     border: none;
+    width: 22px;
 }
 
 QCheckBox {
@@ -207,12 +213,6 @@ QWidget#mapYoutubeOverlay {
     background-color: transparent;
 }
 
-QLabel#entryCover {
-    background-color: #12151c;
-    border: 1px solid #2a3144;
-    border-radius: 8px;
-}
-
 QWidget#mapTimelineOverlay {
     background-color: transparent;
 }
@@ -233,15 +233,14 @@ QFrame#mapTimelineCard[focused="true"] {
     border: none;
 }
 
-QFrame#mapTimelineLine {
-    background-color: #d8dee8;
-    border: none;
-    max-height: 2px;
-    min-height: 2px;
-}
-
 QWidget#timelineJoin {
     background-color: #12151c;
+    border: none;
+}
+
+QWidget#mapTimelineJoin,
+QWidget#joinPlus {
+    background-color: transparent;
     border: none;
 }
 
@@ -249,6 +248,59 @@ QFrame#card {
     background-color: #3a4860;
     border: 1px solid #8fa0bb;
     border-radius: 12px;
+}
+
+QFrame#card QLabel {
+    background-color: transparent;
+}
+
+QFrame#card QLabel#entryCover {
+    background-color: #12151c;
+    border: 1px solid #2a3144;
+    border-radius: 8px;
+}
+
+QFrame#card QLabel#youtubeThumb {
+    background-color: #1c2230;
+    border: 1px solid #2a3144;
+    border-radius: 8px;
+}
+
+QLabel#entryDates {
+    background-color: transparent;
+    color: #f4f7fb;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+QLabel#entryExtra {
+    background-color: transparent;
+    color: #c5cddb;
+    font-size: 12px;
+}
+
+QLabel#fieldCaption {
+    background-color: transparent;
+    color: #e8edf5;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+QComboBox#sectionKind {
+    min-width: 108px;
+    max-width: 148px;
+    padding: 4px 8px;
+}
+
+QComboBox#sectionKind QAbstractItemView {
+    min-height: 96px;
+    background-color: #1c2230;
+    selection-background-color: #243b3a;
+}
+
+QComboBox#sectionKind QAbstractItemView::item {
+    min-height: 28px;
+    padding: 4px 10px;
 }
 
 QFrame#card[dropTarget="true"],

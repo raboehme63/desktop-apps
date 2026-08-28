@@ -311,6 +311,36 @@ def test_empty_section_dialog_shows_am_or_von_bis() -> None:
     values = dialog.values()
     assert values["started_at"].date() == date(2025, 8, 1)
     assert values["ended_at"].date() == date(2025, 8, 10)
+    gapped = EmptySectionDialog(date(2025, 5, 15), until=date(2025, 5, 19))
+    assert gapped.date_edit.date() == QDate(2025, 5, 15)
+    assert gapped.from_edit.date() == QDate(2025, 5, 15)
+    assert gapped.until_edit.date() == QDate(2025, 5, 19)
+    gapped.kind.setCurrentIndex(1)
+    stay = gapped.values()
+    assert stay["started_at"].date() == date(2025, 5, 15)
+    assert stay["ended_at"].date() == date(2025, 5, 19)
+    _ = app
+
+
+def test_settings_dialog_has_scrollbar() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication, QScrollArea
+
+    from travelcore.project_settings import ProjectSettings
+    from traveljournal.views.settings_dialog import SettingsDialog
+
+    app = QApplication.instance() or QApplication([])
+    dialog = SettingsDialog(ProjectSettings())
+    dialog.resize(560, 280)
+    dialog.show()
+    app.processEvents()
+    assert isinstance(dialog._scroll, QScrollArea)
+    assert dialog._scroll.widgetResizable()
+    assert dialog._scroll.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAsNeeded
+    body = dialog._scroll.widget()
+    assert body is not None
+    assert body.sizeHint().height() > 280
     _ = app
 
 
@@ -328,6 +358,13 @@ def test_section_span_dialog_tag_vs_range() -> None:
     noon = datetime(2025, 5, 14, 12, 0, tzinfo=UTC)
     tag_dialog = SectionSpanDialog(KIND_DAY, noon, noon)
     assert tag_dialog.windowTitle() == "Datum"
+    assert not tag_dialog.date_edit.isHidden()
+    assert tag_dialog.from_edit.isHidden()
+    assert tag_dialog.until_edit.isHidden()
+    tag_dialog.show()
+    app.processEvents()
+    assert tag_dialog.width() >= 360
+    assert tag_dialog.date_edit.width() >= 160
     started, ended = tag_dialog.span()
     assert started.date() == date(2025, 5, 14)
     assert ended == started
@@ -337,6 +374,12 @@ def test_section_span_dialog_tag_vs_range() -> None:
         datetime(2025, 8, 10, tzinfo=UTC),
     )
     assert stay_dialog.windowTitle() == "Zeitraum"
+    assert stay_dialog.date_edit.isHidden()
+    assert not stay_dialog.from_edit.isHidden()
+    assert not stay_dialog.until_edit.isHidden()
+    stay_dialog.show()
+    app.processEvents()
+    assert stay_dialog.width() >= 360
     started, ended = stay_dialog.span()
     assert started.date() == date(2025, 8, 1)
     assert ended.date() == date(2025, 8, 10)
@@ -498,7 +541,8 @@ def test_entry_widget_separates_tracks_from_media() -> None:
     assert [item.filename for item in widget.track_gallery.items()] == ["flug.igc"]
     assert widget.entry_kind() == "day"
     assert widget._kind_combo.currentData() == "day"
-    assert widget._cover_thumb.isHidden()
+    assert not widget._cover_thumb.isHidden()
+    assert widget._cover_thumb.pixmap() is None or widget._cover_thumb.pixmap().isNull()
     _ = app
 
 
@@ -589,6 +633,113 @@ def test_entry_widget_shows_cover_in_heading(tmp_path: Path) -> None:
     widget = EntryWidget(TimelineEntry(started_at=stamp, leftover_day=day))
     assert not widget._cover_thumb.isHidden()
     assert not widget._cover_thumb.pixmap().isNull()
+    assert widget._cover_thumb.width() == 168
+    _ = app
+
+
+def test_entry_widget_header_is_compact() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, datetime
+
+    from PySide6.QtWidgets import QApplication, QLabel
+
+    from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelinePhoto, TimelineSection
+    from traveljournal.views.timeline_view import EntryWidget
+
+    app = QApplication.instance() or QApplication([])
+    start = datetime(2024, 10, 31, 8, 0, tzinfo=UTC)
+    end = datetime(2024, 11, 1, 18, 0, tzinfo=UTC)
+    stay = TimelineSection(
+        id=3,
+        kind="stay",
+        mode=None,
+        title="Bozen",
+        notes="Notiz",
+        started_at=start,
+        ended_at=end,
+        location_name=None,
+        location_from=None,
+        location_to=None,
+        origin="manual",
+    )
+    widget = EntryWidget(TimelineEntry(started_at=start, section=stay))
+    assert widget._date_label.text() == "31.10.2024 - 01.11.2024"
+    assert widget.title_edit.text() == "Bozen"
+    assert widget._kind_combo.currentData() == "stay"
+    widget.show()
+    widget.resize(720, 420)
+    app.processEvents()
+    assert abs(widget._date_label.y() - widget._kind_combo.y()) <= 8
+    labels = [child.text() for child in widget.findChildren(QLabel)]
+    assert "Titel" in labels
+    assert all("mitmarkiert" not in text for text in labels)
+    assert any(text == "Tagebucheintrag" for text in labels)
+    assert any(text == "Keine Medien" for text in labels)
+    assert widget._kind_combo.maxVisibleItems() == 3
+    widget._kind_combo.showPopup()
+    app.processEvents()
+    view = widget._kind_combo.view()
+    assert view is not None
+    assert view.height() >= 3 * max(view.sizeHintForRow(0), 1) - 2
+    widget._kind_combo.hidePopup()
+    caption_names = {
+        child.objectName()
+        for child in widget.findChildren(QLabel)
+        if child.text() in {"Titel", "Tagebucheintrag", "Keine Medien"}
+    }
+    assert caption_names == {"fieldCaption"}
+
+    tag = TimelineSection(
+        id=4,
+        kind="day",
+        mode=None,
+        title="Ausflug",
+        notes=None,
+        started_at=start,
+        ended_at=start,
+        location_name=None,
+        location_from=None,
+        location_to=None,
+        origin="manual",
+    )
+    day_card = EntryWidget(TimelineEntry(started_at=start, section=tag))
+    assert day_card._date_label.text() == "31.10.2024"
+    leftover = EntryWidget(
+        TimelineEntry(
+            started_at=start,
+            leftover_day=TimelineDay(
+                id=1,
+                day_index=0,
+                date=start.date(),
+                title=None,
+                notes=None,
+                origin="auto",
+                photos=(
+                    TimelinePhoto(
+                        source_file_id=1,
+                        filename="foto.jpg",
+                        path="foto.jpg",
+                        thumbnail_path=Path("."),
+                        captured_at=start,
+                        used_in_journal=False,
+                        is_cover=False,
+                        is_favorite=False,
+                        gps_latitude=None,
+                        gps_longitude=None,
+                        file_kind="photo",
+                    ),
+                ),
+            ),
+        )
+    )
+    assert leftover._date_label.text() == "31.10.2024"
+    media = [
+        child
+        for child in leftover.findChildren(QLabel)
+        if child.text().startswith("Medien")
+    ]
+    assert [child.text() for child in media] == ["Medien (1)"]
+    assert all(child.objectName() == "fieldCaption" for child in media)
     _ = app
 
 
@@ -660,6 +811,105 @@ def test_entry_widget_section_has_to_map_button() -> None:
     leftover.open_on_map.connect(day_keys.append)
     day_btn.click()
     assert day_keys == ["day:1"]
+    _ = app
+
+
+def test_entry_widget_thumbnail_opens_section_detail_on_map() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, datetime
+
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.timeline.types import TimelineEntry, TimelinePhoto, TimelineSection
+    from traveljournal.views.timeline_view import EntryWidget
+
+    app = QApplication.instance() or QApplication([])
+    stamp = datetime(2025, 5, 15, 8, 0, tzinfo=UTC)
+    located = TimelinePhoto(
+        source_file_id=9,
+        filename="foto.jpg",
+        path="foto.jpg",
+        thumbnail_path=Path("."),
+        captured_at=stamp,
+        used_in_journal=False,
+        is_cover=False,
+        is_favorite=False,
+        gps_latitude=46.5,
+        gps_longitude=11.3,
+        file_kind="photo",
+    )
+    section = TimelineSection(
+        id=7,
+        kind="stay",
+        mode=None,
+        title="Bozen",
+        notes=None,
+        started_at=stamp,
+        ended_at=stamp,
+        location_name=None,
+        location_from=None,
+        location_to=None,
+        origin="manual",
+        items=(located,),
+    )
+    widget = EntryWidget(TimelineEntry(started_at=stamp, section=section))
+    assert widget.gallery.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu
+    items = widget.gallery.items()
+    assert len(items) == 1
+    assert widget._item_can_open_on_map(items[0])
+    opened: list[tuple[str, int]] = []
+    widget.open_media_on_map.connect(lambda key, sid: opened.append((key, sid)))
+    widget.gallery.map_requested.emit(items[0])
+    assert opened == [("section:7", 9)]
+
+    blank = TimelinePhoto(
+        source_file_id=10,
+        filename="ohne.jpg",
+        path="ohne.jpg",
+        thumbnail_path=Path("."),
+        captured_at=stamp,
+        used_in_journal=False,
+        is_cover=False,
+        is_favorite=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        file_kind="photo",
+    )
+    unsaved = TimelineSection(
+        id=-1,
+        kind="stay",
+        mode=None,
+        title="Neu",
+        notes=None,
+        started_at=stamp,
+        ended_at=stamp,
+        location_name=None,
+        location_from=None,
+        location_to=None,
+        origin="manual",
+        items=(located, blank),
+    )
+    pending = EntryWidget(TimelineEntry(started_at=stamp, section=unsaved))
+    pending_items = pending.gallery.items()
+    assert pending_items
+    assert not pending._item_can_open_on_map(pending_items[0])
+    _ = app
+
+
+def test_map_view_focus_group_media_keeps_pending_until_shown() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.map_view import MapView
+
+    app = QApplication.instance() or QApplication([])
+    view = MapView(Workspace())
+    view.focus_group_media("section:7", 9)
+    assert view._requested_focus == "section:7"
+    assert view._pending_detail_key == "section:7"
+    assert view._pending_detail_media == 9
     _ = app
 
 
@@ -1034,6 +1284,62 @@ def test_timeline_pool_pane_lists_parked_media(tmp_path: Path, monkeypatch) -> N
     assert view._blocks[0]._media_tabs.tabText(3) == "Aussortiert"
     assert view._media_tabs.count() == 4
     assert view._pool_pane.maximumWidth() > 800
+    _ = app
+
+
+def test_pool_scroll_date_follows_handle() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, datetime
+
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.widgets.pool_pane import PoolPane
+    from traveljournal.widgets.scroll_date import scrollbar_slider_rect
+
+    app = QApplication.instance() or QApplication([])
+    items = [
+        GalleryItem(
+            source_file_id=index,
+            path=f"{index}.jpg",
+            filename=f"{index:02d}.jpg",
+            extension=".jpg",
+            captured_at=datetime(2025, 5 if index < 8 else 8, min(index, 28), 8, 0, tzinfo=UTC),
+            timezone_unknown=False,
+            gps_latitude=None,
+            gps_longitude=None,
+            camera=None,
+            is_favorite=False,
+            used_in_journal=False,
+            thumbnail_path=Path("."),
+            parked=True,
+        )
+        for index in range(1, 16)
+    ]
+    pane = PoolPane()
+    pane.set_items(items)
+    pane.resize(260, 360)
+    pane.show()
+    app.processEvents()
+    gallery = pane.gallery
+    chip = gallery._scroll_date
+    assert chip is not None
+    bar = gallery.verticalScrollBar()
+    assert bar.maximum() > 0
+    bar.setValue(0)
+    app.processEvents()
+    chip.sync(show=True)
+    assert not chip.label.isHidden()
+    assert chip.label.text().endswith("05.2025")
+    bar.setValue(bar.maximum())
+    app.processEvents()
+    chip.sync(show=True)
+    assert "08.2025" in chip.label.text()
+    handle = scrollbar_slider_rect(bar)
+    center = bar.mapTo(gallery, handle.center())
+    assert chip.label.x() >= 0
+    assert chip.label.geometry().right() <= gallery.width()
+    assert abs(chip.label.geometry().center().y() - center.y()) < 24
     _ = app
 
 
@@ -1642,9 +1948,59 @@ def test_timeline_join_is_wide_downward_connector() -> None:
     join = TimelineJoin("#2eb8a0")
     assert join.objectName() == "timelineJoin"
     assert join.height() == _TIMELINE_JOIN_H
+    clicked: list[bool] = []
+    join.add_requested.connect(lambda: clicked.append(True))
+    join.resize(240, _TIMELINE_JOIN_H)
+    join.show()
+    app.processEvents()
+    join._plus.clicked.emit()
+    assert clicked == [True]
     fallback = TimelineJoin("not-a-color")
     assert fallback._color.name().lower() == "#ffffff"
     _ = app
+
+
+def test_entry_span_dates_feeds_join_insert() -> None:
+    from datetime import UTC, date, datetime
+
+    from travelcore.timeline.sections import KIND_STAY, insert_dates_between
+    from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelineSection
+    from traveljournal.views.timeline_view import _entry_span_dates
+
+    early = datetime(2025, 5, 14, tzinfo=UTC)
+    tag = TimelineEntry(
+        started_at=early,
+        leftover_day=TimelineDay(
+            id=1,
+            day_index=0,
+            date=date(2025, 5, 14),
+            title=None,
+            notes=None,
+            origin="auto",
+        ),
+    )
+    stay = TimelineEntry(
+        started_at=datetime(2025, 5, 20, tzinfo=UTC),
+        section=TimelineSection(
+            id=2,
+            kind=KIND_STAY,
+            mode=None,
+            title="A",
+            notes=None,
+            started_at=datetime(2025, 5, 20, tzinfo=UTC),
+            ended_at=datetime(2025, 5, 25, tzinfo=UTC),
+            location_name=None,
+            location_from=None,
+            location_to=None,
+            origin="manual",
+        ),
+    )
+    assert _entry_span_dates(tag) == (date(2025, 5, 14), date(2025, 5, 14))
+    assert _entry_span_dates(stay) == (date(2025, 5, 20), date(2025, 5, 25))
+    assert insert_dates_between(_entry_span_dates(tag)[1], _entry_span_dates(stay)[0]) == (
+        date(2025, 5, 15),
+        date(2025, 5, 19),
+    )
 
 
 def test_span_index_at_mid_contains_then_nearest() -> None:
@@ -2081,6 +2437,58 @@ def test_media_inspector_rating_advances_to_next_photo(tmp_path: Path) -> None:
     _ = app
 
 
+def test_media_inspector_pool_advances_to_next_photo(tmp_path: Path) -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from jpeg_fixtures import write_plain_jpeg
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.widgets.media_inspector import MediaInspectorWindow
+
+    class StubWorkspace:
+        def __init__(self) -> None:
+            self.parked_ids: list[int] = []
+            self.unparked_ids: list[int] = []
+
+        def park_media(self, source_file_ids: list[int]) -> None:
+            self.parked_ids.extend(source_file_ids)
+
+        def unpark_media(self, source_file_ids: list[int]) -> None:
+            self.unparked_ids.extend(source_file_ids)
+
+    app = QApplication.instance() or QApplication([])
+    first_path = write_plain_jpeg(tmp_path / "eins.jpg", size=(40, 30))
+    second_path = write_plain_jpeg(tmp_path / "zwei.jpg", size=(40, 30))
+
+    def make_item(source_file_id: int, path: Path, filename: str) -> GalleryItem:
+        return GalleryItem(
+            source_file_id=source_file_id,
+            path=str(path),
+            filename=filename,
+            extension=".jpg",
+            captured_at=None,
+            timezone_unknown=False,
+            gps_latitude=None,
+            gps_longitude=None,
+            camera=None,
+            is_favorite=False,
+            used_in_journal=False,
+            thumbnail_path=Path("."),
+            sort_status=None,
+        )
+
+    first = make_item(1, first_path, "eins.jpg")
+    second = make_item(2, second_path, "zwei.jpg")
+    window = MediaInspectorWindow(first, items=[first, second], workspace=StubWorkspace())
+    window._toggle_pool()
+    assert window.item().filename == "zwei.jpg"
+    assert window._items[0].parked is True
+    window._toggle_pool()
+    assert window.item().filename == "zwei.jpg"
+    assert window.item().parked is True
+    _ = app
+
+
 def test_inspector_keeps_photo_aspect_on_resize() -> None:
     from PySide6.QtCore import QSize
 
@@ -2125,6 +2533,44 @@ def test_inspector_allows_free_window_resize(tmp_path: Path) -> None:
     assert window.size() == QSize(1200, 480)
     window.resize(640, 900)
     assert window.size() == QSize(640, 900)
+    _ = app
+
+
+def test_inspector_remembers_window_size(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from jpeg_fixtures import write_plain_jpeg
+    from PySide6.QtCore import QSize
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.widgets.media_inspector import MediaInspectorWindow
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    app = QApplication.instance() or QApplication([])
+    jpeg = write_plain_jpeg(tmp_path / "foto.jpg", size=(40, 30))
+    item = GalleryItem(
+        source_file_id=1,
+        path=str(jpeg),
+        filename="foto.jpg",
+        extension=".jpg",
+        captured_at=None,
+        timezone_unknown=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        camera=None,
+        is_favorite=False,
+        used_in_journal=False,
+        thumbnail_path=Path("."),
+        sort_status=None,
+    )
+    workspace = Workspace()
+    first = MediaInspectorWindow(item, workspace=workspace)
+    first.resize(1100, 640)
+    first.close()
+    second = MediaInspectorWindow(item, workspace=workspace)
+    assert second.size() == QSize(1100, 640)
     _ = app
 
 
@@ -2237,6 +2683,8 @@ def test_parse_map_bridge_url_reads_group_key() -> None:
         parse_map_media_url,
         parse_map_place_cancel_console,
         parse_map_place_console,
+        parse_map_view,
+        restore_map_view_js,
     )
 
     assert parse_map_bridge_url("traveljournal://expand?key=section%3A12") == "section:12"
@@ -2253,7 +2701,17 @@ def test_parse_map_bridge_url_reads_group_key() -> None:
     assert parse_map_place_console("leaflet ready") is None
     assert parse_map_place_cancel_console("traveljournal:place-cancel") is True
     assert parse_map_place_cancel_console("traveljournal:place:46.5:11.3") is False
+    assert parse_map_view([46.5, 11.3, 14]) == (46.5, 11.3, 14.0)
+    assert parse_map_view({"lat": 46.5, "lng": 11.3, "zoom": 12}) == (46.5, 11.3, 12.0)
+    assert parse_map_view({"lat": 46.5, "lon": 11.3, "zoom": 12}) == (46.5, 11.3, 12.0)
+    assert parse_map_view(None) is None
+    assert parse_map_view("nope") is None
+    script = restore_map_view_js(46.5, 11.3, 14)
+    assert "traveljournalRestoreView(46.5000000000, 11.3000000000, 14.000000)" in script
+    assert "traveljournalKeepFocus" in script
     assert "traveljournalSetPlaceMode" in MAP_PAGE_SETUP_JS
+    assert "traveljournalCaptureView" in MAP_PAGE_SETUP_JS
+    assert "traveljournalRestoreView" in MAP_PAGE_SETUP_JS
     assert "pointerup" in MAP_PAGE_SETUP_JS
     assert "zoom: {animate: false}" in MAP_PAGE_SETUP_JS
 
@@ -2384,6 +2842,8 @@ def test_map_view_applies_prepared_result_when_shown(tmp_path: Path) -> None:
 
 def test_map_timeline_strip_centers_first_card() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, date, datetime
+
     from PySide6.QtCore import QEvent, QPointF, QRectF, Qt
     from PySide6.QtGui import QMouseEvent
     from PySide6.QtWidgets import QApplication
@@ -2446,14 +2906,18 @@ def test_map_timeline_strip_centers_first_card() -> None:
                 igc_count=2,
                 igc_reserve_count=1,
                 youtube_count=3,
+                started_at=datetime(2025, 5, 1, tzinfo=UTC),
+                ended_at=datetime(2025, 5, 1, tzinfo=UTC),
             ),
             MapTimelineCard(
                 group_key="section:2",
                 title="Zwei",
-                time_label="am 02.05.2025",
+                time_label="am 10.05.2025",
                 latitude=47.0,
                 longitude=12.0,
                 card_kind=KIND_MOVEMENT,
+                started_at=datetime(2025, 5, 10, tzinfo=UTC),
+                ended_at=datetime(2025, 5, 10, tzinfo=UTC),
             ),
             MapTimelineCard(
                 group_key="day:3",
@@ -2505,8 +2969,15 @@ def test_map_timeline_strip_centers_first_card() -> None:
     assert strip._widgets[1].height() == CARD_HEIGHT
     assert strip._widgets[0].width() == idle_w
     assert strip._widgets[0].height() == idle_h
-    lines = [child for child in strip._inner.children() if child.objectName() == "mapTimelineLine"]
+    lines = [child for child in strip._inner.children() if child.objectName() == "mapTimelineJoin"]
     assert len(lines) == 3
+    added: list[object] = []
+    strip.add_between.connect(added.append)
+    lines[0]._plus.clicked.emit()
+    assert len(added) == 1
+    start, end = added[0]
+    assert start == date(2025, 5, 2)
+    assert end == date(2025, 5, 9)
     again = len(focused)
     strip.center_on("section:2")
     app.processEvents()

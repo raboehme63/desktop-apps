@@ -106,6 +106,7 @@ class PoolPane(QFrame):
         self.gallery.set_drag_enabled(True)
         self.gallery.set_accept_pool_drop(accept_drops)
         self.gallery.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.gallery.enable_scroll_date()
         self.gallery.setToolTip(
             "Auf die Reise-Galerie ziehen"
             if accept_drops

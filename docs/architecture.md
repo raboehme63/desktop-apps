@@ -89,7 +89,7 @@ sie in Phase 7 noch nicht. Der Fenstertitel lautet `Reisetagebuch R{Version}`
 bzw. `Reisetagebuch R{Version} - {Projekttitel}`. Das Medienregister
 (Timeline und Medienseite) steht in `%LOCALAPPDATA%\TravelJournal\config.json` (`timeline_media_tab`),
 ebenso die eingeklappte linke Navigation (`sidebar_collapsed`), der Medienpool
-(`timeline_pool_visible`, `pool_width`).
+(`timeline_pool_visible`, `pool_width`, `inspector_width` / `inspector_height` / `inspector_maximized`).
 
 ## Timeline
 
@@ -103,10 +103,17 @@ Nach dem Import ruft die App `sync_timeline` auf. Die Bibliothek:
 6. löscht leere Auto-Tage und leere Auto-Tag-Abschnitte ohne Text
 
 Die Timeline-UI zeigt **Tage**, **Transfers** und **Aufenthalte** als
-`trip_sections` mit `section_members`. Beim Verschieben des vertikalen
+`trip_sections` mit `section_members`. Der Kartenkopf ist kompakt: Titelbild
+in Thumbnail-Größe (`168` px), rechts Typ und Datum in einer Zeile
+(`format_card_dates`: `12.12.2026` bzw. `11.11.2026 - 21.11.2026`),
+darunter Titel und Tagebucheintrag. Feldtitel sitzen auf der Kartenfarbe;
+dunkle Flächen sind die editierbaren Felder. Beim Verschieben des vertikalen
 Schiebers erscheint links am Griff das Datum des Abschnitts in der
-Bildmitte (`format_scroll_date`). Zwischen den Karten liegt ein
-`TimelineJoin` (senkrechte Linie mit Pfeil, `map_link_color`). Beim Index-Abgleich werden unzugeordnete,
+Bildmitte (`format_scroll_date`). Am Schieber des Medienpools erscheint dasselbe Chip
+mit dem Aufnahmedatum des Mediums in der Bildmitte. Zwischen den Karten liegt ein
+`TimelineJoin` (schlanke Linie mit **+** als Ring, `map_link_color`). Klick auf **+** öffnet denselben Dialog wie **Neuen Reiseabschnitt
+erstellen** und füllt das Datum der Lücke (`insert_dates_between`). Zwischen den
+Leistenkarten auf der Karte sitzt dasselbe **+**. Beim Index-Abgleich werden unzugeordnete,
 nicht geparkte Medien dem Auto-Tag ihres Aufnahmedatums zugeordnet. Geparkte
 Medien liegen im Medienpool: in der Timeline und auf der Medienseite eine
 einblendbare rechte Spalte über die volle Höhe (Pfeil rechts außen wie die
@@ -172,7 +179,7 @@ und Galerie.
 
 Der Medieninspektor blättert in der Sequenz des Tags/Abschnitts bzw. des
 Medienpools (oder der Medienseite); ein Bewertungs-Chip speichert und zeigt das nächste Foto
-(das letzte bleibt). Er zoomt mit dem Mausrad, dreht die Anzeige in 90°-Schritten,
+(das letzte bleibt); **In den Pool** ebenso. Er zoomt mit dem Mausrad, dreht die Anzeige in 90°-Schritten,
 legt das aktuelle Medium mit **In den Pool** / **Zurückholen** in den Medienpool bzw. holt es zurück und
 ändert Originale nicht. Reiter Alle/Favoriten/Reserve/Aussortiert (Timeline-Abschnitte,
 Medien-Galerie und Pool) wechseln nur per Klick, nicht durch Mausrad. Pool ist
@@ -192,7 +199,7 @@ Tag, Transfer oder Aufenthalt
 (`cover_source_file_id`, sonst das erste Foto mit Kartenposition, sonst der erste GPS-Track, sonst der Abschnitts-Pin). Position ist
 die Journal-Anzeigeposition des Covers (`display_latitude`, sonst Original-GPS), sonst der Schwerpunkt der
 Mitglieder mit Anzeigeposition, sonst `pin_latitude`/`pin_longitude`. Detailmarker und -reihenfolge folgen `section_members` und `journal_at`. Abschnitte ohne Koordinate bleiben in der
-Leiste mit rotem Rand; Rechtsklick **Platzieren** setzt den Pin per Kartenklick. Unsaved
+Leiste mit rotem Rand; Rechtsklick **Platzieren** setzt den Pin per Kartenklick, Zoom und Ausschnitt bleiben. Unsaved
 Pending-Abschnitte erscheinen nicht auf der Karte. Zwischen **Tag- und Aufenthaltskreisen**
 in Timeline-Reihenfolge liegen `StayLink`-Polylinien mit Richtungsmarker (gleiche
 Positionen wie die runden Cover). Transfer-Kreise sind keine Endpunkte. Bei
@@ -203,26 +210,35 @@ gerade, gebogen, Trackspur). In der Detailansicht sind die Linien ausgeblendet.
 Folium schreibt `cache/map.html` (`MAP_CACHE_VERSION` im Stamp). Qt WebEngine
 zeigt die Datei; die kompakte Leiste (`MapTimelineStrip`) sitzt **unter** dem
 WebView, nicht als Overlay über Chromium — sonst verschluckt die Karte Klicks.
+Zwischen den Leistenkarten sitzt ein **+** (`MapSpine`); Klick öffnet denselben
+Dialog wie in der Timeline und füllt das Datum der Lücke.
 Klick auf eine Leistenkarte ruft `traveljournalFocusCover` auf: Schwenken bei
 **unverändertem Zoom**. Oben auf den Leistenkarten stehen Zähler für Fotos, GPX-Tracks, IGC-Flüge und YouTube-Links; Reserve-Medien zählen nur, wenn **Reserve-Elemente anzeigen** im Zahnrad aktiv ist. Rechts neben der Karte stehen der Tagebucheintrag der
 fokussierten Karte (nach Bearbeitung Speichern, Abbrechen oder Verwerfen; beim Kartenwechsel als Dialog). YouTube-Vorschaubilder liegen unten rechts auf der Karte übereinander. Doppelklick auf eine Leistenkarte öffnet denselben Eintrag
 in der Timeline mit der Karten-Oberkante bündig unter der Werkzeugleiste (nicht zentriert). Klick auf einen Kreis (`group_key`) öffnet die
 Detailansicht (`traveljournalShowDetail`): Fotos, Videos, GPX-Linien,
 IGC-Flugtracks ab Zoom 10 (Start/Landung immer sichtbar) und Orte.
+Rechtsklick **Zur Karte…** auf einem Timeline-Thumbnail öffnet dieselbe Detailansicht
+und zentriert auf dem Medium (`traveljournalFocusMedia`).
 `resolve_map_group` liest nur den angeklickten Eintrag, nicht die ganze
-Timeline. Klick auf ein Foto im Detail öffnet ein Leaflet-Popup mit Thumbnail;
+Timeline. Klick auf ein einzelnes Foto im Detail öffnet ein Leaflet-Popup mit Thumbnail;
+bei einem Stapel fächert der erste Klick die Bilder auf.
 Doppelklick öffnet den Medieninspektor mit dem Original (wie Timeline).
 Nahe Foto-, Video- und Track-Marker werden bis Zoom 16 gestapelt
 (`PHOTO_STACK_DISABLE_ZOOM` = 17); der Stapel-Marker zeigt die Anzahl.
-Ab Zoom 17 liegen sie einzeln, auch übereinander; überlappende Marker rotieren, Mouseover blendet die übrigen Fotos aus. Orte bleiben ungestapelt.
+Ab Zoom 17 liegen sie einzeln, auch übereinander, mit sichtbaren Fotokegeln.
+Klick auf den Stapel fächert die Bilder rund auseinander, ohne Fotokegel;
+der Fächer bleibt. Klick auf ein Bild im Fächer blendet die übrigen aus und
+setzt Bild und Kegel an den Ursprung; ein weiterer Klick öffnet das Thumbnail-Popup.
+Klick in die Karte stellt den Stapel wieder her. Orte bleiben ungestapelt.
 Übersichtstitelbilder clustern nicht.
 
 Online-Kacheln kommen von `tile.openstreetmap.de` (deutsche Namen, sonst
 lateinische Umschrift statt Landesschrift). Ein Layer-Symbol oben rechts öffnet
 Straßenkarte (OSM), Topo (OpenTopoMap) und Satellit (Esri World Imagery); die Wahl
 bleibt in `localStorage`. Ein Zahnrad unter den Zoom-Buttons schaltet Fotokegel
-(ab Zoom 17, aus `heading_degrees` und 35-mm-Brennweite; Mouseover über ein Foto
-blendet die übrigen Fotos und Kegel aus) und Reserve-Medien; beide Schalter
+(ab Zoom 17, aus `heading_degrees` und 35-mm-Brennweite; am Stapel und nach der
+Auswahl am Ursprung, nicht im Fächer) und Reserve-Medien; beide Schalter
 stehen in `settings.toml`. Das Datums-Label am Foto sitzt bündig unter dem
 Vorschaubild. Aussortierte Medien kommen nicht auf die Karte. `map_provider=offline` setzt
 `tiles=None` (keine OSM-, OpenTopoMap- oder Satellitenkacheln, kein Umschalter). Fehlt Qt WebEngine, bleibt der Pfad sichtbar.
@@ -245,7 +261,7 @@ Bereits in Phase 1 angelegt, schrittweise gefüllt:
   Cachepfad enthält `_r90` bei nicht-null `rotation_degrees`
 - `VideoMetadataProvider` – ffprobe-Adapter (noch nicht aktiv)
 - `Exporter` – HTML, PDF, LaTeX, CEWE (Implementierung ab Phase 8)
-- `MapBackend` – Folium/Leaflet, Übersicht als Titelbild-Kreise je Tag/Transfer/Aufenthalt, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad für Fotokegel und Reserve (in `settings.toml`; Mouseover blendet fremde Fotos und Kegel aus, überlappende Stapel rotieren ab Zoom 17, Datum bündig unter dem Foto),
+- `MapBackend` – Folium/Leaflet, Übersicht als Titelbild-Kreise je Tag/Transfer/Aufenthalt, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad für Fotokegel und Reserve (in `settings.toml`; Fotokegel am Stapel und nach der Auswahl, nicht im Fächer; überlappende Marker ab Zoom 17 per Klick zum Fächer, Klick in die Karte stellt den Stapel wieder her),
   Verbindungslinien zwischen Tag- und Aufenthaltskreisen (Richtungsmarker, Zoom-Überdeckung),
   Qt-Leiste unter der Karte (Tag mit Kalender, Transfer als liegendes Sechseck), Tagebucheintrag rechts, YouTube-Thumbs unten rechts auf der Karte, Detail mit GPX-Polylinien, IGC-Flugtracks ab Zoom 10
   (Start/Landung immer sichtbar), Foto-Popup und Inspektor, Orte

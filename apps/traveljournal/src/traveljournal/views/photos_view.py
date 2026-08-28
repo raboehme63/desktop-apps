@@ -69,10 +69,9 @@ class PhotosView(QWidget):
         title.setObjectName("pageTitle")
         subtitle = QLabel(
             "Links die Reise-Medien, rechts der Medienpool — jeweils mit Alle / Favoriten / "
-            "Reserve / Aussortiert. Erstes und letztes Objekt anklicken, dazwischen wird "
-            "mitmarkiert; Strg+Klick nimmt einzelne wieder raus. Ziehen verschiebt zwischen "
-            "Galerie und Pool. Pfeil rechts außen klappt den Pool ein und aus; die Breite "
-            "bleibt erhalten. Originale bleiben unverändert."
+            "Reserve / Aussortiert. Ziehen verschiebt zwischen Galerie und Pool. "
+            "Pfeil rechts außen klappt den Pool ein und aus; die Breite bleibt erhalten. "
+            "Originale bleiben unverändert."
         )
         subtitle.setObjectName("pageSubtitle")
         subtitle.setWordWrap(True)
@@ -129,10 +128,7 @@ class PhotosView(QWidget):
         self.gallery.set_multi_select(True)
         self.gallery.set_drag_enabled(True)
         self.gallery.set_accept_pool_drop(True)
-        self.gallery.setToolTip(
-            "Erstes und letztes Objekt anklicken — alles dazwischen wird mitmarkiert. "
-            "Auf den Medienpool ziehen, oder aus dem Pool hierher zurücklegen."
-        )
+        self.gallery.setToolTip("Auf den Medienpool ziehen, oder aus dem Pool hierher zurücklegen.")
         self.gallery.item_activated.connect(self._preview)
         self.gallery.rating_chosen.connect(self._on_rating)
         self.gallery.items_dropped.connect(self._drop_on_gallery)

@@ -332,6 +332,29 @@ MAP_PAGE_SETUP_JS = """
       );
       document.head.appendChild(style);
     }
+    if (on && map && map.getCenter) {
+      var placed = map.getCenter();
+      window._tjSavedPlaceView = [placed.lat, placed.lng, map.getZoom()];
+    }
+  };
+  window.traveljournalCaptureView = function() {
+    var map = findMap();
+    if (map && map.getCenter) {
+      var center = map.getCenter();
+      return [center.lat, center.lng, map.getZoom()];
+    }
+    return window._tjSavedPlaceView || null;
+  };
+  window.traveljournalRestoreView = function(lat, lon, zoom) {
+    window.traveljournalKeepFocus = true;
+    var map = findMap();
+    if (!map) {
+      return;
+    }
+    if (map.stop) {
+      map.stop();
+    }
+    map.setView(L.latLng(lat, lon), zoom, {animate: false});
   };
   function bindPlace() {
     var map = findMap();
@@ -339,6 +362,13 @@ MAP_PAGE_SETUP_JS = """
       return !!map;
     }
     map._tjPlaceBound = true;
+    map.on('moveend', function() {
+      if (!window._tjPlaceMode) {
+        return;
+      }
+      var moved = map.getCenter();
+      window._tjSavedPlaceView = [moved.lat, moved.lng, map.getZoom()];
+    });
     map.on('click', function(event) {
       if (!window._tjPlaceMode || !event || !event.latlng) {
         return;
@@ -394,6 +424,39 @@ MAP_PAGE_SETUP_JS = """
 """
 
 _INVALIDATE_JS = "if (window.traveljournalInvalidateSize) traveljournalInvalidateSize();"
+_CAPTURE_VIEW_JS = "window.traveljournalCaptureView ? traveljournalCaptureView() : null;"
+_KEEP_FOCUS_JS = "window.traveljournalKeepFocus = true;"
+
+
+def parse_map_view(value: object) -> tuple[float, float, float] | None:
+    """Parse Leaflet center/zoom from a WebEngine ``runJavaScript`` result."""
+
+    if isinstance(value, dict):
+        try:
+            lat = float(value["lat"])
+            lon = float(value.get("lng", value.get("lon")))
+            zoom = float(value["zoom"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        return lat, lon, zoom
+    if isinstance(value, (list, tuple)) and len(value) >= 3:
+        try:
+            return float(value[0]), float(value[1]), float(value[2])
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def restore_map_view_js(lat: float, lon: float, zoom: float) -> str:
+    """Leaflet ``setView`` that also blocks Folium's overview ``fitBounds``."""
+
+    return (
+        "if (window.traveljournalRestoreView) "
+        f"traveljournalRestoreView({lat:.10f}, {lon:.10f}, {zoom:.6f}); "
+        "else { window.traveljournalKeepFocus = true; }"
+    )
+
+
 _FIT_OVERVIEW_JS = """
 (function() {
   function run() {
@@ -578,6 +641,7 @@ class MapView(QWidget):
     status_message = Signal(str)
     open_in_timeline = Signal(str)
     rating_changed = Signal(object)
+    insert_section = Signal(object)
 
     def __init__(self, workspace: Workspace, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -605,7 +669,12 @@ class MapView(QWidget):
         self._detail_group_key = ""
         self._pending_focus = ""
         self._requested_focus = ""
+        self._restore_view: tuple[float, float, float] | None = None
+        self._place_view: tuple[float, float, float] | None = None
+        self._placed_strip_key = ""
         self._placing_key = ""
+        self._pending_detail_key = ""
+        self._pending_detail_media = 0
         self._notes_group_key = ""
         self._notes_title = ""
         self._notes_baseline = ""
@@ -703,6 +772,7 @@ class MapView(QWidget):
         self._timeline.focus_changed.connect(self._on_timeline_focus)
         self._timeline.open_in_timeline.connect(self.open_in_timeline.emit)
         self._timeline.place_requested.connect(self._start_place_mode)
+        self._timeline.add_between.connect(self.insert_section.emit)
         self._web_host = QWidget()
         self._web_layout = QVBoxLayout(self._web_host)
         self._web_layout.setContentsMargins(0, 0, 0, 0)
@@ -732,6 +802,23 @@ class MapView(QWidget):
         ):
             self._apply_requested_focus()
 
+    def focus_group_media(self, group_key: str, source_file_id: int) -> None:
+        """Open the section detail and pan to the media after the map is shown."""
+
+        self._requested_focus = group_key
+        self._pending_detail_key = group_key
+        self._pending_detail_media = int(source_file_id) if source_file_id else 0
+        if (
+            group_key
+            and self.isVisible()
+            and self._stack.currentWidget() is self._web_host
+            and self._timeline.card(group_key) is not None
+        ):
+            self._apply_requested_focus()
+            self._open_pending_detail()
+            self._requested_focus = ""
+            self._arm_map_focus()
+
     def prepare_in_background(self, *, force: bool = False) -> None:
         """Warm ``cache/map.html`` after import or project open. Does not block the GUI."""
 
@@ -756,7 +843,12 @@ class MapView(QWidget):
         self._detail_group_key = ""
         self._pending_focus = ""
         self._requested_focus = ""
+        self._restore_view = None
+        self._place_view = None
+        self._placed_strip_key = ""
         self._placing_key = ""
+        self._pending_detail_key = ""
+        self._pending_detail_media = 0
         self._clear_entry_panel()
         self._timeline.set_cards(())
         self._timeline.setVisible(False)
@@ -868,8 +960,16 @@ class MapView(QWidget):
             self._install_page_hooks()
             self._reload_timeline(arm_focus=not self._fit_overview_on_load)
             self._schedule_invalidate()
+            if self._restore_view is not None:
+                QTimer.singleShot(50, self._restore_placed_view)
+                QTimer.singleShot(280, self._restore_placed_view)
+                QTimer.singleShot(400, self._finish_restore_view)
+            elif self._pending_detail_key:
+                QTimer.singleShot(80, self._open_pending_detail)
         else:
-            self._fit_overview_on_load = not bool(self._requested_focus)
+            self._fit_overview_on_load = (
+                not bool(self._requested_focus) and self._restore_view is None
+            )
             self._map_focus_armed = False
             self._last_expand_key = ""
             self._detail_group_key = ""
@@ -939,6 +1039,11 @@ class MapView(QWidget):
         self._loaded_seq = self._desired_seq
         self._install_page_hooks()
         self._schedule_invalidate()
+        if self._restore_view is not None:
+            QTimer.singleShot(50, self._restore_placed_view)
+            QTimer.singleShot(280, self._restore_placed_view)
+            QTimer.singleShot(400, self._finish_restore_view)
+            return
         if self._requested_focus:
             QTimer.singleShot(50, self._apply_requested_focus)
             QTimer.singleShot(280, self._apply_requested_focus)
@@ -954,6 +1059,8 @@ class MapView(QWidget):
     def _install_page_hooks(self) -> None:
         if self._web is None:
             return
+        if self._restore_view is not None:
+            self._web.page().runJavaScript(_KEEP_FOCUS_JS)
         flags = _map_flags_bootstrap_js(self.workspace)
         if flags:
             self._web.page().runJavaScript(flags)
@@ -961,6 +1068,9 @@ class MapView(QWidget):
         if script:
             self._web.page().runJavaScript(script)
         self._web.page().runJavaScript(MAP_PAGE_SETUP_JS)
+        if self._restore_view is not None:
+            lat, lon, zoom = self._restore_view
+            self._web.page().runJavaScript(restore_map_view_js(lat, lon, zoom))
         if self._placing_key:
             self._run_js("if (window.traveljournalSetPlaceMode) traveljournalSetPlaceMode(true);")
 
@@ -983,7 +1093,10 @@ class MapView(QWidget):
         self._timeline.setVisible(bool(cards))
         if not cards:
             self._clear_entry_panel()
-        if self._requested_focus:
+        if self._placed_strip_key:
+            key = self._placed_strip_key
+            QTimer.singleShot(0, lambda k=key: self._highlight_placed_card(k))
+        elif self._requested_focus:
             QTimer.singleShot(0, self._apply_requested_focus)
         elif arm_focus:
             QTimer.singleShot(0, self._arm_map_focus)
@@ -1021,7 +1134,7 @@ class MapView(QWidget):
         self._run_js(_INVALIDATE_JS)
 
     def _fit_map_overview(self) -> None:
-        if self._requested_focus:
+        if self._requested_focus or self._restore_view is not None:
             return
         self._pending_focus = ""
         self._run_js(_FIT_OVERVIEW_JS)
@@ -1040,7 +1153,11 @@ class MapView(QWidget):
         if self._timeline.card(key) is None:
             return
         self._map_focus_armed = True
-        self._timeline.center_on(key)
+        skip_pan = self._pending_detail_media > 0
+        self._timeline.center_on(key, emit=not skip_pan)
+        if skip_pan:
+            self._load_entry_panel(key)
+            return
         self._pending_focus = key
         self._apply_pending_focus()
 
@@ -1048,8 +1165,43 @@ class MapView(QWidget):
         self._apply_requested_focus()
         self._fit_overview_on_load = False
         self._arm_map_focus()
+        self._open_pending_detail()
         if self._requested_focus and self._timeline.card(self._requested_focus) is not None:
             self._requested_focus = ""
+
+    def _restore_placed_view(self) -> None:
+        view = self._restore_view
+        if view is None:
+            return
+        lat, lon, zoom = view
+        self._run_js(restore_map_view_js(lat, lon, zoom))
+
+    def _finish_restore_view(self) -> None:
+        self._restore_placed_view()
+        key = self._placed_strip_key
+        self._placed_strip_key = ""
+        self._restore_view = None
+        self._place_view = None
+        self._fit_overview_on_load = False
+        self._arm_map_focus()
+        self._highlight_placed_card(key)
+
+    def _highlight_placed_card(self, group_key: str) -> None:
+        if not group_key or self._timeline.card(group_key) is None:
+            return
+        self._timeline.center_on(group_key, emit=False)
+        self._load_entry_panel(group_key)
+
+    def _store_place_view(self, view: object) -> None:
+        parsed = parse_map_view(view)
+        if parsed is not None:
+            self._place_view = parsed
+
+    def _refresh_after_place(self, view: object) -> None:
+        if not self._placed_strip_key:
+            return
+        self._restore_view = parse_map_view(view) or self._place_view
+        self.refresh(force=True)
 
     def _run_js(self, script: str) -> None:
         if self._web is None or self._stack.currentWidget() is not self._web_host:
@@ -1078,6 +1230,7 @@ class MapView(QWidget):
         self._placing_key = group_key
         if self._web is not None:
             self._web.setCursor(Qt.CursorShape.CrossCursor)
+            self._web.page().runJavaScript(_CAPTURE_VIEW_JS, self._store_place_view)
         self._run_js("if (window.traveljournalSetPlaceMode) traveljournalSetPlaceMode(true);")
         self.status_message.emit("Klick auf die Karte setzt den Ort. Esc bricht ab.")
 
@@ -1107,8 +1260,14 @@ class MapView(QWidget):
         self._run_js("if (window.traveljournalSetPlaceMode) traveljournalSetPlaceMode(false);")
         if self._web is not None:
             self._web.unsetCursor()
-        self._requested_focus = key
-        self.refresh(force=True)
+        self._requested_focus = ""
+        self._fit_overview_on_load = False
+        self._placed_strip_key = key
+        if self._web is None or self._stack.currentWidget() is not self._web_host:
+            self._restore_view = self._place_view
+            self.refresh(force=True)
+        else:
+            self._web.page().runJavaScript(_CAPTURE_VIEW_JS, self._refresh_after_place)
         self.status_message.emit("Ort dem Abschnitt zugeordnet.")
 
     def _on_timeline_focus(self, group_key: str) -> None:
@@ -1267,11 +1426,15 @@ class MapView(QWidget):
             "traveljournalFocusCover(p.lat,p.lon,p.key,p.offsetY);})(" + payload + ");"
         )
 
-    def _on_expand_group(self, group_key: str) -> None:
+    def _on_expand_group(self, group_key: str, *, focus_source_id: int = 0) -> None:
         if self._web is None or not group_key:
             return
         now = monotonic()
-        if group_key == self._last_expand_key and now - self._last_expand_at < 0.4:
+        same = group_key == self._last_expand_key and now - self._last_expand_at < 0.4
+        if same and not focus_source_id:
+            return
+        if same and focus_source_id and group_key == self._detail_group_key:
+            self._focus_detail_media(focus_source_id)
             return
         self._last_expand_key = group_key
         self._last_expand_at = now
@@ -1282,9 +1445,30 @@ class MapView(QWidget):
         except Exception as exc:  # noqa: BLE001 - show load errors in the status bar
             self.status_message.emit(f"Karte: {exc}")
             return
+        if focus_source_id:
+            payload["focus_source_id"] = int(focus_source_id)
         encoded = json.dumps(payload, ensure_ascii=True)
-        self._timeline.center_on(group_key)
+        self._timeline.center_on(group_key, emit=not bool(focus_source_id))
         self._run_js(f"if (window.traveljournalShowDetail) traveljournalShowDetail({encoded});")
+        if focus_source_id:
+            QTimer.singleShot(80, lambda sid=focus_source_id: self._focus_detail_media(sid))
+            QTimer.singleShot(280, lambda sid=focus_source_id: self._focus_detail_media(sid))
+
+    def _open_pending_detail(self) -> None:
+        key = self._pending_detail_key
+        media_id = self._pending_detail_media
+        if not key:
+            return
+        self._pending_detail_key = ""
+        self._pending_detail_media = 0
+        self._on_expand_group(key, focus_source_id=media_id)
+
+    def _focus_detail_media(self, source_file_id: int) -> None:
+        if not source_file_id:
+            return
+        self._run_js(
+            f"if (window.traveljournalFocusMedia) traveljournalFocusMedia({int(source_file_id)});"
+        )
 
     def _on_section_closed(self) -> None:
         self._detail_items = []

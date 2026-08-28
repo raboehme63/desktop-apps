@@ -76,6 +76,8 @@ class MapTimelineCard:
     igc_count: int = 0
     igc_reserve_count: int = 0
     youtube_count: int = 0
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
 
     @property
     def needs_pin(self) -> bool:
@@ -400,6 +402,8 @@ def _card_from_entry(entry: TimelineEntry) -> MapTimelineCard | None:
         notes=notes,
         stored_title=stored_title,
         youtube_urls=youtube_urls,
+        started_at=started,
+        ended_at=ended,
         **_card_media_kwargs(items, youtube_urls),
     )
 
@@ -596,6 +600,8 @@ def _cards_from_source_files(
                 latitude=position[0] if position is not None else None,
                 longitude=position[1] if position is not None else None,
                 card_kind=KIND_DAY,
+                started_at=started,
+                ended_at=ended,
                 **_card_media_kwargs(items),
             )
         )

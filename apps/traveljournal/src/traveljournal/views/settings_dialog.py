@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QColorDialog,
@@ -10,11 +11,13 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -34,6 +37,7 @@ class SettingsDialog(QDialog):
     def __init__(self, settings: ProjectSettings, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Projekteinstellungen")
+        self.setMinimumSize(480, 360)
         self.resize(560, 620)
         self._settings = settings.model_copy(deep=True)
 
@@ -41,13 +45,18 @@ class SettingsDialog(QDialog):
         root.setContentsMargins(20, 18, 20, 18)
         root.setSpacing(14)
 
+        body = QWidget()
+        form = QVBoxLayout(body)
+        form.setContentsMargins(0, 0, 8, 0)
+        form.setSpacing(14)
+
         intro = QLabel(
             "Die Werte werden in settings.toml im Projektordner gespeichert. "
             "Originaldateien werden nicht verändert."
         )
         intro.setObjectName("pageSubtitle")
         intro.setWordWrap(True)
-        root.addWidget(intro)
+        form.addWidget(intro)
 
         paths = QGroupBox("Originaldateien")
         paths_form = QFormLayout(paths)
@@ -66,7 +75,7 @@ class SettingsDialog(QDialog):
         hint.setObjectName("pageSubtitle")
         hint.setWordWrap(True)
         paths_form.addRow("", hint)
-        root.addWidget(paths)
+        form.addWidget(paths)
 
         export = QGroupBox("Export")
         export_form = QFormLayout(export)
@@ -76,7 +85,7 @@ class SettingsDialog(QDialog):
         index = max(self.format_combo.findData(self._settings.export.default_format), 0)
         self.format_combo.setCurrentIndex(index)
         export_form.addRow("Standardformat", self.format_combo)
-        root.addWidget(export)
+        form.addWidget(export)
 
         matching = QGroupBox("Zuordnung")
         matching_form = QFormLayout(matching)
@@ -88,7 +97,7 @@ class SettingsDialog(QDialog):
         self.timezone_edit = QLineEdit(self._settings.matching.default_timezone or "")
         self.timezone_edit.setPlaceholderText("z. B. Europe/Berlin (optional)")
         matching_form.addRow("Standard-Zeitzone", self.timezone_edit)
-        root.addWidget(matching)
+        form.addWidget(matching)
 
         extra = QGroupBox("Karte und Weitere")
         extra_form = QFormLayout(extra)
@@ -126,7 +135,7 @@ class SettingsDialog(QDialog):
         note.setObjectName("pageSubtitle")
         note.setWordWrap(True)
         extra_form.addRow("", note)
-        root.addWidget(extra)
+        form.addWidget(extra)
 
         performance = QGroupBox("Leistung")
         performance_form = QFormLayout(performance)
@@ -142,7 +151,17 @@ class SettingsDialog(QDialog):
         workers_hint.setObjectName("pageSubtitle")
         workers_hint.setWordWrap(True)
         performance_form.addRow("", workers_hint)
-        root.addWidget(performance)
+        form.addWidget(performance)
+
+        scroll = QScrollArea(self)
+        scroll.setObjectName("settingsScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setWidget(body)
+        self._scroll = scroll
+        root.addWidget(scroll, 1)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -76,6 +76,28 @@ def day_bounds(key: date | None) -> tuple[datetime | None, datetime | None]:
     return start, start
 
 
+def insert_dates_between(before: date | None, after: date | None) -> tuple[date, date]:
+    """Calendar span to prefill when inserting a section between two cards.
+
+    Uses the open days between ``before`` (end of the previous card) and
+    ``after`` (start of the next). If there is no gap, both fields stay on
+    ``before`` so the dialog is still filled.
+    """
+
+    if before is None and after is None:
+        today = date.today()
+        return today, today
+    if before is None:
+        return after, after
+    if after is None:
+        return before, before
+    start = before + timedelta(days=1)
+    end = after - timedelta(days=1)
+    if start <= end:
+        return start, end
+    return before, before
+
+
 def span_for_manual_dates(kind: str, start: date, end: date | None = None) -> tuple[datetime, datetime]:
     """Build ``started_at`` / ``ended_at`` from the create/edit date fields."""
 
@@ -130,6 +152,20 @@ def format_section_span(started_at: datetime | None, ended_at: datetime | None) 
     if start_day == end_day:
         return f"am {start_day.strftime('%d.%m.%Y')}"
     return f"von {start_day.strftime('%d.%m.%Y')} bis {end_day.strftime('%d.%m.%Y')}"
+
+
+def format_card_dates(started_at: datetime | None, ended_at: datetime | None) -> str:
+    """Compact card dates: ``12.12.2026`` or ``11.11.2026 - 21.11.2026``."""
+
+    start = started_at
+    end = ended_at or started_at
+    if start is None:
+        return "Ohne Datum"
+    start_day = start.date()
+    end_day = end.date() if end is not None else start_day
+    if start_day == end_day:
+        return start_day.strftime("%d.%m.%Y")
+    return f"{start_day.strftime('%d.%m.%Y')} - {end_day.strftime('%d.%m.%Y')}"
 
 
 def format_scroll_date(started_at: datetime | None, ended_at: datetime | None) -> str:

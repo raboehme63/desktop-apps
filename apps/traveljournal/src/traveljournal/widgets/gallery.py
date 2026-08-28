@@ -32,6 +32,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QListView,
+    QMenu,
     QSizePolicy,
     QStyle,
     QStyledItemDelegate,
@@ -47,6 +48,8 @@ from travelcore.media.gallery import (
     effective_sort_status,
 )
 from travelcore.media.types import GPS_EXTENSIONS, PHOTO_EXTENSIONS
+from travelcore.timeline.sections import format_scroll_date
+from traveljournal.widgets.scroll_date import ScrollDateChip
 
 _ICON = 168
 _CELL = QSize(184, 214)
@@ -284,6 +287,7 @@ class GalleryView(QListView):
     cover_chosen = Signal(object)
     items_dropped = Signal(list)
     drop_hover = Signal(bool)
+    map_requested = Signal(object)
 
     def __init__(
         self, parent: QWidget | None = None, *, show_ratings: bool = True, show_cover: bool = False
@@ -306,6 +310,8 @@ class GalleryView(QListView):
         self._show_ratings = show_ratings
         self._show_cover = show_cover
         self._accept_pool_drop = False
+        self._scroll_date: ScrollDateChip | None = None
+        self._to_map_enabled = None
 
     def set_multi_select(self, enabled: bool) -> None:
         mode = QListView.SelectionMode.MultiSelection if enabled else QListView.SelectionMode.SingleSelection
@@ -360,6 +366,43 @@ class GalleryView(QListView):
             return
         event.acceptProposedAction()
         self.items_dropped.emit(ids)
+
+    def enable_to_map_menu(self, enabled_for=None) -> None:  # noqa: ANN001
+        """Right-click a thumbnail to emit ``map_requested`` (Timeline only)."""
+
+        self._to_map_enabled = enabled_for
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_to_map_menu)
+
+    def _show_to_map_menu(self, pos: QPoint) -> None:
+        index = self.indexAt(pos)
+        item = self._model.item_at(index)
+        if item is None:
+            return
+        self.setCurrentIndex(index)
+        menu = QMenu(self)
+        action = menu.addAction("Zur Karte…")
+        if self._to_map_enabled is not None:
+            action.setEnabled(bool(self._to_map_enabled(item)))
+        chosen = menu.exec(self.viewport().mapToGlobal(pos))
+        if chosen is action and action.isEnabled():
+            self.map_requested.emit(item)
+
+    def enable_scroll_date(self) -> None:
+        if self._scroll_date is not None:
+            return
+        self._scroll_date = ScrollDateChip(self, self.date_at_viewport_mid)
+
+    def date_at_viewport_mid(self) -> str | None:
+        if not self.items():
+            return None
+        viewport = self.viewport()
+        mid_x = max(8, viewport.width() // 2)
+        for mid_y in (viewport.height() // 2, 12, max(12, viewport.height() - 12)):
+            item = self._model.item_at(self.indexAt(QPoint(mid_x, mid_y)))
+            if item is not None:
+                return format_scroll_date(item.captured_at, item.captured_at)
+        return None
 
     def set_expand_to_fit(self, enabled: bool) -> None:
         """Grow with the item count so a parent scroll area can own scrolling."""

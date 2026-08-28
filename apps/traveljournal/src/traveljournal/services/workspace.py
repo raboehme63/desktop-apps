@@ -651,6 +651,32 @@ class Workspace:
         data["show_rejected_in_all"] = flag
         self._save_ui_config(data)
 
+    def inspector_size(self) -> tuple[int, int]:
+        from traveljournal.widgets.media_inspector import clamp_inspector_size
+
+        data = self._load_ui_config()
+        return clamp_inspector_size(data.get("inspector_width"), data.get("inspector_height"))
+
+    def inspector_maximized(self) -> bool:
+        return self._load_ui_config().get("inspector_maximized") is True
+
+    def set_inspector_geometry(self, width: int, height: int, *, maximized: bool = False) -> None:
+        from traveljournal.widgets.media_inspector import clamp_inspector_size
+
+        clamped_w, clamped_h = clamp_inspector_size(width, height)
+        flag = bool(maximized)
+        data = self._load_ui_config()
+        if (
+            data.get("inspector_width") == clamped_w
+            and data.get("inspector_height") == clamped_h
+            and bool(data.get("inspector_maximized")) == flag
+        ):
+            return
+        data["inspector_width"] = clamped_w
+        data["inspector_height"] = clamped_h
+        data["inspector_maximized"] = flag
+        self._save_ui_config(data)
+
     def remember_projects_root(self, directory: Path) -> None:
         path = directory.expanduser().resolve()
         if not path.is_dir():

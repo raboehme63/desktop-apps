@@ -7,8 +7,9 @@ from dataclasses import replace
 from pathlib import Path
 
 from PIL import Image
-from PySide6.QtCore import QEvent, QPointF, QRect, QRectF, QSize, QSizeF, Qt, Signal
+from PySide6.QtCore import QEvent, QPointF, QRect, QRectF, QSize, QSizeF, Qt, QTimer, Signal
 from PySide6.QtGui import (
+    QCloseEvent,
     QColor,
     QHoverEvent,
     QKeyEvent,
@@ -62,6 +63,9 @@ _NAV_RATIO = 0.18
 _NAV_MIN = 64
 _NAV_MAX = 140
 _MIN_IMAGE = QSize(240, 180)
+INSPECTOR_DEFAULT_SIZE = (960, 720)
+INSPECTOR_MIN_SIZE = (520, 400)
+INSPECTOR_MAX_SIZE = (8000, 8000)
 
 
 class PhotoCanvas(QWidget):
@@ -328,7 +332,7 @@ class MediaInspectorWindow(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setMinimumSize(520, 400)
+        self.setMinimumSize(*INSPECTOR_MIN_SIZE)
         self.workspace = workspace
         self._thumbnail_first = thumbnail_first
         self._showing_original = not thumbnail_first
@@ -337,7 +341,16 @@ class MediaInspectorWindow(QWidget):
             (index for index, entry in enumerate(self._items) if entry.source_file_id == item.source_file_id),
             0,
         )
-        self.resize(960, 720)
+        width, height = INSPECTOR_DEFAULT_SIZE
+        self._restore_maximized = False
+        if workspace is not None:
+            width, height = workspace.inspector_size()
+            self._restore_maximized = workspace.inspector_maximized()
+        self.resize(width, height)
+        self._persist_timer = QTimer(self)
+        self._persist_timer.setSingleShot(True)
+        self._persist_timer.setInterval(250)
+        self._persist_timer.timeout.connect(self._persist_geometry)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
@@ -434,8 +447,34 @@ class MediaInspectorWindow(QWidget):
 
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802
         super().showEvent(event)
+        if self._restore_maximized:
+            self._restore_maximized = False
+            self.showMaximized()
         self.activateWindow()
         self.setFocus(Qt.FocusReason.ActiveWindowFocusReason)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        if self.workspace is None or not self.isVisible():
+            return
+        if self.isMaximized() or self.isFullScreen():
+            return
+        self._persist_timer.start()
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        self._persist_timer.stop()
+        self._persist_geometry()
+        super().closeEvent(event)
+
+    def _persist_geometry(self) -> None:
+        if self.workspace is None:
+            return
+        maximized = self.isMaximized() or self.isFullScreen()
+        if maximized:
+            geo = self.normalGeometry()
+            self.workspace.set_inspector_geometry(geo.width(), geo.height(), maximized=True)
+            return
+        self.workspace.set_inspector_geometry(self.width(), self.height(), maximized=False)
 
     def changeEvent(self, event: QEvent) -> None:  # noqa: N802
         super().changeEvent(event)
@@ -445,6 +484,7 @@ class MediaInspectorWindow(QWidget):
         self._size_grip.setVisible(not filled)
         if filled:
             self._image.reset_view()
+        self._persist_geometry()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
         if event.key() == Qt.Key.Key_Left:
@@ -500,9 +540,9 @@ class MediaInspectorWindow(QWidget):
         updated = replace(current_item, sort_status=next_status, is_favorite=favorite)
         self._items[self._index] = updated
         self.rating_changed.emit(updated)
-        self._advance_after_rating()
+        self._advance_to_next()
 
-    def _advance_after_rating(self) -> None:
+    def _advance_to_next(self) -> None:
         if self._index + 1 < len(self._items):
             self.step(1, keep_view=True)
             return
@@ -539,8 +579,11 @@ class MediaInspectorWindow(QWidget):
             return
         updated = replace(current_item, parked=not current_item.parked)
         self._items[self._index] = updated
-        self._sync_pool_button()
         self.park_changed.emit(updated)
+        if updated.parked:
+            self._advance_to_next()
+            return
+        self._sync_pool_button()
 
     def _show_current(self) -> None:
         item = self.item()
@@ -590,6 +633,24 @@ class MediaInspectorWindow(QWidget):
             if parked
             else "Medium aus dem Tagebuch nehmen und in den Medienpool legen"
         )
+
+
+def clamp_inspector_size(width: object, height: object) -> tuple[int, int]:
+    """Keep a stored inspector size within the window minimum and a safe maximum."""
+
+    def axis(value: object, default: int, lo: int, hi: int) -> int:
+        if isinstance(value, bool):
+            return default
+        try:
+            number = int(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return default
+        return max(lo, min(number, hi))
+
+    return (
+        axis(width, INSPECTOR_DEFAULT_SIZE[0], INSPECTOR_MIN_SIZE[0], INSPECTOR_MAX_SIZE[0]),
+        axis(height, INSPECTOR_DEFAULT_SIZE[1], INSPECTOR_MIN_SIZE[1], INSPECTOR_MAX_SIZE[1]),
+    )
 
 
 def size_keeping_photo_aspect(

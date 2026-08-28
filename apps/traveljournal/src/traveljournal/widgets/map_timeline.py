@@ -30,14 +30,15 @@ from PySide6.QtWidgets import (
 )
 
 from travelcore.maps.groups import MapTimelineCard, parse_group_key
-from travelcore.timeline.sections import KIND_DAY, KIND_MOVEMENT
+from travelcore.timeline.journal import calendar_key
+from travelcore.timeline.sections import KIND_DAY, KIND_MOVEMENT, insert_dates_between
+from traveljournal.widgets.join_plus import MapSpine
 
 CARD_WIDTH = 248
 CARD_HEIGHT = 148
 CARD_RADIUS = 22
 CARD_IDLE_SCALE = 0.70
 HEXAGON_CUT_RATIO = 0.28
-LINE_WIDTH = 36
 _FOCUS_DELAY_MS = 180
 
 
@@ -87,21 +88,6 @@ def transfer_hexagon_path(rect: QRectF) -> QPainterPath:
     path.lineTo(rect.left() + cut, rect.bottom())
     path.closeSubpath()
     return path
-
-
-class _LineWidget(QWidget):
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setObjectName("mapTimelineLine")
-        self.setFixedSize(LINE_WIDTH, 8)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-
-    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
-        del event
-        painter = QPainter(self)
-        y = self.height() // 2
-        painter.setPen(QPen(QColor("#e8edf5"), 2.0))
-        painter.drawLine(0, y, self.width(), y)
 
 
 class _CardWidget(QFrame):
@@ -298,6 +284,7 @@ class MapTimelineStrip(QScrollArea):
     focus_changed = Signal(str)
     open_in_timeline = Signal(str)
     place_requested = Signal(str)
+    add_between = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -382,7 +369,15 @@ class MapTimelineStrip(QScrollArea):
         self._empty.setParent(self._inner)
         for index, card in enumerate(self._cards):
             if index:
-                line = _LineWidget(self._inner)
+                previous = self._cards[index - 1]
+                start, end = insert_dates_between(
+                    calendar_key(previous.ended_at) or calendar_key(previous.started_at),
+                    calendar_key(card.started_at),
+                )
+                line = MapSpine(self._inner)
+                line.add_requested.connect(
+                    lambda start=start, end=end: self.add_between.emit((start, end))
+                )
                 self._row.addWidget(line, 0, Qt.AlignmentFlag.AlignVCenter)
             widget = _CardWidget(card, self._inner)
             widget.clicked.connect(self.center_on)

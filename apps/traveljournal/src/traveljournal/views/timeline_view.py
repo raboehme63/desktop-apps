@@ -6,18 +6,13 @@ from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from PySide6.QtCore import QDate, QDateTime, QEvent, QObject, QPoint, QRect, Qt, QTime, QTimer, Signal
+from PySide6.QtCore import QDate, QDateTime, QEvent, QObject, QPoint, Qt, QTime, QTimer, Signal
 from PySide6.QtGui import (
-    QColor,
     QDragEnterEvent,
     QDragLeaveEvent,
     QDragMoveEvent,
     QDropEvent,
-    QPainter,
-    QPaintEvent,
-    QPen,
     QPixmap,
-    QPolygon,
     QResizeEvent,
     QShowEvent,
     QTextOption,
@@ -41,11 +36,8 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
-    QScrollBar,
     QSizePolicy,
     QSplitter,
-    QStyle,
-    QStyleOptionSlider,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -74,15 +66,16 @@ from travelcore.timeline.sections import (
     KIND_MOVEMENT,
     KIND_STAY,
     expand_range_selection,
+    format_card_dates,
     format_scroll_date,
     format_section_span,
+    insert_dates_between,
     parse_modes,
     serialize_modes,
     span_for_manual_dates,
 )
 from travelcore.timeline.types import (
     PendingSectionSpec,
-    TimelineDay,
     TimelineEntry,
     TimelinePhoto,
     TimelineSection,
@@ -97,6 +90,7 @@ from traveljournal.widgets.entry_links import (
     links_html,
 )
 from traveljournal.widgets.gallery import GalleryView, source_ids_from_mime
+from traveljournal.widgets.join_plus import TimelineSpine as TimelineJoin
 from traveljournal.widgets.media_inspector import MediaInspectorWindow
 from traveljournal.widgets.media_tabs import (
     RATING_TABS,
@@ -109,6 +103,7 @@ from traveljournal.widgets.media_tabs import (
     sync_show_rejected_check,
 )
 from traveljournal.widgets.pool_pane import PoolCollapse, PoolPane
+from traveljournal.widgets.scroll_date import scrollbar_slider_rect as _scrollbar_slider_rect
 
 _REVEAL_TOP_PAD = 0
 _REVEAL_RETRY_MS = (0, 32, 80, 160, 320)
@@ -160,17 +155,6 @@ def timeline_center_date(blocks: list[EntryWidget], host: QWidget, mid_y: int) -
     return blocks[index].scroll_date()
 
 
-def _scrollbar_slider_rect(bar: QScrollBar) -> QRect:
-    opt = QStyleOptionSlider()
-    bar.initStyleOption(opt)
-    return bar.style().subControlRect(
-        QStyle.ComplexControl.CC_ScrollBar,
-        opt,
-        QStyle.SubControl.SC_ScrollBarSlider,
-        bar,
-    )
-
-
 _MODE_LABELS = (
     ("bus", "Bus"),
     ("train", "Bahn"),
@@ -181,49 +165,36 @@ _MODE_LABELS = (
     ("boat", "Schiff"),
     ("other", "Sonstiges"),
 )
-_COVER_HEAD = 72
-_TIMELINE_JOIN_H = 56
-_TIMELINE_JOIN_LINE = 5
+_COVER_HEAD = 168
+_TIMELINE_JOIN_H = 64
 
 
-class TimelineJoin(QWidget):
-    """Vertical timeline spine between cards, with a downward arrow."""
+class SectionKindCombo(QComboBox):
+    """Type picker whose popup always shows Tag, Aufenthalt and Transfer."""
 
-    def __init__(self, color: str, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setObjectName("timelineJoin")
-        self._color = QColor(color)
-        if not self._color.isValid():
-            self._color = QColor(DEFAULT_STAY_LINK_COLOR)
-        self.setFixedHeight(_TIMELINE_JOIN_H)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setMaxVisibleItems(3)
 
-    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
-        del event
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        cx = self.width() // 2
-        tip_y = self.height() - 6
-        shaft_end = tip_y - 12
-        painter.setPen(QPen(self._color, _TIMELINE_JOIN_LINE, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        painter.drawLine(cx, 2, cx, shaft_end)
-        arrow = QPolygon(
-            [
-                QPoint(cx, tip_y),
-                QPoint(cx - 10, shaft_end - 2),
-                QPoint(cx + 10, shaft_end - 2),
-            ]
-        )
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(self._color)
-        painter.drawPolygon(arrow)
+    def showPopup(self) -> None:  # noqa: N802
+        super().showPopup()
+        view = self.view()
+        if view is None or self.count() == 0:
+            return
+        row_h = max(view.sizeHintForRow(0), 28)
+        height = row_h * min(3, self.count()) + 6
+        view.setFixedHeight(height)
+        container = view.parentWidget()
+        if container is not None:
+            extra = max(4, container.height() - view.height())
+            container.setFixedHeight(height + extra)
 
 
 class TimelineView(QWidget):
     status_message = Signal(str)
     timeline_changed = Signal()
     open_on_map = Signal(str)
+    open_media_on_map = Signal(str, int)
 
     def __init__(self, workspace: Workspace, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -273,8 +244,6 @@ class TimelineView(QWidget):
             "oder ohne Auswahl einen leeren Abschnitt mit Datum erzeugen "
             "(Tag: am, Aufenthalt/Transfer: von–bis). "
             "⋯-Menü löscht einen Abschnitt; die Medien landen im Pool. "
-            "Erstes und letztes Objekt anklicken — alles dazwischen wird mitmarkiert. "
-            "Strg+Klick nimmt einzelne Objekte dazwischen wieder raus. "
             "Pfeil rechts außen klappt den Medienpool ein und aus; die Breite bleibt erhalten."
         )
         self._subtitle.setObjectName("pageSubtitle")
@@ -544,7 +513,15 @@ class TimelineView(QWidget):
             join_color = self._join_color()
             for index, entry in enumerate(entries):
                 if index:
+                    previous = entries[index - 1]
+                    start, end = insert_dates_between(
+                        _entry_span_dates(previous)[1],
+                        _entry_span_dates(entry)[0],
+                    )
                     join = TimelineJoin(join_color, self._host)
+                    join.add_requested.connect(
+                        lambda start=start, end=end: self._create_section_at_join(start, end)
+                    )
                     self._joins.append(join)
                     self._host_layout.insertWidget(insert_at, join)
                     insert_at += 1
@@ -570,6 +547,7 @@ class TimelineView(QWidget):
                 block.media_tab_changed.connect(self._on_block_media_tab)
                 block.item_rating_changed.connect(self._on_item_rating)
                 block.open_on_map.connect(self.open_on_map.emit)
+                block.open_media_on_map.connect(self.open_media_on_map.emit)
                 block.content_changed.connect(self._update_save_button)
                 block.pool_dropped.connect(lambda ids, widget=block: self._drop_pool_on_entry(widget, ids))
                 block.gallery.item_activated.connect(self._open_inspector)
@@ -766,18 +744,36 @@ class TimelineView(QWidget):
         self._displayed_selection = filled
         self._update_create_button()
 
+    def create_section_between(self, start: date, end: date) -> bool:
+        if not self._commit_if_dirty():
+            return False
+        dialog = EmptySectionDialog(start, self, until=end)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+        self._append_pending_section(dialog.values(), ())
+        return True
+
+    def _create_section_at_join(self, start: date, end: date) -> None:
+        self.create_section_between(start, end)
+
     def _create_section(self) -> None:
         source_ids = self._selected_source_ids()
         if not self._commit_if_dirty():
             return
         if source_ids:
-            items = self._selected_items()
-            dialog = NewSectionDialog(items, self)
+            dialog = NewSectionDialog(self._selected_items(), self)
         else:
-            dialog = EmptySectionDialog(self._default_section_date(), self)
+            chosen = self._default_section_date()
+            dialog = EmptySectionDialog(chosen, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        payload = dialog.values()
+        self._append_pending_section(dialog.values(), source_ids)
+
+    def _append_pending_section(
+        self,
+        payload: dict[str, object],
+        source_ids: list[int] | tuple[int, ...],
+    ) -> None:
         started = payload.get("started_at")
         ended = payload.get("ended_at")
         self._pending.append(
@@ -1384,6 +1380,7 @@ class EntryWidget(QFrame):
     media_tab_changed = Signal(int)
     item_rating_changed = Signal(object)
     open_on_map = Signal(str)
+    open_media_on_map = Signal(str, int)
     content_changed = Signal()
     pool_dropped = Signal(list)
 
@@ -1408,7 +1405,8 @@ class EntryWidget(QFrame):
         if section is not None:
             self._kind = "section"
             self._entity_id = section.id
-            heading_text = _section_heading(section)
+            date_text = format_card_dates(section.started_at, section.ended_at)
+            extra_text = _card_extra(section)
             title = section.title or ""
             notes = section.notes or ""
             items = section.items
@@ -1421,7 +1419,8 @@ class EntryWidget(QFrame):
         elif day is not None:
             self._kind = "day"
             self._entity_id = day.id
-            heading_text = _leftover_heading(day, leftover=show_as_leftover)
+            date_text = day.date.strftime("%d.%m.%Y") if day.date is not None else "Ohne Datum"
+            extra_text = "ohne Abschnitt" if show_as_leftover else ""
             title = day.title or ""
             notes = day.notes or ""
             items = day.photos
@@ -1436,7 +1435,8 @@ class EntryWidget(QFrame):
         else:
             self._kind = "day"
             self._entity_id = 0
-            heading_text = "Leer"
+            date_text = "Ohne Datum"
+            extra_text = ""
             title = ""
             notes = ""
             items = ()
@@ -1454,11 +1454,8 @@ class EntryWidget(QFrame):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(10)
+        layout.setSpacing(8)
 
-        heading = QLabel(heading_text, self)
-        heading.setObjectName("pageSubtitle")
-        heading.setWordWrap(True)
         self._menu_button = QToolButton(self)
         self._menu_button.setObjectName("entryMenu")
         self._menu_button.setText("⋯")
@@ -1488,19 +1485,28 @@ class EntryWidget(QFrame):
         self._cover_thumb.setFixedSize(_COVER_HEAD, _COVER_HEAD)
         self._cover_thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._cover_thumb.setToolTip("Titelbild")
-        self._cover_thumb.hide()
         heading_row.addWidget(self._cover_thumb, 0, Qt.AlignmentFlag.AlignTop)
-        self._kind_combo = QComboBox(self)
+        meta = QVBoxLayout()
+        meta.setContentsMargins(0, 0, 0, 0)
+        meta.setSpacing(4)
+        type_row = QHBoxLayout()
+        type_row.setContentsMargins(0, 0, 0, 0)
+        type_row.setSpacing(8)
+        self._kind_combo = SectionKindCombo(self)
         self._kind_combo.setObjectName("sectionKind")
         self._kind_combo.addItem("Tag", KIND_DAY)
         self._kind_combo.addItem("Aufenthalt", KIND_STAY)
         self._kind_combo.addItem("Transfer", KIND_MOVEMENT)
         self._kind_combo.setToolTip("Typ dieses Timeline-Eintrags")
+        self._kind_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         index = max(0, self._kind_combo.findData(self._entry_kind))
         self._kind_combo.setCurrentIndex(index)
         self._kind_combo.currentIndexChanged.connect(self._on_kind_combo)
-        heading_row.addWidget(self._kind_combo, 0, Qt.AlignmentFlag.AlignTop)
-        heading_row.addWidget(heading, 1)
+        type_row.addWidget(self._kind_combo, 0, Qt.AlignmentFlag.AlignVCenter)
+        self._date_label = QLabel(date_text, self)
+        self._date_label.setObjectName("entryDates")
+        type_row.addWidget(self._date_label, 0, Qt.AlignmentFlag.AlignVCenter)
+        type_row.addStretch(1)
         self._to_map_button = QPushButton("Zur Karte", self)
         self._to_map_button.setObjectName("entryToMap")
         saved = self._entity_id > 0
@@ -1509,15 +1515,30 @@ class EntryWidget(QFrame):
             "Eintrag auf der Karte zeigen" if saved else "Nach dem Speichern auf der Karte sichtbar"
         )
         self._to_map_button.clicked.connect(self._request_open_on_map)
-        heading_row.addWidget(self._to_map_button, 0, Qt.AlignmentFlag.AlignTop)
+        type_row.addWidget(self._to_map_button, 0)
         if self._kind == "section" and self._entry_kind != KIND_DAY:
             dissolve = QToolButton(self)
             dissolve.setObjectName("entryMenu")
             dissolve.setText("⊟")
             dissolve.setToolTip("Reiseabschnitt auflösen")
             dissolve.clicked.connect(self._request_dissolve)
-            heading_row.addWidget(dissolve, 0, Qt.AlignmentFlag.AlignTop)
-        heading_row.addWidget(self._menu_button, 0, Qt.AlignmentFlag.AlignTop)
+            type_row.addWidget(dissolve, 0)
+        type_row.addWidget(self._menu_button, 0)
+        meta.addLayout(type_row)
+        self._extra_label = QLabel(extra_text, self)
+        self._extra_label.setObjectName("entryExtra")
+        self._extra_label.setWordWrap(True)
+        self._extra_label.setVisible(bool(extra_text))
+        meta.addWidget(self._extra_label)
+        title_label = QLabel("Titel", self)
+        title_label.setObjectName("fieldCaption")
+        meta.addWidget(title_label)
+        self.title_edit = QLineEdit(self)
+        self.title_edit.setText(self._loaded_title)
+        self.title_edit.setPlaceholderText(title_ph)
+        meta.addWidget(self.title_edit)
+        meta.addStretch(1)
+        heading_row.addLayout(meta, 1)
         self.links_label = QLabel(self)
         self.links_label.setObjectName("pageSubtitle")
         self.links_label.setWordWrap(True)
@@ -1525,9 +1546,6 @@ class EntryWidget(QFrame):
         self.links_label.setTextFormat(Qt.TextFormat.RichText)
         self.youtube_thumbs = YouTubeThumbsRow(self)
         self._refresh_links()
-        self.title_edit = QLineEdit(self)
-        self.title_edit.setText(self._loaded_title)
-        self.title_edit.setPlaceholderText(title_ph)
         self.notes_edit = QPlainTextEdit(self)
         self.notes_edit.setPlainText(self._loaded_notes)
         self.notes_edit.setPlaceholderText(notes_ph)
@@ -1543,16 +1561,10 @@ class EntryWidget(QFrame):
         media_count = len(media_items)
         track_count = len(track_items)
         media_label = QLabel(
-            "Keine Medien"
-            if media_count == 0 and track_count == 0
-            else (
-                f"Medien ({media_count}) — erstes und letztes Objekt anklicken, "
-                "dazwischen wird mitmarkiert; Strg+Klick nimmt einzelne wieder raus"
-            ),
+            "Keine Medien" if media_count == 0 and track_count == 0 else f"Medien ({media_count})",
             self,
         )
-        media_label.setObjectName("pageSubtitle")
-        media_label.setWordWrap(True)
+        media_label.setObjectName("fieldCaption")
         media_label.setVisible(media_count > 0 or track_count == 0)
         self._all_gallery = [_gallery_item(photo, cover_id=self._cover_id) for photo in media_items]
         self._media_tabs = ClickTabBar(self)
@@ -1566,23 +1578,22 @@ class EntryWidget(QFrame):
         self.gallery.set_multi_select(True)
         self.gallery.rating_chosen.connect(self._on_rating)
         self.gallery.cover_chosen.connect(self._on_cover)
+        self.gallery.enable_to_map_menu(self._item_can_open_on_map)
+        self.gallery.map_requested.connect(self._request_open_item_on_map)
         self.gallery.setToolTip("T oben links: Titelbild für diesen Tag oder Abschnitt")
         self.gallery.setVisible(media_count > 0)
         model = self.gallery.selectionModel()
         if model is not None:
             model.selectionChanged.connect(lambda *_args: self.selection_changed.emit())
-        track_label = QLabel(
-            f"Tracks ({track_count}) — erstes und letztes Objekt anklicken, "
-            "dazwischen wird mitmarkiert; Strg+Klick nimmt einzelne wieder raus",
-            self,
-        )
-        track_label.setObjectName("pageSubtitle")
-        track_label.setWordWrap(True)
+        track_label = QLabel(f"Tracks ({track_count})", self)
+        track_label.setObjectName("fieldCaption")
         track_label.setVisible(track_count > 0)
         self.track_gallery = GalleryView(self, show_ratings=False, show_cover=True)
         self.track_gallery.set_expand_to_fit(True)
         self.track_gallery.set_multi_select(True)
         self.track_gallery.cover_chosen.connect(self._on_cover)
+        self.track_gallery.enable_to_map_menu(self._item_can_open_on_map)
+        self.track_gallery.map_requested.connect(self._request_open_item_on_map)
         self.track_gallery.setToolTip("T oben links: Titelbild für diesen Tag oder Abschnitt")
         self.track_gallery.set_items([_gallery_item(photo, cover_id=self._cover_id) for photo in track_items])
         self.track_gallery.setVisible(track_count > 0)
@@ -1590,11 +1601,9 @@ class EntryWidget(QFrame):
         if track_model is not None:
             track_model.selectionChanged.connect(lambda *_args: self.selection_changed.emit())
 
-        title_label = QLabel("Titel", self)
         notes_label = QLabel("Tagebucheintrag", self)
+        notes_label.setObjectName("fieldCaption")
         layout.addLayout(heading_row)
-        layout.addWidget(title_label)
-        layout.addWidget(self.title_edit)
         layout.addWidget(notes_label)
         layout.addWidget(self.notes_edit)
         layout.addWidget(self.youtube_thumbs)
@@ -1819,23 +1828,13 @@ class EntryWidget(QFrame):
     def _refresh_cover_thumb(self) -> None:
         item = next((media for media in self._cover_items() if media.source_file_id == self._cover_id), None)
         if item is None or not item.thumbnail_path.is_file():
-            self._cover_thumb.hide()
             self._cover_thumb.clear()
             return
         pixmap = QPixmap(str(item.thumbnail_path))
         if pixmap.isNull():
-            self._cover_thumb.hide()
             self._cover_thumb.clear()
             return
-        self._cover_thumb.setPixmap(
-            pixmap.scaled(
-                _COVER_HEAD,
-                _COVER_HEAD,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-        )
-        self._cover_thumb.show()
+        self._cover_thumb.setPixmap(_scaled_cover(pixmap, _COVER_HEAD))
 
     def _edit_youtube(self) -> None:
         if self.workspace is None or self._entity_id == 0:
@@ -1879,6 +1878,18 @@ class EntryWidget(QFrame):
             return
         if self._kind == "day":
             self.open_on_map.emit(f"day:{self._entity_id}")
+
+    def _item_can_open_on_map(self, item: GalleryItem) -> bool:
+        return self._entity_id > 0 and _gallery_item_has_map_position(item)
+
+    def _request_open_item_on_map(self, item: object) -> None:
+        if not isinstance(item, GalleryItem) or not self._item_can_open_on_map(item):
+            return
+        if self._kind == "section":
+            self.open_media_on_map.emit(f"section:{self._entity_id}", item.source_file_id)
+            return
+        if self._kind == "day":
+            self.open_media_on_map.emit(f"day:{self._entity_id}", item.source_file_id)
 
     def _edit_leonardo(self) -> None:
         if self.workspace is None or self._entity_id == 0:
@@ -2022,10 +2033,20 @@ class NewSectionDialog(QDialog):
 
 
 class EmptySectionDialog(QDialog):
-    def __init__(self, initial: date, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        initial: date,
+        parent: QWidget | None = None,
+        *,
+        until: date | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Neuer Reiseabschnitt")
+        end = until or initial
         self._form = QFormLayout(self)
+        self._form.setContentsMargins(20, 16, 20, 16)
+        self._form.setHorizontalSpacing(16)
+        self._form.setVerticalSpacing(12)
         self.kind = QComboBox()
         self.kind.addItem("Tag", KIND_DAY)
         self.kind.addItem("Aufenthalt", KIND_STAY)
@@ -2041,17 +2062,11 @@ class EmptySectionDialog(QDialog):
         self.location_to = QLineEdit()
         self.location_to.setPlaceholderText("nach")
         self.date_edit = QDateEdit(self)
-        self.date_edit.setCalendarPopup(True)
-        self.date_edit.setDisplayFormat("dd.MM.yyyy")
-        self.date_edit.setDate(QDate(initial.year, initial.month, initial.day))
+        _configure_date_edit(self.date_edit, initial)
         self.from_edit = QDateEdit(self)
-        self.from_edit.setCalendarPopup(True)
-        self.from_edit.setDisplayFormat("dd.MM.yyyy")
-        self.from_edit.setDate(self.date_edit.date())
+        _configure_date_edit(self.from_edit, initial)
         self.until_edit = QDateEdit(self)
-        self.until_edit.setCalendarPopup(True)
-        self.until_edit.setDisplayFormat("dd.MM.yyyy")
-        self.until_edit.setDate(self.date_edit.date())
+        _configure_date_edit(self.until_edit, end)
         self._form.addRow("Typ", self.kind)
         self._form.addRow("Transfer per", self.mode)
         self._form.addRow("Titel", self.title_edit)
@@ -2067,6 +2082,7 @@ class EmptySectionDialog(QDialog):
         buttons.accepted.connect(self._try_accept)
         buttons.rejected.connect(self.reject)
         self._form.addRow(buttons)
+        self.setMinimumWidth(360)
         self._sync_kind()
 
     def _set_row_visible(self, field: QWidget, visible: bool) -> None:
@@ -2087,6 +2103,7 @@ class EmptySectionDialog(QDialog):
         self._set_row_visible(self.date_edit, tag)
         self._set_row_visible(self.from_edit, not tag)
         self._set_row_visible(self.until_edit, not tag)
+        self.adjustSize()
 
     def _try_accept(self) -> None:
         try:
@@ -2134,29 +2151,34 @@ class SectionSpanDialog(QDialog):
         end = calendar_key(ended_at) or start
         self.setWindowTitle("Datum" if kind == KIND_DAY else "Zeitraum")
         self._form = QFormLayout(self)
+        self._form.setContentsMargins(20, 16, 20, 16)
+        self._form.setHorizontalSpacing(16)
+        self._form.setVerticalSpacing(12)
         self.date_edit = QDateEdit(self)
-        self.date_edit.setCalendarPopup(True)
-        self.date_edit.setDisplayFormat("dd.MM.yyyy")
-        self.date_edit.setDate(QDate(start.year, start.month, start.day))
+        _configure_date_edit(self.date_edit, start)
         self.from_edit = QDateEdit(self)
-        self.from_edit.setCalendarPopup(True)
-        self.from_edit.setDisplayFormat("dd.MM.yyyy")
-        self.from_edit.setDate(QDate(start.year, start.month, start.day))
+        _configure_date_edit(self.from_edit, start)
         self.until_edit = QDateEdit(self)
-        self.until_edit.setCalendarPopup(True)
-        self.until_edit.setDisplayFormat("dd.MM.yyyy")
-        self.until_edit.setDate(QDate(end.year, end.month, end.day))
+        _configure_date_edit(self.until_edit, end)
+        self.from_edit.hide()
+        self.until_edit.hide()
+        self.date_edit.hide()
         if kind == KIND_DAY:
             self._form.addRow("Am", self.date_edit)
+            self.date_edit.show()
         else:
             self._form.addRow("Von", self.from_edit)
             self._form.addRow("Bis", self.until_edit)
+            self.from_edit.show()
+            self.until_edit.show()
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         buttons.accepted.connect(self._try_accept)
         buttons.rejected.connect(self.reject)
         self._form.addRow(buttons)
+        self.setMinimumWidth(360)
+        self.adjustSize()
 
     def _try_accept(self) -> None:
         try:
@@ -2179,12 +2201,28 @@ def _date_from_edit(edit: QDateEdit) -> date:
     return date(chosen.year(), chosen.month(), chosen.day())
 
 
-def _section_heading(section: TimelineSection) -> str:
-    span = format_section_span(section.started_at, section.ended_at)
-    if section.kind == KIND_DAY:
-        return f"Tag · {span}"
+def _entry_span_dates(entry: TimelineEntry) -> tuple[date | None, date | None]:
+    if entry.section is not None:
+        start = calendar_key(entry.section.started_at) or calendar_key(entry.started_at)
+        end = calendar_key(entry.section.ended_at) or start
+        return start, end
+    if entry.leftover_day is not None and entry.leftover_day.date is not None:
+        return entry.leftover_day.date, entry.leftover_day.date
+    key = calendar_key(entry.started_at)
+    return key, key
+
+
+def _configure_date_edit(edit: QDateEdit, value: date) -> None:
+    edit.setCalendarPopup(True)
+    edit.setDisplayFormat("dd.MM.yyyy")
+    edit.setDate(QDate(value.year, value.month, value.day))
+    edit.setMinimumWidth(168)
+    edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+
+def _card_extra(section: TimelineSection) -> str:
     if section.kind == KIND_MOVEMENT:
-        bits = ["Transfer"]
+        bits: list[str] = []
         modes = _format_modes(section.mode)
         if modes:
             bits.append(modes)
@@ -2192,10 +2230,24 @@ def _section_heading(section: TimelineSection) -> str:
             start = section.location_from or "?"
             end = section.location_to or "?"
             bits.append(f"{start} → {end}")
-        bits.append(span)
         return " · ".join(bits)
-    place = f" in {section.location_name}" if section.location_name else ""
-    return f"Aufenthalt{place} · {span}"
+    if section.kind == KIND_STAY and section.location_name:
+        return section.location_name
+    return ""
+
+
+def _scaled_cover(pixmap: QPixmap, size: int) -> QPixmap:
+    scaled = pixmap.scaled(
+        size,
+        size,
+        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+    if scaled.width() == size and scaled.height() == size:
+        return scaled
+    x = max(0, (scaled.width() - size) // 2)
+    y = max(0, (scaled.height() - size) // 2)
+    return scaled.copy(x, y, size, size)
 
 
 def _format_modes(raw: str | None) -> str:
@@ -2218,13 +2270,6 @@ class ModePicker(QWidget):
 
     def serialized(self) -> str | None:
         return serialize_modes([value for value, box in self._boxes if box.isChecked()])
-
-
-def _leftover_heading(day: TimelineDay, *, leftover: bool) -> str:
-    del leftover
-    date_text = day.date.strftime("%d.%m.%Y") if day.date is not None else "Ohne Datum"
-    origin = "manuell" if day.origin == "manual" else "automatisch"
-    return f"{date_text} · {origin}"
 
 
 def _gallery_item(photo: TimelinePhoto, *, cover_id: int | None = None) -> GalleryItem:

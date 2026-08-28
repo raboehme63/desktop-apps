@@ -185,6 +185,7 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
     assert "popupopen" in text
     assert "tj-popup-thumb" in text
     assert "traveljournalShowDetail" in text
+    assert "traveljournalFocusMedia" in text
     assert "covers.eachLayer" in text
     assert "window.traveljournalExpand(key)" in text
     assert "layerKey" in text
@@ -249,9 +250,18 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
     assert "setShowReserve" in text
     assert "tj-photo-cone" in text
     assert "focusPhoto" in text
-    assert "clearPhotoFocus" in text
+    assert "onPhotoMarkerClick" in text
+    assert "resetPhotoFan" in text
+    assert "applySoloLayout" in text
     assert "syncPhotoStack" in text
+    assert "if (stackPhase === 'fan')" in text
     assert "overlapPhotoGroups" in text
+    assert "applySpiderLayout" in text
+    assert "tj-spider-line" in text
+    assert "className: 'tj-spider-origin'" in text
+    assert "L.polyline([hub, dest]" in text
+    assert "zIndex = 550" in text
+    assert "removeProperty('margin-left')" not in text
     assert "tj-photo-date" in text
     assert "tooltipAnchor: [0, 26]" in text or "tooltipAnchor:[0,26]" in text
     assert "leaflet-tooltip-bottom.tj-photo-date" in text
@@ -354,6 +364,17 @@ def test_leaflet_payload_includes_source_file_id(tmp_path: Path) -> None:
     assert headed["heading"] == 90.0
     assert headed["fov"] == 63.0
     assert headed["sort_status"] == "reserve"
+    line_scene = MapScene(
+        polylines=(
+            MapPolyline(
+                name="spur",
+                points=((46.0, 11.0), (46.1, 11.1)),
+                source_file_id=4,
+            ),
+        ),
+        center=(46.0, 11.0),
+    )
+    assert leaflet_payload(line_scene, html_path)["polylines"][0]["source_file_id"] == 4
 
 
 def test_interaction_config_is_declarative_payload(tmp_path: Path) -> None:
@@ -408,9 +429,20 @@ def test_detail_stacks_nearby_photos_until_zoom_17(tmp_path: Path) -> None:
     assert "spiderfyOnMaxZoom: false" in text
     assert "syncPhotoStack" in text
     assert "overlapPhotoGroups" in text
-    assert "PHOTO_ROTATE_MS" in text
+    assert "applySpiderLayout" in text
+    assert "onPhotoMarkerClick" in text
+    assert "resetPhotoFan" in text
+    assert "applySoloLayout" in text
+    assert "PHOTO_ROTATE_MS" not in text
     assert "getChildCount" in text
     assert "tj-stack" in text
+    assert "tj-spider-line" in text
+    assert "parkSpiderMarker" in text
+    assert "setSpiderOffset" in text
+    assert "scheduleSpiderSync" in text
+    assert "animate: false" in text
+    assert "PHOTO_SPIDER_MIN_PX" in text
+    assert "removeProperty('margin-left')" not in text
     assert "tj-photo-date" in text
     assert "item.kind !== 'place'" in text
     assert "cluster.addTo(detail)" in text
@@ -562,6 +594,7 @@ def test_map_cache_reuses_html_when_inputs_unchanged(
     assert "pointerup" in html
     assert "border-radius: 50%" in html
     assert "traveljournalShowDetail" in html
+    assert "traveljournalFocusMedia" in html
     assert map_stamp_path(open_project.directory).is_file()
     assert calls["n"] == 1
     second = ensure_map_cache(**kwargs)

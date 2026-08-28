@@ -74,10 +74,10 @@ _GEAR_ICON_SVG = (
 PHOTO_STACK_RADIUS_PX = 48
 
 
-PHOTO_OVERLAP_PX = 40
+PHOTO_OVERLAP_PX = 56
 
 
-PHOTO_ROTATE_MS = 1400
+PHOTO_SPIDER_MIN_PX = 120
 
 
 _STACK_ICON_JS = """
@@ -101,6 +101,7 @@ def _photo_cluster_js() -> str:
       return L.markerClusterGroup({{
         disableClusteringAtZoom: {PHOTO_STACK_DISABLE_ZOOM},
         spiderfyOnMaxZoom: false,
+        animate: false,
         maxClusterRadius: {PHOTO_STACK_RADIUS_PX},
         showCoverageOnHover: false,
         iconCreateFunction: function(cluster) {{
@@ -335,17 +336,27 @@ def _map_settings_js() -> str:
 def _photo_cone_js() -> str:
     return f"""
     var coneLayer = L.layerGroup().addTo(map);
+    if (!map.getPane('tjSpiderPane')) {{
+      map.createPane('tjSpiderPane');
+      map.getPane('tjSpiderPane').style.zIndex = 550;
+      map.getPane('tjSpiderPane').style.pointerEvents = 'none';
+    }}
+    var spiderLineLayer = L.layerGroup({{pane: 'tjSpiderPane'}}).addTo(map);
+    var spiderMarkerLayer = L.layerGroup().addTo(map);
     var coneSpecs = [];
     var photoEntries = [];
     var focusedPhotoId = null;
-    var photoRotateTimer = null;
-    var photoRotateTick = 0;
     var lastDetailPayload = null;
+    var spiderLock = false;
+    var stackPhase = 'idle';
+    var fannedIds = {{}};
+    var photoClickGuard = 0;
     var CONE_MIN_ZOOM = {PHOTO_CONE_MIN_ZOOM};
     var CONE_RANGE_M = 80;
     var DEFAULT_FOV = {DEFAULT_PHOTO_FOV_DEGREES};
     var PHOTO_OVERLAP_PX = {PHOTO_OVERLAP_PX};
-    var PHOTO_ROTATE_MS = {PHOTO_ROTATE_MS};
+    var PHOTO_SPIDER_MIN_PX = {PHOTO_SPIDER_MIN_PX};
+    var PHOTO_THUMB_PX = 52;
     function itemVisible(item) {{
       if (item.sort_status === 'rejected') {{
         return false;
@@ -375,6 +386,9 @@ def _photo_cone_js() -> str:
       if (!savedView) {{
         return;
       }}
+      if (stackPhase === 'fan') {{
+        return;
+      }}
       if (!window.traveljournalShowPhotoCones || !window.traveljournalShowPhotoCones()) {{
         return;
       }}
@@ -386,6 +400,10 @@ def _photo_cone_js() -> str:
           return;
         }}
         var origin = L.latLng(spec.lat, spec.lon);
+        var coneEntry = spec.id != null ? entryById(spec.id) : null;
+        if (coneEntry) {{
+          origin = entryDisplayLatLng(coneEntry);
+        }}
         var half = (spec.fov || DEFAULT_FOV) / 2;
         var left = spec.heading - half;
         var right = spec.heading + half;
@@ -415,14 +433,37 @@ def _photo_cone_js() -> str:
         updatePhotoCones();
       }}
     }};
+    map.on('zoomstart', function() {{
+      snapEntriesHome();
+    }});
     map.on('zoomend', function() {{
-      updatePhotoCones();
+      if (map.getZoom() < {PHOTO_STACK_DISABLE_ZOOM}) {{
+        stackPhase = 'idle';
+        fannedIds = {{}};
+        focusedPhotoId = null;
+      }}
       syncPhotoStack();
     }});
     map.on('moveend', function() {{
       if (savedView) {{
         syncPhotoStack();
       }}
+    }});
+    map.on('click', function(event) {{
+      if (!savedView || stackPhase === 'idle') {{
+        return;
+      }}
+      var orig = event.originalEvent && event.originalEvent.target;
+      if (orig && orig.closest && orig.closest(
+        '.leaflet-popup, .leaflet-control, .tj-close-section, .tj-settings, '
+        + '.tj-cover-icon, .tj-thumb, .tj-stack, .tj-stack-icon'
+      )) {{
+        return;
+      }}
+      if ((Date.now() - photoClickGuard) < 400) {{
+        return;
+      }}
+      resetPhotoFan();
     }});
     function markerNode(marker) {{
       return (marker.getElement && marker.getElement()) || marker._icon || marker._path;
@@ -434,15 +475,6 @@ def _photo_cone_js() -> str:
         el.style.pointerEvents = show ? '' : 'none';
       }}
     }}
-    function applyPhotoVisibility() {{
-      photoEntries.forEach(function(entry) {{
-        var show = focusedPhotoId == null || String(entry.id) === String(focusedPhotoId);
-        setEntryVisible(entry, show);
-        if (!show && entry.marker.closeTooltip) {{
-          entry.marker.closeTooltip();
-        }}
-      }});
-    }}
     function overlapPhotoGroups() {{
       var n = photoEntries.length;
       if (n < 2 || map.getZoom() < {PHOTO_STACK_DISABLE_ZOOM}) {{
@@ -453,7 +485,7 @@ def _photo_cone_js() -> str:
       var i;
       var j;
       for (i = 0; i < n; i++) {{
-        pts.push(map.latLngToContainerPoint(photoEntries[i].marker.getLatLng()));
+        pts.push(map.latLngToContainerPoint(entryOrigin(photoEntries[i])));
         parent[i] = i;
       }}
       function find(x) {{
@@ -489,72 +521,326 @@ def _photo_cone_js() -> str:
       }});
       return groups;
     }}
-    function stopPhotoRotate() {{
-      if (photoRotateTimer) {{
-        window.clearInterval(photoRotateTimer);
-        photoRotateTimer = null;
+    function entryOrigin(entry) {{
+      return entry.origin || entry.marker.getLatLng();
+    }}
+    function entryDisplayLatLng(entry) {{
+      if (stackPhase === 'solo' && String(entry.id) === String(focusedPhotoId)) {{
+        return entryOrigin(entry);
+      }}
+      if (stackPhase === 'fan' && entry.spiderLatLng) {{
+        return entry.spiderLatLng;
+      }}
+      return entryOrigin(entry);
+    }}
+    function entryById(id) {{
+      var found = null;
+      photoEntries.forEach(function(entry) {{
+        if (found === null && String(entry.id) === String(id)) {{
+          found = entry;
+        }}
+      }});
+      return found;
+    }}
+    function groupForEntry(entry) {{
+      var groups = overlapPhotoGroups();
+      var g;
+      var i;
+      for (g = 0; g < groups.length; g++) {{
+        for (i = 0; i < groups[g].length; i++) {{
+          if (String(groups[g][i].id) === String(entry.id)) {{
+            return groups[g];
+          }}
+        }}
+      }}
+      return null;
+    }}
+    function spiderOffsets(count) {{
+      var radius = PHOTO_SPIDER_MIN_PX;
+      if (count >= 2) {{
+        var needed = (PHOTO_THUMB_PX / 2) / Math.sin(Math.PI / count);
+        if (needed > radius) {{
+          radius = needed;
+        }}
+      }}
+      var start = -Math.PI / 2;
+      var step = (Math.PI * 2) / Math.max(count, 1);
+      var out = [];
+      var i;
+      for (i = 0; i < count; i++) {{
+        var angle = start + i * step;
+        out.push({{dx: Math.cos(angle) * radius, dy: Math.sin(angle) * radius}});
+      }}
+      return out;
+    }}
+    function paintSpiderOffset(entry) {{
+      var el = markerNode(entry.marker);
+      if (!el) {{
+        return;
+      }}
+      var dx = entry.spiderDx || 0;
+      var dy = entry.spiderDy || 0;
+      var shift = (dx || dy) ? ('translate(' + dx + 'px,' + dy + 'px)') : '';
+      var thumb = el.querySelector ? el.querySelector('.tj-thumb') : null;
+      if (thumb) {{
+        thumb.style.transform = shift;
       }}
     }}
-    function applyOverlapRotation() {{
-      var groups = overlapPhotoGroups();
-      var rotating = {{}};
-      groups.forEach(function(group) {{
-        var idx = photoRotateTick % group.length;
-        group.forEach(function(entry, i) {{
-          rotating[entry.id] = true;
-          var on = i === idx;
+    function setSpiderOffset(entry, dx, dy) {{
+      entry.spiderDx = dx || 0;
+      entry.spiderDy = dy || 0;
+      paintSpiderOffset(entry);
+    }}
+    function clearSpiderOffset(entry) {{
+      setSpiderOffset(entry, 0, 0);
+    }}
+    function parkSpiderMarker(entry) {{
+      var cluster = window._tjPhotoCluster;
+      if (cluster && cluster.hasLayer(entry.marker)) {{
+        cluster.removeLayer(entry.marker);
+      }}
+      if (typeof detail !== 'undefined' && detail.hasLayer && detail.hasLayer(entry.marker)) {{
+        detail.removeLayer(entry.marker);
+      }}
+      if (!spiderMarkerLayer.hasLayer(entry.marker)) {{
+        spiderMarkerLayer.addLayer(entry.marker);
+      }}
+    }}
+    function unparkSpiderMarker(entry) {{
+      if (spiderMarkerLayer.hasLayer(entry.marker)) {{
+        spiderMarkerLayer.removeLayer(entry.marker);
+      }}
+      var cluster = window._tjPhotoCluster;
+      if (cluster) {{
+        if (!cluster.hasLayer(entry.marker)) {{
+          cluster.addLayer(entry.marker);
+        }}
+        return;
+      }}
+      if (typeof detail !== 'undefined' && detail.addLayer) {{
+        detail.addLayer(entry.marker);
+      }}
+    }}
+    function snapEntriesHome() {{
+      spiderLineLayer.clearLayers();
+      photoEntries.forEach(function(entry) {{
+        entry.spiderLatLng = null;
+        clearSpiderOffset(entry);
+        if (entry.origin) {{
+          entry.marker.setLatLng(entry.origin);
+        }}
+        unparkSpiderMarker(entry);
+        setEntryVisible(entry, true);
+      }});
+    }}
+    function stopPhotoRotate() {{
+      stackPhase = 'idle';
+      focusedPhotoId = null;
+      fannedIds = {{}};
+      snapEntriesHome();
+    }}
+    function applySpiderLayout() {{
+      spiderLineLayer.clearLayers();
+      var group = [];
+      photoEntries.forEach(function(entry) {{
+        if (fannedIds[entry.id]) {{
+          group.push(entry);
+        }}
+      }});
+      if (group.length < 2) {{
+        snapEntriesHome();
+        return;
+      }}
+      var offsets = spiderOffsets(group.length);
+      var latSum = 0;
+      var lngSum = 0;
+      group.forEach(function(entry) {{
+        var home = entryOrigin(entry);
+        latSum += home.lat;
+        lngSum += home.lng;
+      }});
+      var hub = L.latLng(latSum / group.length, lngSum / group.length);
+      var hubPt = map.latLngToContainerPoint(hub);
+      group.forEach(function(entry, i) {{
+        var dest = map.containerPointToLatLng(
+          L.point(hubPt.x + offsets[i].dx, hubPt.y + offsets[i].dy)
+        );
+        parkSpiderMarker(entry);
+        clearSpiderOffset(entry);
+        entry.spiderLatLng = dest;
+        entry.marker.setLatLng(dest);
+        setEntryVisible(entry, true);
+        L.polyline([hub, dest], {{
+          pane: 'tjSpiderPane',
+          color: '#ffffff',
+          weight: 1,
+          opacity: 0.95,
+          interactive: false,
+          className: 'tj-spider-line'
+        }}).addTo(spiderLineLayer);
+      }});
+      L.circleMarker(hub, {{
+        pane: 'tjSpiderPane',
+        radius: 4,
+        color: '#333333',
+        weight: 1,
+        fillColor: '#ffffff',
+        fillOpacity: 1,
+        interactive: false,
+        className: 'tj-spider-origin'
+      }}).addTo(spiderLineLayer);
+      photoEntries.forEach(function(entry) {{
+        if (!fannedIds[entry.id]) {{
+          entry.spiderLatLng = null;
+          clearSpiderOffset(entry);
+          if (entry.origin) {{
+            entry.marker.setLatLng(entry.origin);
+          }}
+          unparkSpiderMarker(entry);
+          setEntryVisible(entry, true);
+        }}
+      }});
+      if (spiderMarkerLayer.bringToFront) {{
+        spiderMarkerLayer.bringToFront();
+      }}
+      requestAnimationFrame(function() {{
+        photoEntries.forEach(paintSpiderOffset);
+      }});
+    }}
+    function applySoloLayout() {{
+      spiderLineLayer.clearLayers();
+      photoEntries.forEach(function(entry) {{
+        var inFan = !!fannedIds[entry.id];
+        var on = String(entry.id) === String(focusedPhotoId);
+        if (inFan) {{
           setEntryVisible(entry, on);
-          if (on && entry.marker.getTooltip && entry.marker.getTooltip()) {{
-            entry.marker.openTooltip();
+          if (on) {{
+            parkSpiderMarker(entry);
+            clearSpiderOffset(entry);
+            entry.spiderLatLng = null;
+            entry.marker.setLatLng(entryOrigin(entry));
+            if (entry.marker.getTooltip && entry.marker.getTooltip()) {{
+              entry.marker.openTooltip();
+            }}
           }} else if (entry.marker.closeTooltip) {{
             entry.marker.closeTooltip();
           }}
-        }});
-      }});
-      photoEntries.forEach(function(entry) {{
-        if (!rotating[entry.id]) {{
+        }} else {{
           setEntryVisible(entry, true);
         }}
       }});
     }}
+    function openFan(group) {{
+      stackPhase = 'fan';
+      focusedPhotoId = null;
+      fannedIds = {{}};
+      group.forEach(function(entry) {{
+        fannedIds[entry.id] = true;
+      }});
+      if (map.closePopup) {{
+        map.closePopup();
+      }}
+      applySpiderLayout();
+      updatePhotoCones();
+    }}
+    function isolatePhoto(entry) {{
+      stackPhase = 'solo';
+      focusedPhotoId = entry.id;
+      if (map.closePopup) {{
+        map.closePopup();
+      }}
+      applySoloLayout();
+      updatePhotoCones();
+    }}
+    function resetPhotoFan() {{
+      stackPhase = 'idle';
+      focusedPhotoId = null;
+      fannedIds = {{}};
+      if (map.closePopup) {{
+        map.closePopup();
+      }}
+      snapEntriesHome();
+      updatePhotoCones();
+    }}
+    function openPhotoThumbnail(entry) {{
+      if (entry.marker && entry.marker.openPopup) {{
+        entry.marker.openPopup();
+      }}
+    }}
+    function onPhotoMarkerClick(entryId) {{
+      photoClickGuard = Date.now();
+      var entry = entryById(entryId);
+      if (!entry) {{
+        return;
+      }}
+      if (stackPhase === 'solo' && String(focusedPhotoId) === String(entryId)) {{
+        openPhotoThumbnail(entry);
+        return;
+      }}
+      if (stackPhase === 'fan' && fannedIds[entryId]) {{
+        isolatePhoto(entry);
+        return;
+      }}
+      if (stackPhase === 'idle') {{
+        var group = groupForEntry(entry);
+        if (group && group.length > 1) {{
+          openFan(group);
+          return;
+        }}
+      }}
+      openPhotoThumbnail(entry);
+    }}
+    function scheduleSpiderSync() {{
+      syncPhotoStack();
+      setTimeout(syncPhotoStack, 60);
+      setTimeout(syncPhotoStack, 280);
+      setTimeout(syncPhotoStack, 520);
+    }}
     function syncPhotoStack() {{
-      if (focusedPhotoId != null) {{
-        stopPhotoRotate();
-        applyPhotoVisibility();
+      if (spiderLock) {{
         return;
       }}
-      if (!overlapPhotoGroups().length) {{
-        stopPhotoRotate();
-        photoEntries.forEach(function(entry) {{
-          setEntryVisible(entry, true);
-        }});
-        return;
-      }}
-      applyOverlapRotation();
-      if (!photoRotateTimer) {{
-        photoRotateTimer = window.setInterval(function() {{
-          if (focusedPhotoId != null) {{
-            return;
-          }}
-          photoRotateTick += 1;
-          applyOverlapRotation();
-        }}, PHOTO_ROTATE_MS);
+      spiderLock = true;
+      try {{
+        if (map.getZoom() < {PHOTO_STACK_DISABLE_ZOOM}) {{
+          stackPhase = 'idle';
+          fannedIds = {{}};
+          focusedPhotoId = null;
+          snapEntriesHome();
+          return;
+        }}
+        if (stackPhase === 'fan') {{
+          applySpiderLayout();
+          return;
+        }}
+        if (stackPhase === 'solo') {{
+          applySoloLayout();
+          return;
+        }}
+      }} finally {{
+        spiderLock = false;
+        updatePhotoCones();
       }}
     }}
     function focusPhoto(entryId) {{
-      focusedPhotoId = entryId || null;
-      stopPhotoRotate();
-      applyPhotoVisibility();
-      updatePhotoCones();
-    }}
-    function clearPhotoFocus() {{
-      if (focusedPhotoId == null) {{
+      var entry = entryById(entryId);
+      if (!entry) {{
         return;
       }}
+      var group = groupForEntry(entry);
+      if (group && group.length > 1) {{
+        fannedIds = {{}};
+        group.forEach(function(item) {{
+          fannedIds[item.id] = true;
+        }});
+        isolatePhoto(entry);
+        return;
+      }}
+      stackPhase = 'idle';
       focusedPhotoId = null;
-      applyPhotoVisibility();
+      fannedIds = {{}};
+      snapEntriesHome();
       updatePhotoCones();
-      syncPhotoStack();
     }}
 """
 
@@ -656,6 +942,7 @@ def leaflet_payload(scene: MapScene, html_path: Path) -> dict[str, Any]:
             "external_url": line.external_url or "",
             "pilot": line.pilot or "",
             "sort_status": line.sort_status,
+            "source_file_id": line.source_file_id,
         }
         for line in scene.polylines
     ]
@@ -776,6 +1063,10 @@ _BASEMAP_RULES = """
 .tj-photo-cone {
   pointer-events: none !important;
 }
+.tj-spider-line,
+.tj-spider-origin {
+  pointer-events: none !important;
+}
 .leaflet-left .leaflet-control.tj-close-section {
   position: absolute;
   left: 36px;
@@ -859,6 +1150,7 @@ _COVER_CSS = (
 .leaflet-marker-icon.tj-cover-icon {
   z-index: 700 !important;
   pointer-events: auto !important;
+  overflow: visible !important;
 }
 .leaflet-interactive.tj-cover-icon {
   pointer-events: auto !important;
@@ -1250,12 +1542,15 @@ def _overview_script(
     }};
     window.traveljournalCloseSection = function() {{
       enableDrag();
+      stopPhotoRotate();
+      focusedPhotoId = null;
       detail.clearLayers();
       coneLayer.clearLayers();
+      spiderLineLayer.clearLayers();
+      spiderMarkerLayer.clearLayers();
       coneSpecs = [];
-      focusedPhotoId = null;
       photoEntries = [];
-      stopPhotoRotate();
+      window._tjPhotoCluster = null;
       lastDetailPayload = null;
       if (!map.hasLayer(covers)) {{
         map.addLayer(covers);
@@ -1273,12 +1568,15 @@ def _overview_script(
     window.traveljournalFocusCover = function(lat, lon, key, offsetY) {{
       window.traveljournalKeepFocus = true;
       if (savedView) {{
+        stopPhotoRotate();
+        focusedPhotoId = null;
         detail.clearLayers();
         coneLayer.clearLayers();
+        spiderLineLayer.clearLayers();
+        spiderMarkerLayer.clearLayers();
         coneSpecs = [];
-        focusedPhotoId = null;
         photoEntries = [];
-        stopPhotoRotate();
+        window._tjPhotoCluster = null;
         lastDetailPayload = null;
         if (!map.hasLayer(covers)) {{
           map.addLayer(covers);
@@ -1324,6 +1622,57 @@ def _overview_script(
     window.traveljournalShowDetail = function(payload) {{
       renderDetail(payload, false);
     }};
+    window.traveljournalFocusMedia = function(sourceId) {{
+      var id = parseInt(sourceId, 10);
+      if (!id) {{
+        return;
+      }}
+      window.traveljournalKeepFocus = true;
+      var target = null;
+      photoEntries.forEach(function(entry) {{
+        if (target === null && String(entry.id) === String(id)) {{
+          target = entry;
+        }}
+      }});
+      if (target && target.marker && target.marker.getLatLng) {{
+        var ll = target.marker.getLatLng();
+        var zoom = Math.max(map.getZoom() || 0, {PHOTO_STACK_DISABLE_ZOOM});
+        if (map.stop) {{
+          map.stop();
+        }}
+        map.setView(ll, zoom, {{
+          animate: true,
+          pan: {{animate: true}},
+          zoom: {{animate: false}}
+        }});
+        focusPhoto(id);
+        setTimeout(function() {{
+          if (target.marker.openPopup) {{
+            target.marker.openPopup();
+          }}
+        }}, 80);
+        return;
+      }}
+      var lines = (lastDetailPayload && lastDetailPayload.polylines) || [];
+      for (var i = 0; i < lines.length; i++) {{
+        var line = lines[i];
+        if (line.source_file_id !== id || !line.points || !line.points.length) {{
+          continue;
+        }}
+        try {{
+          var bounds = L.latLngBounds(line.points);
+          if (bounds && bounds.isValid()) {{
+            var pad = window.traveljournalOverlayPad || 0;
+            map.fitBounds(bounds, {{
+              paddingTopLeft: [32, 32],
+              paddingBottomRight: [32, 32 + pad],
+              maxZoom: 15
+            }});
+          }}
+        }} catch (err) {{}}
+        return;
+      }}
+    }};
     function renderDetail(payload, refresh) {{
       lastDetailPayload = payload;
       if (!refresh) {{
@@ -1334,11 +1683,14 @@ def _overview_script(
           map.removeLayer(covers);
         }}
       }}
-      detail.clearLayers();
-      coneSpecs = [];
-      focusedPhotoId = null;
-      photoEntries = [];
       stopPhotoRotate();
+      focusedPhotoId = null;
+      detail.clearLayers();
+      spiderLineLayer.clearLayers();
+      spiderMarkerLayer.clearLayers();
+      coneSpecs = [];
+      photoEntries = [];
+      window._tjPhotoCluster = null;
       var cluster = photoClusterGroup();
       (payload.markers || []).forEach(function(item) {{
         if (!itemVisible(item)) {{
@@ -1392,15 +1744,18 @@ def _overview_script(
         }}
         if (item.kind !== 'place') {{
           var entryId = item.source_file_id != null ? item.source_file_id : ('m' + photoEntries.length);
-          photoEntries.push({{marker: marker, item: item, id: entryId}});
-          if (item.kind === 'photo') {{
-            marker.on('mouseover', function() {{
-              focusPhoto(entryId);
-            }});
-            marker.on('mouseout', function() {{
-              clearPhotoFocus();
-            }});
-          }}
+          photoEntries.push({{
+            marker: marker,
+            item: item,
+            id: entryId,
+            origin: L.latLng(item.latitude, item.longitude),
+            spiderLatLng: null
+          }});
+          marker.off('click');
+          marker.on('click', function(event) {{
+            L.DomEvent.stop(event);
+            onPhotoMarkerClick(entryId);
+          }});
         }}
         if (item.kind === 'photo' && typeof item.heading === 'number') {{
           coneSpecs.push({{
@@ -1418,7 +1773,13 @@ def _overview_script(
         }}
       }});
       if (cluster) {{
+        window._tjPhotoCluster = cluster;
         cluster.addTo(detail);
+        if (cluster.on) {{
+          cluster.on('animationend', scheduleSpiderSync);
+        }}
+      }} else {{
+        window._tjPhotoCluster = null;
       }}
       (payload.polylines || []).forEach(function(line) {{
         if (!itemVisible(line)) {{
@@ -1453,6 +1814,9 @@ def _overview_script(
       }});
       if (!refresh) {{
         setCloseVisible(true);
+        if (payload && payload.focus_source_id) {{
+          window.traveljournalFocusMedia(payload.focus_source_id);
+        }} else {{
         try {{
           var bounds = L.featureGroup(detail.getLayers()).getBounds();
           if (bounds && bounds.isValid()) {{
@@ -1464,9 +1828,10 @@ def _overview_script(
             }});
           }}
         }} catch (err) {{}}
+        }}
       }}
       updatePhotoCones();
-      syncPhotoStack();
+      scheduleSpiderSync();
     }}
     closeCtl = L.control({{position: 'topleft'}});
     closeCtl.onAdd = function() {{
@@ -1508,12 +1873,15 @@ def _overview_script(
     window.traveljournalFitOverview = function() {{
       window.traveljournalKeepFocus = false;
       if (savedView) {{
+        stopPhotoRotate();
+        focusedPhotoId = null;
         detail.clearLayers();
         coneLayer.clearLayers();
+        spiderLineLayer.clearLayers();
+        spiderMarkerLayer.clearLayers();
         coneSpecs = [];
-        focusedPhotoId = null;
         photoEntries = [];
-        stopPhotoRotate();
+        window._tjPhotoCluster = null;
         lastDetailPayload = null;
         if (!map.hasLayer(covers)) {{
           map.addLayer(covers);

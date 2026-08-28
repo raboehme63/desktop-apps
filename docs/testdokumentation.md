@@ -101,7 +101,7 @@ Hilfsmodul: `packages/travelcore/tests/jpeg_fixtures.py`. GPX-Hilfen: `gpx_fixtu
 
 ## 4. Abbildungsmatrix Pflichtenheft → automatisierte Tests
 
-Stand nach `pytest --collect-only`: **332 Tests** (28. August 2026). Neue Tests sind ergänzend zu führen, nicht still zu löschen.
+Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests sind ergänzend zu führen, nicht still zu löschen.
 
 ### 4.1 Dateitypen und Scan — FA-010 bis FA-016
 
@@ -292,8 +292,8 @@ Stand nach `pytest --collect-only`: **332 Tests** (28. August 2026). Neue Tests 
 | `test_folium_overview_cover_uses_expand_url` | `test_maps.py` | rundes Cover, Expand-Bridge, Zoom-Halt, Popup-Skript, Aufenthaltslinien, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad |
 | `test_overview_offline_omits_satellite` | `test_maps.py` | ohne Kacheln kein Layer-Umschalter, Zahnrad bleibt |
 | `test_timeline_js_cards_uses_relative_cover` | `test_maps.py` | Timeline-Karten relative Cover-Pfade |
-| `test_leaflet_payload_includes_source_file_id` | `test_maps.py` | Detail-Payload: `source_file_id`, Thumbnail-Popup, Blickrichtung |
-| `test_detail_stacks_nearby_photos_until_zoom_17` | `test_maps.py` | Stapel bis Zoom 16, Anzahl, ab 17 einzeln mit Rotation; Orte ungestapelt |
+| `test_leaflet_payload_includes_source_file_id` | `test_maps.py` | Detail-Payload: `source_file_id` an Marker und Track, Thumbnail-Popup, Blickrichtung |
+| `test_detail_stacks_nearby_photos_until_zoom_17` | `test_maps.py` | Stapel bis Zoom 16, Anzahl, ab 17 einzeln mit Spreizung und Linie; Orte ungestapelt |
 | `test_pick_cover_item_skips_rejected` | `test_maps.py` | Aussortierte Cover fallen raus |
 | `test_pick_cover_item_uses_display_position` | `test_maps.py` | Cover nutzt Journal-Anzeigeposition |
 | `test_position_for_cover_prefers_display_over_original` | `test_maps.py` | Overlay vor Original-GPS |
@@ -320,11 +320,11 @@ Stand nach `pytest --collect-only`: **332 Tests** (28. August 2026). Neue Tests 
 | `test_stay_links_skip_stays_without_gps` | `test_maps.py` | Aufenthalt ohne GPS ist kein Linienende |
 | `test_stay_link_hidden_when_covers_overlap` | `test_maps.py` | Linie unsichtbar, wenn Kreise sich überdecken |
 | `test_build_map_overview_links_consecutive_stays` | `test_maps.py` | Übersicht verbindet zwei Aufenthalte über einen Transfer |
-| `test_parse_map_bridge_url_reads_group_key` | `tests/test_gui_smoke.py` | Expand-URL, Konsolen-Bridge, Platzieren-Konsole |
+| `test_parse_map_bridge_url_reads_group_key` | `tests/test_gui_smoke.py` | Expand-URL, Konsolen-Bridge, Platzieren-Konsole, Zoom/Ausschnitt nach Platzieren |
 | `test_map_view_refresh_uses_disk_cache_without_rebuild` | `tests/test_gui_smoke.py` | MapView zeigt Cache; Leiste unter dem WebView |
 | `test_publish_map_display_writes_unique_file` | `tests/test_gui_smoke.py` | WebEngine lädt eine neue HTML-Kopie nach Rebuild |
 | `test_map_view_applies_prepared_result_when_shown` | `tests/test_gui_smoke.py` | Hintergrund-Karte wird beim Öffnen der Seite übernommen |
-| `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Leiste zentriert; Transfer-Sechseck; Zähler Fotos/Tracks/IGC/YouTube |
+| `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Leiste zentriert; Transfer-Sechseck; Zähler Fotos/Tracks/IGC/YouTube; Plus zwischen Karten |
 | `test_inspector_map_opens_thumbnail_then_original_on_double_click` | `tests/test_gui_smoke.py` | Inspektor: Vorschau, Doppelklick Original |
 
 ### 4.10 Timeline — FA-014, FA-060 bis FA-063, FA-080 bis FA-082
@@ -359,7 +359,9 @@ Stand nach `pytest --collect-only`: **332 Tests** (28. August 2026). Neue Tests 
 | `test_expand_range_selection_fills_between_first_and_last` | `test_timeline_sections.py` | Bereich zwischen erstem und letztem Klick |
 | `test_parse_and_serialize_transfer_modes` | `test_timeline_sections.py` | Verkehrsmittel-Liste |
 | `test_format_section_span_uses_object_dates` | `test_timeline_sections.py` | `am …` / `von … bis …` |
+| `test_format_card_dates_omits_am_von_bis` | `test_timeline_sections.py` | Kartenkopf: `12.12.2026` bzw. `11.11.2026 - 21.11.2026` |
 | `test_format_scroll_date_is_compact` | `test_timeline_sections.py` | kompaktes Datum am Timeline-Schieber |
+| `test_insert_dates_between_uses_open_gap` | `test_timeline_sections.py` | Datum der Lücke zwischen zwei Karten |
 | `test_create_section_same_day_is_am` | `test_timeline_sections.py` | Aufenthalt am selben Kalendertag |
 | `test_dissolve_section_returns_files_to_day_sections` | `test_timeline_sections.py` | Auflösen → Tage nach Journal-Zeit |
 | `test_create_empty_section_uses_manual_date` | `test_timeline_sections.py` | leerer Abschnitt mit manuellem Datum |
@@ -435,8 +437,11 @@ Stand nach `pytest --collect-only`: **332 Tests** (28. August 2026). Neue Tests 
 | `test_source_sync_dialog_hides_destination_without_new_files` | `tests/test_gui_smoke.py` | ohne neue Dateien keine Timeline/Pool-Wahl |
 | `test_entry_widget_separates_tracks_from_media` | `tests/test_gui_smoke.py` | getrennte Galerien |
 | `test_entry_widget_track_can_be_cover` | `tests/test_gui_smoke.py` | T-Chip auf Track |
-| `test_entry_widget_shows_cover_in_heading` | `tests/test_gui_smoke.py` | 72-px-Cover in der Karte |
+| `test_entry_widget_shows_cover_in_heading` | `tests/test_gui_smoke.py` | Titelbild 168 px im Kartenkopf |
+| `test_entry_widget_header_is_compact` | `tests/test_gui_smoke.py` | Typ und Datum in einer Zeile; Feldtitel ohne Eingabe-Hintergrund |
 | `test_entry_widget_section_has_to_map_button` | `tests/test_gui_smoke.py` | Zur Karte an Abschnitt und Tag |
+| `test_entry_widget_thumbnail_opens_section_detail_on_map` | `tests/test_gui_smoke.py` | Rechtsklick Thumbnail → Zur Karte… öffnet Abschnittsdetail |
+| `test_map_view_focus_group_media_keeps_pending_until_shown` | `tests/test_gui_smoke.py` | Foto-Fokus merkt Abschnitt und Medium bis die Karte sichtbar ist |
 | `test_map_view_focus_group_centers_section_card` | `tests/test_gui_smoke.py` | MapView fokussiert die Abschnittskarte; Tagebuchtext rechts, YouTube-Thumbs unten rechts auf der Karte |
 | `test_map_notes_edit_shows_save_cancel_discard` | `tests/test_gui_smoke.py` | Nach Edit Speichern, Abbrechen, Verwerfen |
 | `test_map_notes_switch_card_opens_save_dialog` | `tests/test_gui_smoke.py` | Fokuswechsel bei ungespeichertem Tagebuchtext: Dialog Speichern/Abbrechen/Verwerfen |
@@ -452,9 +457,12 @@ Stand nach `pytest --collect-only`: **332 Tests** (28. August 2026). Neue Tests 
 | `test_timeline_save_button_only_when_dirty` | `tests/test_gui_smoke.py` | Speichern aktiv bei Reisetitel, Text, YouTube, Pending-Abschnitt; sonst inaktiv |
 | `test_timeline_leave_without_prompt_when_only_text_dirty` | `tests/test_gui_smoke.py` | `confirm_leave` ohne Dialog bei nur dirty Text |
 | `test_scroll_offset_to_widget_top_uses_host_not_page_chrome` | `tests/test_gui_smoke.py` | Reveal ignoriert Reisetitel über der Liste |
-| `test_timeline_join_is_wide_downward_connector` | `tests/test_gui_smoke.py` | senkrechte Verbindungslinie zwischen Timeline-Karten |
+| `test_timeline_join_is_wide_downward_connector` | `tests/test_gui_smoke.py` | schlanke Verbindungslinie mit Plus zwischen Timeline-Karten |
+| `test_entry_span_dates_feeds_join_insert` | `tests/test_gui_smoke.py` | Lückendatum aus den Karten davor/danach |
+| `test_settings_dialog_has_scrollbar` | `tests/test_gui_smoke.py` | Einstellungen-Dialog hat vertikalen Schieber |
 | `test_span_index_at_mid_contains_then_nearest` | `tests/test_gui_smoke.py` | mittlerer Abschnitt für den Schieber |
 | `test_timeline_scroll_date_follows_handle` | `tests/test_gui_smoke.py` | Datum klebt am Timeline-Schieber |
+| `test_pool_scroll_date_follows_handle` | `tests/test_gui_smoke.py` | Datum klebt am Pool-Schieber |
 | `test_reveal_group_puts_section_top_at_list_top` | `tests/test_gui_smoke.py` | Karten-Sprung setzt die Karten-Oberkante an die Viewport-Oberkante (nicht die Mitte); nachwachsen der vorherigen Karte bleibt bündig |
 | `test_gallery_rating_hotspots` | `tests/test_gui_smoke.py` | Bewertungs-Chips |
 | `test_pool_source_id_payload_roundtrip` | `tests/test_gui_smoke.py` | Pool-Drag MIME |
@@ -467,23 +475,26 @@ Stand nach `pytest --collect-only`: **332 Tests** (28. August 2026). Neue Tests 
 | `test_media_inspector_rotates_display_without_writing_original` | `tests/test_gui_smoke.py` | Drehen, Original-mtime gleich |
 | `test_media_inspector_browses_section_sequence` | `tests/test_gui_smoke.py` | Blättern in der Sequenz |
 | `test_media_inspector_rating_advances_to_next_photo` | `tests/test_gui_smoke.py` | Bewertung im Inspektor springt zum nächsten Foto, letztes bleibt |
+| `test_media_inspector_pool_advances_to_next_photo` | `tests/test_gui_smoke.py` | In den Pool im Inspektor springt zum nächsten Foto |
 | `test_inspector_keeps_photo_aspect_on_resize` | `tests/test_gui_smoke.py` | Eckgriff proportional |
 | `test_inspector_allows_free_window_resize` | `tests/test_gui_smoke.py` | Ränder frei |
 | `test_media_inspector_zoom_arrows_and_fit` | `tests/test_gui_smoke.py` | Zoom und Einpassen |
 | `test_youtube_links_dialog_add_and_delete` | `tests/test_gui_smoke.py` | YouTube-Dialog |
 | `test_empty_section_dialog_shows_am_or_von_bis` | `tests/test_gui_smoke.py` | leerer Abschnitt: Tag Am, Aufenthalt von–bis |
-| `test_section_span_dialog_tag_vs_range` | `tests/test_gui_smoke.py` | Datum… / Zeitraum… und Dialoge nach Typ |
-| `test_parse_map_bridge_url_reads_group_key` | `tests/test_gui_smoke.py` | Karten-Expand-Bridge |
+| `test_section_span_dialog_tag_vs_range` | `tests/test_gui_smoke.py` | Datum… / Zeitraum… ohne überlagerte Felder, Dialog breit genug |
+| `test_parse_map_bridge_url_reads_group_key` | `tests/test_gui_smoke.py` | Karten-Expand-Bridge, Zoom/Ausschnitt nach Platzieren |
 | `test_map_view_refresh_uses_disk_cache_without_rebuild` | `tests/test_gui_smoke.py` | Karten-Cache; Leiste unter dem WebView |
 | `test_publish_map_display_writes_unique_file` | `tests/test_gui_smoke.py` | WebEngine lädt eine neue HTML-Kopie nach Rebuild |
 | `test_map_view_applies_prepared_result_when_shown` | `tests/test_gui_smoke.py` | Hintergrund-Karte wird beim Öffnen der Seite übernommen |
-| `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Timeline-Leiste zentriert; Zähler Fotos/Tracks/IGC/YouTube, Reserve-Schalter |
+| `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Timeline-Leiste zentriert; Zähler Fotos/Tracks/IGC/YouTube, Reserve-Schalter, Plus zwischen Karten |
 | `test_inspector_map_opens_thumbnail_then_original_on_double_click` | `tests/test_gui_smoke.py` | Vorschau, dann Original |
 | `test_normalize_timeline_media_tab` | `tests/test_workspace.py` | gültige Tab-Namen |
 | `test_timeline_media_tab_persists` | `tests/test_workspace.py` | `config.json` hält das Register |
 | `test_sidebar_collapsed_persists` | `tests/test_workspace.py` | `config.json` hält die eingeklappte Navigation |
 | `test_timeline_pool_visible_persists` | `tests/test_workspace.py` | `config.json` hält die Pool-Spalte |
 | `test_pool_width_persists` | `tests/test_workspace.py` | `config.json` hält die Pool-Breite |
+| `test_inspector_geometry_persists` | `tests/test_workspace.py` | `config.json` hält die Inspektor-Größe |
+| `test_inspector_remembers_window_size` | `tests/test_gui_smoke.py` | nächstes Öffnen mit derselben Fenstergröße |
 | `test_pool_media_tab_persists` | `tests/test_workspace.py` | `config.json` hält das Pool-Bewertungsregister |
 | `test_show_rejected_in_all_persists` | `tests/test_workspace.py` | `config.json` hält „Aussortierte anzeigen“ |
 | `test_map_display_flags_persist_in_project` | `tests/test_workspace.py` | Zahnrad-Optionen in `settings.toml` |
@@ -633,7 +644,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Projekt → Einstellungen: GPS-Zeitfenster, Standardzeitzone, Kartenanbieter, Verbindungslinien-Farbe | Werte in `settings.toml`; Originale unverändert; Standardfarbe der Linien weiß |
+| Projekt → Einstellungen: GPS-Zeitfenster, Standardzeitzone, Kartenanbieter, Verbindungslinien-Farbe | Werte in `settings.toml`; Originale unverändert; Standardfarbe der Linien weiß; Dialog hat einen vertikalen Schieber, Speichern/Abbrechen bleiben unten |
 | Wurzelverzeichnis auf einen verschobenen Ordner setzen | Index-Pfade umgeschrieben, Dateien selbst nicht bewegt |
 | Kartenanbieter `offline` | Karte ohne OSM-, Topo- und Satellitenkacheln, Track und Marker bleiben |
 
@@ -657,6 +668,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Schritt | Erwartung |
 | --- | --- |
 | Nach Import Seite **Medien** öffnen | links Reise-Medien, rechts Medienpool (Pfeil rechts außen klappt ein/aus wie in der Timeline); jeweils Reiter Alle/Favoriten/Reserve/Aussortiert; kein Reiter Pool; Doppelklick öffnet den Medieninspektor |
+| Pool-Schieber ziehen | links am Griff das Aufnahmedatum des Mediums in der Bildmitte (wie in der Timeline) |
 | Medien: erstes und letztes Objekt anklicken | alles dazwischen ist markiert; Strg+Klick nimmt einzelne wieder raus |
 | Medien: Auswahl auf den Pool ziehen oder **In den Pool** | Medien liegen rechts im Pool; **Zurück in die Galerie** oder Ziehen nach links holt sie zurück |
 | Medium als Aussortiert markieren | verschwindet aus Alle (Checkbox aus), Favoriten und Reserve; nur noch unter Aussortiert |
@@ -668,9 +680,10 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | ein runder Kreis je Tag, Transfer oder Aufenthalt; zwischen **Tag- und Aufenthaltskreisen** in Timeline-Reihenfolge eine Verbindungslinie mit Richtungsmarker; Layer-Symbol oben rechts mit Straßenkarte / Topo / Satellit; Zahnrad unter den Zoom-Buttons; ohne gesetztes Titelbild das erste Foto mit GPS, sonst der erste GPS-Track; darunter die Timeline-Leiste mit denselben Einträgen; **Übersicht aller Kreise** im Ausschnitt |
+| Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | ein runder Kreis je Tag, Transfer oder Aufenthalt; zwischen **Tag- und Aufenthaltskreisen** in Timeline-Reihenfolge eine Verbindungslinie mit Richtungsmarker; Layer-Symbol oben rechts mit Straßenkarte / Topo / Satellit; Zahnrad unter den Zoom-Buttons; ohne gesetztes Titelbild das erste Foto mit GPS, sonst der erste GPS-Track; darunter die Timeline-Leiste mit denselben Einträgen und **+** zwischen den Karten; **Übersicht aller Kreise** im Ausschnitt |
+| **+** zwischen zwei Leistenkarten | Dialog **Neuer Reiseabschnitt** mit Datum der Lücke; nach OK erscheint der Abschnitt in der Timeline (**Speichern**) |
 | Layer-Symbol: **Straßenkarte**, **Topo**, **Satellit** | wechselt OSM, OpenTopoMap und Esri World Imagery; Kreise und Linien bleiben; Quellenangabe je Anbieter; `offline` ohne Symbol |
-| Zahnrad: **Fotokegel anzeigen** | ab Zoom 17 ein Kegel an Fotos mit Blickrichtung und Brennweite; Mouseover über ein Foto blendet die anderen Fotos und Kegel aus; bleibt nach Projekt-Neuöffnen |
+| Zahnrad: **Fotokegel anzeigen** | ab Zoom 17 ein Kegel an Fotos mit Blickrichtung und Brennweite (am Stapel und am Ursprung nach der Auswahl); im Fächer keine Kegel; bleibt nach Projekt-Neuöffnen |
 | Zahnrad: **Reserve-Elemente anzeigen** aus | Reserve-Medien unsichtbar; Aussortierte nie auf der Karte; bleibt nach Projekt-Neuöffnen |
 | Nach Änderungen in der Timeline Seite **Karte** öffnen | Karte erscheint ohne extra **Karte aktualisieren**, Übersicht aller Kreise |
 | **Karte aktualisieren** | Karte lädt neu und zeigt wieder die Übersicht aller Kreise |
@@ -678,7 +691,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Leiste: Transfer-Karte | liegendes Sechseck, gleiche Größe wie Rechteckkarten; Schrift etwas kleiner |
 | Leiste: Fokus | nur die zentrierte Karte in voller Größe, die anderen etwas kleiner |
 | Leiste: Abschnitt ohne Position | roter Rand |
-| Rechtsklick auf eine gespeicherte Abschnittskarte, **Platzieren**, Klick in die Karte | Fadenkreuz-Cursor; der Ort liegt am Abschnitt; roter Rand verschwindet, Kreis erscheint |
+| Rechtsklick auf eine gespeicherte Abschnittskarte, **Platzieren**, Klick in die Karte | Fadenkreuz-Cursor; der Ort liegt am Abschnitt; roter Rand verschwindet, Kreis erscheint; Zoom und Ausschnitt bleiben |
 | Leiste: Titelbild | füllt die Kartenfläche ohne sichtbare Ränder |
 | Leiste: Zähler oben | Fotos, GPX-Tracks, IGC (Gleitschirm), YouTube-Logo als Symbol+Zahl; Reserve nur bei Zahnrad-Option |
 | Einfachklick auf eine Leistenkarte | Karte zentriert, Zoom bleibt; rechts der Tagebucheintrag, nach Edit Speichern/Abbrechen/Verwerfen; YouTube-Thumbs unten rechts auf der Karte übereinander (erster Link unten) |
@@ -690,9 +703,13 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Doppelklick in die freie (nicht belegte) Kartenfläche | Übersicht: alle Kreise im Ausschnitt |
 | Klick auf einen Kreis | Detailansicht: Fotos, Videos und Tracks dieses Eintrags, Ausschnitt angepasst; **Reiseabschnitt schließen** rechts neben dem Zoom-Plus stellt Zoom und Ausschnitt der Übersicht wieder her |
 | Freie Karte: offene Hand (Verschieben); über einem Kreis: Zeiger (Auswahl) | der Kreis-Klick öffnet das Detail, startet kein Zoomen |
-| Klick auf ein viereckiges Foto-Symbol im Detail | kleines Thumbnail-Popup auf der Karte (nicht sofort der Inspektor) |
+| Klick auf ein einzelnes viereckiges Foto-Symbol im Detail | kleines Thumbnail-Popup auf der Karte (nicht sofort der Inspektor) |
 | Mehrere Fotos fast am selben Ort, Zoom unter 17 | ein Stapel-Marker mit der Anzahl |
-| Hineinzoomen auf Zoom 17 oder höher | Stapel löst sich auf; liegen Marker noch übereinander, rotiert der Stapel (Datum bündig unter dem Bild); Mouseover auf das gewünschte Foto blendet die anderen aus |
+| Hineinzoomen auf Zoom 17 oder höher | Stapel löst sich auf; Bilder liegen übereinander, Fotokegel bleiben sichtbar |
+| Klick auf den Bilderstapel | runder Fächer ohne Fotokegel; der Fächer bleibt stehen |
+| Klick auf ein Bild im Fächer | die anderen verschwinden, Bild und Kegel stehen an der Originalposition |
+| Weiterer Klick auf dieses Bild | Thumbnail-Popup |
+| Klick in die freie Karte | Stapel wieder wie zu Beginn |
 | Doppelklick auf das Thumbnail (oder das Foto-Symbol) | Medieninspektor mit dem **Original**, Blättern/Zoom/Drehen wie in der Timeline |
 | Bestätigter Ort | erscheint im Detail des Tags |
 
@@ -700,8 +717,10 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Nach Import Seite **Timeline** öffnen bzw. **Timeline aktualisieren** | ein Tag je Aufnahmedatum, Karten von früh nach spät; zwischen den Karten Abstand und senkrechte Verbindungslinie mit Pfeil nach unten; Fotos auf der Karte nach Journal-Zeit; Auto-Ereignis mit Medienzähler |
+| Nach Import Seite **Timeline** öffnen bzw. **Timeline aktualisieren** | ein Tag je Aufnahmedatum, Karten von früh nach spät; Kartenkopf: Titelbild, Typ, Datum (`14.05.2025` bzw. `01.08.2025 - 10.08.2025`), Titel; darunter Tagebucheintrag; zwischen den Karten Abstand und schlanke Linie mit **+** in einem Ring; Fotos auf der Karte nach Journal-Zeit; Auto-Ereignis mit Medienzähler |
+| **+** auf der Linie zwischen zwei Karten | Dialog **Neuer Reiseabschnitt**; Tag **Am** = erster offener Tag der Lücke; Aufenthalt/Transfer **Von**/**Bis** = offene Tage; ohne Lücke das Datum der vorherigen Karte |
 | Vertikalen Schieber ziehen | links am Griff das Datum des Abschnitts in der Bildmitte (`14.05.2025` bzw. `01.–10.08.2025`) |
+| Pool-Schieber ziehen | links am Griff das Aufnahmedatum des Mediums in der Bildmitte |
 | Timeline ohne ungespeicherte Abschnitte, Texte, Reisetitel oder YouTube | **Speichern** ist inaktiv |
 | Reisetitel, Titel, Tagebuchtext oder YouTube ändern bzw. neuen Abschnitt anlegen | **Speichern** wird aktiv; Rücknahme der Änderung macht ihn wieder inaktiv |
 | Bewertung, Titelbild oder DHV-Leonardo an einem **gespeicherten** Eintrag | sofort in der DB; **Speichern** bleibt inaktiv |
@@ -721,6 +740,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | DHV-Leonardo extra an gespeichertem Tag, Dialog-OK | sofort in der DB; nie als „DAV“ bezeichnet |
 | Chip **T** auf Foto und auf Track | Cover in der Kartenüberschrift; Video hat kein T |
 | **Zur Karte** an einem gespeicherten Reiseabschnitt oder Tag | Seite **Karte**, passende Leistenkarte fokussiert |
+| Rechtsklick auf ein Thumbnail, **Zur Karte…** | Seite **Karte**, Detailansicht des Abschnitts, Ausschnitt auf der Position des Bildes (nur mit Kartenposition, gespeicherter Eintrag) |
 | **In den Pool** auf markierten Medien | Medien verschwinden aus Tag/Transfer/Aufenthalt; die rechte **Pool**-Spalte öffnet sich und zeigt sie |
 | Pool-Spalte: Auswahl, **Zurück in die Timeline** | Medien liegen wieder auf einem Tag nach Journal-/Aufnahmezeit |
 | Pfeil rechts außen in der Timeline oder auf **Medien** | klappt die Pool-Spalte ein und aus, wie die Navigation; keine Abschnittskarte |
@@ -737,13 +757,15 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Timeline: Doppelklick auf ein Foto in einem Tag mit mehreren Bildern | eigenes Fenster; Titel `datei.jpg · 2 von N` |
 | Pfeiltasten oder Klick in den linken/rechten Rand | nächstes/vorheriges Bild derselben Sequenz; weiße Pfeile beim Überfahren der Ränder |
 | Bewertung (Favorit / Reserve / Aussortiert) | speichert sofort und zeigt das nächste Foto; das letzte bleibt |
+| **In den Pool** | Medium im Pool, nächstes Foto; letztes bleibt; Button wird **Zurückholen** |
 | Mausrad über dem Foto | Zoom um den Cursor; Ziehen verschiebt bei Zoom |
 | Doppelklick in die Bildmitte | Einpassen |
 | Ecke unten rechts ziehen | Fenster wächst proportional zum Foto |
-| Fensterrand ziehen | frei breiter oder höher |
+| Fensterrand ziehen | frei breiter oder höher; nächstes Öffnen hat dieselbe Größe |
+| Inspektor schließen und denselben oder ein anderes Foto öffnen | Fenster so groß wie zuletzt |
 | Maximieren oder F11 | Foto eingepasst, schwarze Ränder, Zoom zurückgesetzt |
 | Seite **Medien**: Doppelklick | dieselbe Sequenz wie die aktuelle Galerie |
-| **In den Pool** im Inspektor (Timeline, Medien oder Karte) | Medium liegt im Pool; Button wird **Zurückholen**; Originale unverändert |
+| **In den Pool** im Inspektor (Timeline, Medien oder Karte) | Medium liegt im Pool; nächstes Foto (letztes bleibt); Button wird **Zurückholen**; Originale unverändert |
 | **Zurückholen** im Inspektor | Medium wieder in Timeline und Galerie |
 
 ### MT-19 Anzeigedrehung
