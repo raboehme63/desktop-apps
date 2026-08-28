@@ -17,7 +17,7 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
 
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
-    assert window.windowTitle() == "Reisetagebuch R1.1.0"
+    assert window.windowTitle() == "Reisetagebuch R2.0.0"
     assert window.stack.count() == 6
     titles = [action.text() for action in window.menuBar().actions()]
     assert "Projekt" in titles
@@ -105,9 +105,9 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
 def test_app_window_title_includes_version() -> None:
     from traveljournal.__about__ import app_window_title
 
-    assert app_window_title() == "Reisetagebuch R1.1.0"
-    assert app_window_title("Alpen 2025") == "Reisetagebuch R1.1.0 - Alpen 2025"
-    assert app_window_title("  ") == "Reisetagebuch R1.1.0"
+    assert app_window_title() == "Reisetagebuch R2.0.0"
+    assert app_window_title("Alpen 2025") == "Reisetagebuch R2.0.0 - Alpen 2025"
+    assert app_window_title("  ") == "Reisetagebuch R2.0.0"
 
 
 def test_new_project_dialog_preview_and_values(tmp_path: Path) -> None:
@@ -634,6 +634,47 @@ def test_entry_widget_shows_cover_in_heading(tmp_path: Path) -> None:
     assert not widget._cover_thumb.isHidden()
     assert not widget._cover_thumb.pixmap().isNull()
     assert widget._cover_thumb.width() == 168
+    _ = app
+
+
+def test_entry_widget_falls_back_to_first_photo(tmp_path: Path) -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, datetime
+
+    from jpeg_fixtures import write_plain_jpeg
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelinePhoto
+    from traveljournal.views.timeline_view import EntryWidget
+
+    app = QApplication.instance() or QApplication([])
+    thumb = write_plain_jpeg(tmp_path / "erstes.jpg", size=(48, 48))
+    stamp = datetime(2025, 5, 15, 8, 0, tzinfo=UTC)
+    photo = TimelinePhoto(
+        source_file_id=1,
+        filename="erstes.jpg",
+        path=str(thumb),
+        thumbnail_path=thumb,
+        captured_at=stamp,
+        used_in_journal=False,
+        is_cover=False,
+        is_favorite=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        file_kind="photo",
+    )
+    day = TimelineDay(
+        id=1,
+        day_index=0,
+        date=stamp.date(),
+        title="Bozen",
+        notes=None,
+        origin="auto",
+        cover_source_file_id=None,
+        photos=(photo,),
+    )
+    widget = EntryWidget(TimelineEntry(started_at=stamp, leftover_day=day))
+    assert not widget._cover_thumb.pixmap().isNull()
     _ = app
 
 
@@ -1203,6 +1244,7 @@ def test_entry_widget_media_tab_filters_favorites() -> None:
 def test_timeline_pool_pane_lists_parked_media(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from datetime import UTC, datetime
+    from types import SimpleNamespace
 
     from PySide6.QtWidgets import QApplication
 
@@ -1255,7 +1297,7 @@ def test_timeline_pool_pane_lists_parked_media(tmp_path: Path, monkeypatch) -> N
         photos=(photo,),
     )
     workspace = Workspace()
-    monkeypatch.setattr(workspace, "current", object())
+    monkeypatch.setattr(workspace, "current", SimpleNamespace(directory=tmp_path))
     view = TimelineView(workspace)
     monkeypatch.setattr(view, "_parked_items", lambda: [parked])
     view._snapshot = TimelineSnapshot(
@@ -1442,8 +1484,142 @@ def test_timeline_drop_pool_on_section_moves_members(tmp_path: Path, monkeypatch
     view = TimelineView(workspace)
     block = EntryWidget(TimelineEntry(started_at=stamp, section=section), parent=view)
     assert block.accepts_pool_drop()
+    assert block.gallery.dragEnabled()
+    assert block.track_gallery.dragEnabled()
+    assert view._pool_pane.acceptDrops()
     view._drop_pool_on_entry(block, [9, 9, 7])
     assert moved == [(7, [9, 7])]
+    _ = app
+
+
+def test_timeline_drop_on_same_section_is_noop(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, datetime
+    from pathlib import Path
+
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.timeline.types import TimelineEntry, TimelinePhoto, TimelineSection
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.timeline_view import EntryWidget, TimelineView
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    app = QApplication.instance() or QApplication([])
+    stamp = datetime(2025, 5, 15, 8, 0, tzinfo=UTC)
+    photo = TimelinePhoto(
+        source_file_id=9,
+        filename="ort.jpg",
+        path="ort.jpg",
+        thumbnail_path=Path("."),
+        captured_at=stamp,
+        used_in_journal=False,
+        is_cover=False,
+        is_favorite=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        file_kind="photo",
+    )
+    section = TimelineSection(
+        id=7,
+        kind="stay",
+        mode=None,
+        title="Bozen",
+        notes=None,
+        started_at=stamp,
+        ended_at=stamp,
+        location_name=None,
+        location_from=None,
+        location_to=None,
+        origin="manual",
+        items=(photo,),
+    )
+    workspace = Workspace()
+    moved: list[tuple[int, list[int]]] = []
+
+    def fake_move(section_id: int, ids: list[int], **_kwargs: object) -> None:
+        moved.append((section_id, list(ids)))
+
+    monkeypatch.setattr(workspace, "move_members", fake_move)
+    view = TimelineView(workspace)
+    block = EntryWidget(TimelineEntry(started_at=stamp, section=section), parent=view)
+    view._drop_pool_on_entry(block, [9, 9])
+    assert moved == []
+    _ = app
+
+
+def test_timeline_drop_section_on_pool_parks_media(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.timeline_view import TimelineView
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    app = QApplication.instance() or QApplication([])
+    workspace = Workspace()
+    parked: list[list[int]] = []
+
+    def fake_park(ids: list[int]) -> None:
+        parked.append(list(ids))
+
+    monkeypatch.setattr(workspace, "park_media", fake_park)
+    view = TimelineView(workspace)
+    monkeypatch.setattr(view, "refresh", lambda: None)
+    monkeypatch.setattr(view, "_set_pool_visible", lambda _visible: None)
+    view._drop_on_timeline_pool([3, 3, 1])
+    assert parked == [[3, 1]]
+    monkeypatch.setattr(view._pool_pane, "contains", lambda source_id: source_id == 3)
+    view._drop_on_timeline_pool([3])
+    assert parked == [[3, 1]]
+    _ = app
+
+
+def test_timeline_autoscroll_step_near_edges() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from traveljournal.views.timeline_view import autoscroll_step
+
+    assert autoscroll_step(200, 400) == 0
+    assert autoscroll_step(0, 400) < 0
+    assert autoscroll_step(400, 400) > 0
+    assert autoscroll_step(-10, 400) < 0
+    assert autoscroll_step(500, 400) > 0
+    assert abs(autoscroll_step(0, 400)) >= abs(autoscroll_step(40, 400))
+    assert abs(autoscroll_step(400, 400)) >= abs(autoscroll_step(360, 400))
+    assert autoscroll_step(0, 0) == 0
+
+
+def test_timeline_drag_autoscroll_timer(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.timeline_view import TimelineView
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    app = QApplication.instance() or QApplication([])
+    view = TimelineView(Workspace())
+    view.resize(800, 600)
+    view.show()
+    app.processEvents()
+    assert not view._drag_scroll.isActive()
+    view._pool_pane.gallery.drag_started.emit()
+    assert view._drag_scroll.isActive()
+    view._pool_pane.gallery.drag_finished.emit()
+    assert not view._drag_scroll.isActive()
+    height = view._scroll.viewport().height()
+    assert height > 0
+    assert view._drag_scroll_delta(y=0) < 0
+    assert view._drag_scroll_delta(y=height) > 0
+    assert view._drag_scroll_delta(y=height // 2) == 0
+    bar = view._scroll.verticalScrollBar()
+    bar.setRange(0, 1000)
+    bar.setValue(100)
+    monkeypatch.setattr(view, "_drag_scroll_delta", lambda: 20)
+    view._on_drag_scroll_tick()
+    assert bar.value() == 120
     _ = app
 
 
@@ -2257,6 +2433,12 @@ def test_media_inspector_parks_and_unparks_from_pool_button(tmp_path: Path) -> N
         def unpark_media(self, source_file_ids: list[int]) -> None:
             self.unparked_ids = list(source_file_ids)
 
+        def inspector_size(self) -> tuple[int, int]:
+            return (720, 520)
+
+        def inspector_maximized(self) -> bool:
+            return False
+
     app = QApplication.instance() or QApplication([])
     jpeg = write_plain_jpeg(tmp_path / "foto.jpg", size=(40, 30))
     item = GalleryItem(
@@ -2394,6 +2576,12 @@ def test_media_inspector_rating_advances_to_next_photo(tmp_path: Path) -> None:
         def set_sort_status(self, source_file_id: int, status: str | None) -> None:
             self.statuses[source_file_id] = status
 
+        def inspector_size(self) -> tuple[int, int]:
+            return (720, 520)
+
+        def inspector_maximized(self) -> bool:
+            return False
+
     app = QApplication.instance() or QApplication([])
     first_path = write_plain_jpeg(tmp_path / "eins.jpg", size=(40, 30))
     second_path = write_plain_jpeg(tmp_path / "zwei.jpg", size=(40, 30))
@@ -2455,6 +2643,12 @@ def test_media_inspector_pool_advances_to_next_photo(tmp_path: Path) -> None:
 
         def unpark_media(self, source_file_ids: list[int]) -> None:
             self.unparked_ids.extend(source_file_ids)
+
+        def inspector_size(self) -> tuple[int, int]:
+            return (720, 520)
+
+        def inspector_maximized(self) -> bool:
+            return False
 
     app = QApplication.instance() or QApplication([])
     first_path = write_plain_jpeg(tmp_path / "eins.jpg", size=(40, 30))
@@ -2677,6 +2871,7 @@ def test_inspector_map_opens_thumbnail_then_original_on_double_click(tmp_path: P
 def test_parse_map_bridge_url_reads_group_key() -> None:
     from traveljournal.views.map_view import (
         MAP_PAGE_SETUP_JS,
+        mark_cover_js,
         parse_map_bridge_url,
         parse_map_expand_console,
         parse_map_media_console,
@@ -2709,6 +2904,9 @@ def test_parse_map_bridge_url_reads_group_key() -> None:
     script = restore_map_view_js(46.5, 11.3, 14)
     assert "traveljournalRestoreView(46.5000000000, 11.3000000000, 14.000000)" in script
     assert "traveljournalKeepFocus" in script
+    assert mark_cover_js("section:7") == (
+        'if (window.traveljournalMarkCover) traveljournalMarkCover("section:7");'
+    )
     assert "traveljournalSetPlaceMode" in MAP_PAGE_SETUP_JS
     assert "traveljournalCaptureView" in MAP_PAGE_SETUP_JS
     assert "traveljournalRestoreView" in MAP_PAGE_SETUP_JS
@@ -2995,6 +3193,11 @@ def test_map_timeline_strip_centers_first_card() -> None:
     app.processEvents()
     assert focused[-1] == "section:2"
     assert len(focused) == again + 1
+    before = len(focused)
+    strip.set_cards(strip._cards)
+    app.processEvents()
+    assert strip.focused_key() == "section:2"
+    assert len(focused) == before
     opened: list[str] = []
     strip.open_in_timeline.connect(opened.append)
     strip._widgets[0].mouseDoubleClickEvent(

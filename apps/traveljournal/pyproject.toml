@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "traveljournal"
-version = "1.1.0"
+version = "2.0.0"
 description = "Windows desktop app that builds an editable travel journal from photos and GPS tracks."
 requires-python = ">=3.12"
 license = { text = "MIT" }

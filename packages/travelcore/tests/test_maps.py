@@ -36,6 +36,7 @@ from travelcore.maps.groups import (
     count_card_media,
     parse_group_key,
     pick_cover_item,
+    pick_cover_youtube,
     position_for_cover,
 )
 from travelcore.media.gallery import SORT_REJECTED, SORT_RESERVE
@@ -206,6 +207,7 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
     assert "traveljournalFitOverview" in text
     assert "doubleClickZoom.disable" in text
     assert "covers.getBounds" in text
+    assert "traveljournalMarkCover" in text
     assert "traveljournalFocusCover" in text
     assert "traveljournalZoomToCover" in text
     assert "map.unproject(point" in text
@@ -725,7 +727,7 @@ def _timeline_photo(
     )
 
 
-def test_pick_cover_item_uses_first_gps_photo() -> None:
+def test_pick_cover_item_uses_first_photo() -> None:
     items = [
         _timeline_photo("route.gpx", file_id=1, latitude=46.0, file_kind="gps"),
         _timeline_photo("ohne.jpg", file_id=2, latitude=None),
@@ -734,12 +736,11 @@ def test_pick_cover_item_uses_first_gps_photo() -> None:
     ]
     chosen = pick_cover_item(items, None)
     assert chosen is not None
-    assert chosen.filename == "mit.jpg"
+    assert chosen.filename == "ohne.jpg"
 
 
-def test_pick_cover_item_uses_first_gps_track_without_photo_fix() -> None:
+def test_pick_cover_item_uses_first_track_without_photo() -> None:
     items = [
-        _timeline_photo("ohne.jpg", file_id=1, latitude=None),
         _timeline_photo("clip.mp4", file_id=2, latitude=46.4, file_kind="video"),
         _timeline_photo("route.gpx", file_id=3, latitude=46.5, file_kind="gps"),
         _timeline_photo("later.gpx", file_id=4, latitude=47.0, file_kind="gps"),
@@ -749,6 +750,12 @@ def test_pick_cover_item_uses_first_gps_track_without_photo_fix() -> None:
     assert chosen.filename == "route.gpx"
 
 
+def test_pick_cover_youtube_uses_first_link() -> None:
+    assert pick_cover_youtube(()) is None
+    url = pick_cover_youtube(("https://youtu.be/abcdefghijk", "https://youtu.be/otherid12345"))
+    assert url == "https://img.youtube.com/vi/abcdefghijk/hqdefault.jpg"
+
+
 def test_pick_cover_item_falls_back_when_stored_cover_missing() -> None:
     items = [
         _timeline_photo("ohne.jpg", file_id=1, latitude=None),
@@ -756,7 +763,7 @@ def test_pick_cover_item_falls_back_when_stored_cover_missing() -> None:
     ]
     chosen = pick_cover_item(items, 99)
     assert chosen is not None
-    assert chosen.filename == "mit.jpg"
+    assert chosen.filename == "ohne.jpg"
 
 
 def test_pick_cover_item_prefers_stored_cover() -> None:
@@ -1068,6 +1075,34 @@ def test_unplaced_section_gets_pin_cover(open_project: OpenProject, tmp_path: Pa
     cover = next(item for item in after.markers if item.group_key == placed["Ohne Ort"].group_key)
     assert cover.latitude == 46.5
     assert cover.longitude == 11.3
+
+
+def test_youtube_only_section_uses_youtube_cover(open_project: OpenProject) -> None:
+    thumbs = open_project.directory / "thumbnails"
+    thumbs.mkdir(exist_ok=True)
+    stamp = datetime(2025, 8, 21, 12, 0, tzinfo=UTC)
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        snapshot = sync_timeline(session, project, thumbs_dir=thumbs)
+        section = create_section(
+            session,
+            snapshot.trip_id,
+            [],
+            kind=KIND_STAY,
+            title="Film",
+            started_at=stamp,
+            youtube_urls=["https://youtu.be/abcdefghijk"],
+        )
+        set_section_pin(session, section.id, 46.5, 11.3)
+        session.commit()
+        cards = {card.title: card for card in build_map_timeline(session, open_project.project_id, thumbs)}
+        overview = build_map_overview(session, open_project.project_id, thumbs)
+    assert "Film" in cards
+    assert cards["Film"].cover_path is None
+    assert cards["Film"].cover_url == "https://img.youtube.com/vi/abcdefghijk/hqdefault.jpg"
+    marker = next(item for item in overview.markers if item.group_key == cards["Film"].group_key)
+    assert marker.preview_url == cards["Film"].cover_url
 
 
 def _stay_entry(section_id: int, latitude: float | None, longitude: float = 11.0) -> TimelineEntry:

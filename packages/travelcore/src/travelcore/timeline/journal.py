@@ -74,6 +74,26 @@ def snap_clock_to_date(moment: datetime | None, key: date | None) -> datetime | 
     return stamp.replace(year=key.year, month=key.month, day=key.day)
 
 
+def snap_clock_to_section(moment: datetime | None, section: TripSection) -> datetime | None:
+    """Keep the clock; put the calendar day onto the section's date or span."""
+
+    start = calendar_key(section.started_at)
+    finish = calendar_key(section.ended_at if section.ended_at is not None else section.started_at)
+    if start is None:
+        return aware(moment)
+    if section.kind == KIND_DAY or finish is None or finish <= start:
+        return snap_clock_to_date(moment, start)
+    stamp = aware(moment)
+    if stamp is None:
+        return snap_clock_to_date(None, start)
+    key = stamp.date()
+    if key < start:
+        return snap_clock_to_date(moment, start)
+    if key > finish:
+        return snap_clock_to_date(moment, finish)
+    return stamp
+
+
 def original_position(source: SourceFile) -> tuple[float, float] | None:
     if source.gps_latitude is None or source.gps_longitude is None:
         return None

@@ -50,6 +50,7 @@ class PoolPane(QFrame):
         workspace: Workspace | None = None,
         unpark_label: str = "Zurück in die Timeline",
         accept_drops: bool = False,
+        gallery_drag_hint: str | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -108,9 +109,12 @@ class PoolPane(QFrame):
         self.gallery.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.gallery.enable_scroll_date()
         self.gallery.setToolTip(
-            "Auf die Reise-Galerie ziehen"
-            if accept_drops
-            else "Auf einen Tag, Transfer oder Aufenthalt ziehen"
+            gallery_drag_hint
+            or (
+                "Auf die Reise-Galerie ziehen"
+                if accept_drops
+                else "Auf einen Tag, Transfer oder Aufenthalt ziehen"
+            )
         )
         self.gallery.rating_chosen.connect(self._on_rating)
         self.gallery.item_activated.connect(self.item_activated.emit)

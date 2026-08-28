@@ -24,9 +24,9 @@ from travelcore.maps.interaction import (
     PHOTO_STACK_RADIUS_PX,
     _overview_script,
     _popup_body,
+    _preview_src,
     _standalone_basemap_script,
     _standalone_settings_script,
-    _thumb_href,
     config_script,
     interaction_config,
 )
@@ -262,7 +262,7 @@ def _latlng_bounds(markers: list[MapMarker]) -> list[list[float]] | None:
 
 
 def _cover_icon(marker: MapMarker, html_path: Path) -> folium.DivIcon:
-    thumb = _thumb_href(html_path, marker.preview_path)
+    thumb = _preview_src(html_path, marker.preview_path, marker.preview_url)
     key = html.escape(marker.group_key or "", quote=True)
     if thumb is not None:
         inner = f'<img src="{html.escape(thumb, quote=True)}" alt="">'

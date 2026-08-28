@@ -8,6 +8,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QDate, QDateTime, QEvent, QObject, QPoint, Qt, QTime, QTimer, Signal
 from PySide6.QtGui import (
+    QCursor,
     QDragEnterEvent,
     QDragLeaveEvent,
     QDragMoveEvent,
@@ -50,7 +51,7 @@ from travelcore.media.gallery import (
     GalleryItem,
     effective_sort_status,
 )
-from travelcore.media.types import FileKind
+from travelcore.media.types import GPS_EXTENSIONS, PHOTO_EXTENSIONS, FileKind
 from travelcore.project_settings import DEFAULT_STAY_LINK_COLOR
 from travelcore.timeline.build import apply_pending_sections
 from travelcore.timeline.journal import calendar_key
@@ -60,6 +61,7 @@ from travelcore.timeline.links import (
     parse_youtube_urls,
     serialize_leonardo_urls,
     serialize_youtube_urls,
+    youtube_thumbnail_url,
 )
 from travelcore.timeline.sections import (
     KIND_DAY,
@@ -88,6 +90,7 @@ from traveljournal.widgets.entry_links import (
     YouTubeThumbsRow,
     igc_flights,
     links_html,
+    start_remote_pixmap,
 )
 from traveljournal.widgets.gallery import GalleryView, source_ids_from_mime
 from traveljournal.widgets.join_plus import TimelineSpine as TimelineJoin
@@ -166,7 +169,45 @@ _MODE_LABELS = (
     ("other", "Sonstiges"),
 )
 _COVER_HEAD = 168
+_GALLERY_DRAG_HINT = (
+    "Ziehen auf eine andere Karte oder in den Pool. "
+    "T oben links: Titelbild für diesen Tag oder Abschnitt"
+)
 _TIMELINE_JOIN_H = 64
+_AUTOSCROLL_MARGIN = 72
+_AUTOSCROLL_MAX_STEP = 28
+_AUTOSCROLL_INTERVAL_MS = 40
+
+
+def autoscroll_step(
+    y: int,
+    height: int,
+    *,
+    margin: int = _AUTOSCROLL_MARGIN,
+    max_step: int = _AUTOSCROLL_MAX_STEP,
+) -> int:
+    """Pixels to add to a vertical scrollbar while dragging. Negative is up.
+
+    ``y`` is the pointer position in a strip of ``height`` (timeline viewport
+    or window). Positions above 0 or below ``height`` use full speed so the
+    list keeps moving when the cursor leaves the column at the window edge.
+    """
+
+    if height <= 0 or max_step <= 0:
+        return 0
+    band = min(margin, max(1, height // 3))
+    if y < 0:
+        return -max_step
+    if y > height:
+        return max_step
+    if y < band:
+        strength = 1.0 - (y / band)
+        return -max(1, round(max_step * strength))
+    below = height - y
+    if below < band:
+        strength = 1.0 - (below / band)
+        return max(1, round(max_step * strength))
+    return 0
 
 
 class SectionKindCombo(QComboBox):
@@ -327,11 +368,22 @@ class TimelineView(QWidget):
         bar.sliderReleased.connect(self._on_scroll_slider_released)
         bar.rangeChanged.connect(self._on_scroll_range_changed)
         self._scroll.installEventFilter(self)
-        self._pool_pane = PoolPane(workspace=self.workspace)
+        self._pool_pane = PoolPane(
+            workspace=self.workspace,
+            accept_drops=True,
+            gallery_drag_hint=(
+                "Medien einer Karte hierher ziehen; aus dem Pool auf einen Abschnitt legen."
+            ),
+        )
         self._pool_pane.unpark_requested.connect(self._unpark_selected)
         self._pool_pane.item_rating_changed.connect(self._on_item_rating)
         self._pool_pane.gallery.item_activated.connect(self._open_inspector)
         self._pool_pane.show_rejected_changed.connect(self._on_pool_show_rejected)
+        self._pool_pane.items_dropped.connect(self._drop_on_timeline_pool)
+        self._drag_scroll = QTimer(self)
+        self._drag_scroll.setInterval(_AUTOSCROLL_INTERVAL_MS)
+        self._drag_scroll.timeout.connect(self._on_drag_scroll_tick)
+        self._wire_drag_scroll(self._pool_pane.gallery)
         self._split = QSplitter(Qt.Orientation.Horizontal)
         self._split.setObjectName("timelineSplit")
         self._split.setChildrenCollapsible(False)
@@ -552,6 +604,8 @@ class TimelineView(QWidget):
                 block.pool_dropped.connect(lambda ids, widget=block: self._drop_pool_on_entry(widget, ids))
                 block.gallery.item_activated.connect(self._open_inspector)
                 block.track_gallery.item_activated.connect(self._open_inspector)
+                self._wire_drag_scroll(block.gallery)
+                self._wire_drag_scroll(block.track_gallery)
                 self._blocks.append(block)
                 self._host_layout.insertWidget(insert_at, block)
                 insert_at += 1
@@ -903,6 +957,12 @@ class TimelineView(QWidget):
         ids = self._selected_source_ids()
         if not ids:
             return
+        self._park_ids(ids)
+
+    def _park_ids(self, source_ids: list[int]) -> None:
+        ids = list(dict.fromkeys(source_ids))
+        if not ids:
+            return
         try:
             self.workspace.park_media(ids)
         except ProjectError as exc:
@@ -926,8 +986,22 @@ class TimelineView(QWidget):
         self.timeline_changed.emit()
         self.status_message.emit(f"{len(ids)} Medien zurück in der Timeline.")
 
+    def _drop_on_timeline_pool(self, source_ids: list[int]) -> None:
+        ids = [
+            source_id
+            for source_id in dict.fromkeys(source_ids)
+            if not self._pool_pane.contains(source_id)
+        ]
+        if not ids:
+            return
+        self._park_ids(ids)
+
     def _drop_pool_on_entry(self, block: EntryWidget, source_ids: list[int]) -> None:
-        ids = list(dict.fromkeys(source_ids))
+        ids = [
+            source_id
+            for source_id in dict.fromkeys(source_ids)
+            if source_id not in block.member_source_ids()
+        ]
         if not ids:
             return
         if not block.accepts_pool_drop():
@@ -1124,6 +1198,40 @@ class TimelineView(QWidget):
     def _sync_reveal_tail(self) -> None:
         extra = max(0, self._scroll.viewport().height() - 24)
         self._tail.setMinimumHeight(extra)
+
+    def _wire_drag_scroll(self, gallery: GalleryView) -> None:
+        gallery.drag_started.connect(self._begin_drag_scroll)
+        gallery.drag_finished.connect(self._end_drag_scroll)
+
+    def _begin_drag_scroll(self) -> None:
+        if not self._drag_scroll.isActive():
+            self._drag_scroll.start()
+
+    def _end_drag_scroll(self) -> None:
+        self._drag_scroll.stop()
+
+    def _drag_scroll_delta(self, y: int | None = None) -> int:
+        viewport = self._scroll.viewport()
+        height = viewport.height()
+        if y is not None:
+            return autoscroll_step(y, height)
+        cursor = QCursor.pos()
+        origin = viewport.mapToGlobal(QPoint(0, 0))
+        from_viewport = autoscroll_step(cursor.y() - origin.y(), height)
+        win = self.window()
+        from_window = 0
+        if win is not None:
+            from_window = autoscroll_step(win.mapFromGlobal(cursor).y(), win.height())
+        if abs(from_window) > abs(from_viewport):
+            return from_window
+        return from_viewport
+
+    def _on_drag_scroll_tick(self) -> None:
+        delta = self._drag_scroll_delta()
+        if not delta:
+            return
+        bar = self._scroll.verticalScrollBar()
+        bar.setValue(bar.value() + delta)
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
         scroll = getattr(self, "_scroll", None)
@@ -1447,6 +1555,8 @@ class EntryWidget(QFrame):
         self._youtube_urls = list(youtube if youtube_override is None else youtube_override)
         self._leonardo_urls = list(leonardo)
         self._cover_id = cover_id
+        self._cover_reply = None
+        self._cover_gen = 0
         self._flights = igc_flights(items)
         self._loaded_title = title
         self._loaded_notes = notes
@@ -1580,7 +1690,7 @@ class EntryWidget(QFrame):
         self.gallery.cover_chosen.connect(self._on_cover)
         self.gallery.enable_to_map_menu(self._item_can_open_on_map)
         self.gallery.map_requested.connect(self._request_open_item_on_map)
-        self.gallery.setToolTip("T oben links: Titelbild für diesen Tag oder Abschnitt")
+        self.gallery.setToolTip(_GALLERY_DRAG_HINT)
         self.gallery.setVisible(media_count > 0)
         model = self.gallery.selectionModel()
         if model is not None:
@@ -1594,7 +1704,7 @@ class EntryWidget(QFrame):
         self.track_gallery.cover_chosen.connect(self._on_cover)
         self.track_gallery.enable_to_map_menu(self._item_can_open_on_map)
         self.track_gallery.map_requested.connect(self._request_open_item_on_map)
-        self.track_gallery.setToolTip("T oben links: Titelbild für diesen Tag oder Abschnitt")
+        self.track_gallery.setToolTip(_GALLERY_DRAG_HINT)
         self.track_gallery.set_items([_gallery_item(photo, cover_id=self._cover_id) for photo in track_items])
         self.track_gallery.setVisible(track_count > 0)
         track_model = self.track_gallery.selectionModel()
@@ -1622,6 +1732,8 @@ class EntryWidget(QFrame):
         self.setAcceptDrops(True)
         self.title_edit.setAcceptDrops(False)
         self.notes_edit.setAcceptDrops(False)
+        self.gallery.set_drag_enabled(True)
+        self.track_gallery.set_drag_enabled(True)
         self.gallery.set_accept_pool_drop(True)
         self.track_gallery.set_accept_pool_drop(True)
         self.gallery.items_dropped.connect(self.pool_dropped.emit)
@@ -1643,6 +1755,9 @@ class EntryWidget(QFrame):
 
     def accepts_pool_drop(self) -> bool:
         return self._kind == "section" and self._entity_id > 0
+
+    def member_source_ids(self) -> set[int]:
+        return {item.source_file_id for item in self.ordered_items()}
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:  # noqa: N802
         if self.accepts_pool_drop() and source_ids_from_mime(event.mimeData()):
@@ -1825,13 +1940,48 @@ class EntryWidget(QFrame):
     def _cover_items(self) -> list[GalleryItem]:
         return [*self._all_gallery, *self.track_gallery.items()]
 
+    def _abort_cover_fetch(self) -> None:
+        reply = self._cover_reply
+        self._cover_reply = None
+        if reply is not None:
+            reply.abort()
+
+    def _fallback_cover_item(self) -> GalleryItem | None:
+        for item in self._all_gallery:
+            if item.extension.lower() in PHOTO_EXTENSIONS:
+                return item
+        for item in self.track_gallery.items():
+            if item.extension.lower() in GPS_EXTENSIONS:
+                return item
+        return None
+
     def _refresh_cover_thumb(self) -> None:
-        item = next((media for media in self._cover_items() if media.source_file_id == self._cover_id), None)
-        if item is None or not item.thumbnail_path.is_file():
+        self._cover_gen += 1
+        gen = self._cover_gen
+        self._abort_cover_fetch()
+        items = self._cover_items()
+        item = next((media for media in items if media.source_file_id == self._cover_id), None)
+        if item is None:
+            item = self._fallback_cover_item()
+        if item is not None and item.thumbnail_path.is_file():
+            pixmap = QPixmap(str(item.thumbnail_path))
+            if not pixmap.isNull():
+                self._cover_thumb.setPixmap(_scaled_cover(pixmap, _COVER_HEAD))
+                return
+        youtube = youtube_thumbnail_url(self._youtube_urls[0]) if self._youtube_urls else None
+        if youtube:
             self._cover_thumb.clear()
+            self._cover_reply = start_remote_pixmap(
+                youtube, lambda pixmap, token=gen: self._on_cover_youtube(pixmap, token)
+            )
             return
-        pixmap = QPixmap(str(item.thumbnail_path))
-        if pixmap.isNull():
+        self._cover_thumb.clear()
+
+    def _on_cover_youtube(self, pixmap: QPixmap | None, gen: int) -> None:
+        if gen != self._cover_gen:
+            return
+        self._cover_reply = None
+        if pixmap is None or pixmap.isNull():
             self._cover_thumb.clear()
             return
         self._cover_thumb.setPixmap(_scaled_cover(pixmap, _COVER_HEAD))

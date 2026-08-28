@@ -45,6 +45,28 @@ def _network() -> QNetworkAccessManager:
     return _NETWORK
 
 
+def start_remote_pixmap(url: str, on_loaded) -> QNetworkReply | None:  # noqa: ANN001
+    """Fetch an HTTP image and call ``on_loaded(QPixmap | None)``."""
+
+    if not url:
+        return None
+    reply = _network().get(QNetworkRequest(QUrl(url)))
+
+    def _finished() -> None:
+        pixmap: QPixmap | None = None
+        try:
+            if reply.error() == QNetworkReply.NetworkError.NoError:
+                loaded = QPixmap()
+                if loaded.loadFromData(reply.readAll()):
+                    pixmap = loaded
+        finally:
+            reply.deleteLater()
+        on_loaded(pixmap)
+
+    reply.finished.connect(_finished)
+    return reply
+
+
 class YouTubeThumbLabel(QLabel):
     def __init__(
         self,

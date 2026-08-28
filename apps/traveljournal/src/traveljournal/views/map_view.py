@@ -457,6 +457,13 @@ def restore_map_view_js(lat: float, lon: float, zoom: float) -> str:
     )
 
 
+def mark_cover_js(group_key: str) -> str:
+    payload = json.dumps(group_key, ensure_ascii=True)
+    return (
+        "if (window.traveljournalMarkCover) traveljournalMarkCover(" + payload + ");"
+    )
+
+
 _FIT_OVERVIEW_JS = """
 (function() {
   function run() {
@@ -1178,6 +1185,8 @@ class MapView(QWidget):
             return
         lat, lon, zoom = view
         self._run_js(restore_map_view_js(lat, lon, zoom))
+        if self._placed_strip_key:
+            self._run_js(mark_cover_js(self._placed_strip_key))
 
     def _finish_restore_view(self) -> None:
         self._restore_placed_view()
@@ -1188,6 +1197,8 @@ class MapView(QWidget):
         self._fit_overview_on_load = False
         self._arm_map_focus()
         self._highlight_placed_card(key)
+        if key:
+            self._run_js(mark_cover_js(key))
 
     def _highlight_placed_card(self, group_key: str) -> None:
         if not group_key or self._timeline.card(group_key) is None:

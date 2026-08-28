@@ -2,7 +2,7 @@
 
 Produktanforderungen: [pflichtenheft.md](pflichtenheft.md). Leitkonzept: [konzept.md](konzept.md). Tests: [testdokumentation.md](testdokumentation.md). Windows-Paket: [packaging/README.md](../packaging/README.md).
 
-Stand: **Phase 7 erweitert**, Software **R1.1.0** (27. August 2026).
+Stand: **Phase 7**, Software **R2.0.0** (28. August 2026). Journal-Modell nach Design-Review.
 
 ## Prinzip
 
@@ -28,11 +28,11 @@ und ändert die JSON-Datei nicht.
 | --- | --- | --- |
 | UI | `apps/traveljournal/.../ui`, `views`, `widgets` | Darstellung, keine Geschäftslogik |
 | Services | `apps/traveljournal/.../services` | Qt-Threads, Dialoge, Fortschritt, Workspace |
-| Domain | `travelcore.trip` | Reise, Tag, Ort, Ereignis (Pydantic) |
+| Domain | `travelcore.trip` | Reise, Kalendertag, Journal-Eintrag (Tag / Aufenthalt / Transfer), Ort, Ereignis (Pydantic) |
 | Use Cases | `travelcore.media`, `gps`, `timeline`, `geolocation`, `maps`, `export` | Import, Zuordnung, Timeline, Karte, Export |
 | Persistenz | `travelcore.database` | SQLAlchemy-Modelle, Alembic, Projektordner |
 
-## Module in travelcore (Phase 7 erweitert)
+## Module in travelcore (Phase 7, R2.0.0)
 
 | Paket | Inhalt |
 | --- | --- |
@@ -40,7 +40,7 @@ und ändert die JSON-Datei nicht.
 | `metadata` | Pillow, HEIC-Container, optional ExifTool, Merge |
 | `gps` | GPX/IGC-Parse und Ingest, KML/GeoJSON nur für Vorschauen, zeitliche Interpolation |
 | `geolocation` | Aufenthaltscluster (Haversine, Radius 150 m) |
-| `timeline` | Tage, Transfers, Aufenthalte, Links, Cover, manuelle Edits |
+| `timeline` | Tage, Transfers und Aufenthalte als Abschnitte, Mitglieder, Journal-Zeit, Pool (`parked`), Links, Cover, manuelle Edits |
 | `maps` | `MapScene` + Folium/Leaflet; statische OSM-Ausschnitte für Track-Thumbs |
 | `export` | Vertrag `Exporter`; HTML/PDF/LaTeX/CEWE noch Platzhalter |
 | `image_analysis` / `similarity` | Verträge für Phase 9/10, ohne Engines |
@@ -85,7 +85,7 @@ Originaldateien nicht.
 
 Zuletzt geöffnete Projekte stehen unter
 `%LOCALAPPDATA%\TravelJournal\recent.json` (max. 10). Die Oberfläche listet
-sie in Phase 7 noch nicht. Der Fenstertitel lautet `Reisetagebuch R{Version}`
+sie in R2.0.0 noch nicht. Der Fenstertitel lautet `Reisetagebuch R{Version}`
 bzw. `Reisetagebuch R{Version} - {Projekttitel}`. Das Medienregister
 (Timeline und Medienseite) steht in `%LOCALAPPDATA%\TravelJournal\config.json` (`timeline_media_tab`),
 ebenso die eingeklappte linke Navigation (`sidebar_collapsed`), der Medienpool
@@ -123,6 +123,10 @@ in `config.json`) und stellt sie beim Ausklappen wieder her; ein/aus ist
 Aufenthalt. Wird die Spalte breiter gezogen, liegen die Vorschaubilder mehrspaltig.
 Drag & Drop aus dem Pool auf einen gespeicherten Tag, Transfer oder Aufenthalt
 ordnet die Medien dort zu (`move_members`, `parked` wird aufgehoben).
+Dasselbe gilt beim Ziehen von einer Karte auf eine andere, ohne Umweg über den Pool;
+die Journal-Zeit übernimmt das Datum bzw. die Spanne des Ziels. Ziehen auf den Pool parkt.
+Während des Ziehens scrollt die Timeline, wenn der Zeiger den oberen oder unteren
+Fensterrand bzw. den Rand der Karten-Spalte erreicht (`autoscroll_step`).
 Die Medienseite zeigt denselben Bestand als zwei Bereiche: links
 Reise-Medien, rechts den Medienpool — jeweils mit Alle / Favoriten /
 Reserve / Aussortiert. Mehrfachauswahl wie in der Timeline (erster und letzter
@@ -196,10 +200,10 @@ Im Register Alle blendet die Checkbox **Aussortierte anzeigen** sie ein (Standar
 `build_map_scene` (delegiert an `build_map_overview`) und `build_map_timeline`
 in `travelcore.maps.groups` bauen die Übersicht: ein Titelbild je gespeichertem
 Tag, Transfer oder Aufenthalt
-(`cover_source_file_id`, sonst das erste Foto mit Kartenposition, sonst der erste GPS-Track, sonst der Abschnitts-Pin). Position ist
+(`cover_source_file_id`, sonst das erste Foto, sonst das erste Track-Thumbnail, sonst das erste YouTube-Vorschaubild). Position ist
 die Journal-Anzeigeposition des Covers (`display_latitude`, sonst Original-GPS), sonst der Schwerpunkt der
 Mitglieder mit Anzeigeposition, sonst `pin_latitude`/`pin_longitude`. Detailmarker und -reihenfolge folgen `section_members` und `journal_at`. Abschnitte ohne Koordinate bleiben in der
-Leiste mit rotem Rand. Rechtsklick **Platzieren** / **Verschieben** (Fadenkreuz, Zoom bleibt) bzw. **Zentrieren** (schwenkt und zoomt auf den Kreis). Unsaved
+Leiste mit rotem Rand. Rechtsklick **Platzieren** / **Verschieben** (Fadenkreuz, Zoom und Fokus bleiben) bzw. **Zentrieren** (schwenkt und zoomt auf den Kreis). Unsaved
 Pending-Abschnitte erscheinen nicht auf der Karte. Zwischen **Tag- und Aufenthaltskreisen**
 in Timeline-Reihenfolge liegen `StayLink`-Polylinien mit Richtungsmarker (gleiche
 Positionen wie die runden Cover). Transfer-Kreise sind keine Endpunkte. Bei
@@ -330,8 +334,9 @@ macOS ist kein Ziel (WIC-Vorschauen, AppData-Pfade).
 4. GPX und GPS-Zuordnung
 5. Thumbnail-Galerie
 6. Karte
-7. Timeline und manuelle Bearbeitung  ← aktueller Stand, Software R1.1.0
-   (Abschnitte, Bewertungen, Inspektor, Track-Vorschauen, Anzeigedrehung)
+7. Timeline und manuelle Bearbeitung  ← aktueller Stand, Software R2.0.0
+   (Tag/Aufenthalt/Transfer als Abschnitte, Medienpool, Journal-Zeit,
+    Design-Review-UI, Bewertungen, Inspektor, Track-Vorschauen, Anzeigedrehung)
    Windows-Endnutzerpaket: `packaging/` (keine eigene Fachphase)
 8. HTML-Export
 9. Qualitätsanalyse

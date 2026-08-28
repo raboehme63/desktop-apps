@@ -36,7 +36,7 @@ from travelcore.media.thumbnails import cached_thumbnail_path
 from travelcore.media.types import FileKind
 from travelcore.timeline.build import load_timeline
 from travelcore.timeline.journal import aware, display_positions_for_ids
-from travelcore.timeline.links import is_igc_filename, parse_youtube_urls
+from travelcore.timeline.links import is_igc_filename, parse_youtube_urls, youtube_thumbnail_url
 from travelcore.timeline.sections import (
     KIND_DAY,
     KIND_MOVEMENT,
@@ -63,6 +63,7 @@ class MapTimelineCard:
     title: str
     time_label: str
     cover_path: Path | None = None
+    cover_url: str | None = None
     latitude: float | None = None
     longitude: float | None = None
     card_kind: str = "stay"
@@ -306,18 +307,28 @@ def _card_media_kwargs(
 
 
 def pick_cover_item(items: list[TimelinePhoto], cover_id: int | None) -> TimelinePhoto | None:
-    """Stored cover, else first GPS photo, else first GPS track. Rejected media never count."""
+    """Stored cover, else first photo, else first track. Rejected media never count."""
 
     visible = [item for item in items if item.sort_status != SORT_REJECTED]
     by_id = {item.source_file_id: item for item in visible}
     if cover_id is not None and cover_id in by_id:
         return by_id[cover_id]
     for item in visible:
-        if item.file_kind == FileKind.PHOTO.value and _item_map_position(item) is not None:
+        if item.file_kind == FileKind.PHOTO.value:
             return item
     for item in visible:
         if item.file_kind == FileKind.GPS.value:
             return item
+    return None
+
+
+def pick_cover_youtube(youtube_urls: Sequence[str] = ()) -> str | None:
+    """First YouTube preview URL when no photo or track cover exists."""
+
+    for url in youtube_urls:
+        thumb = youtube_thumbnail_url(url)
+        if thumb:
+            return thumb
     return None
 
 
@@ -380,9 +391,6 @@ def _card_from_entry(entry: TimelineEntry) -> MapTimelineCard | None:
         marker = _fallback_place_marker(leftover, key, title)
         if marker is not None:
             position = (marker.latitude, marker.longitude)
-    cover_path = chosen.thumbnail_path if chosen is not None else None
-    lat = position[0] if position is not None else None
-    lon = position[1] if position is not None else None
     if entry.section is not None:
         notes = entry.section.notes or ""
         stored_title = entry.section.title or ""
@@ -391,11 +399,16 @@ def _card_from_entry(entry: TimelineEntry) -> MapTimelineCard | None:
         notes = leftover.notes or "" if leftover is not None else ""
         stored_title = leftover.title or "" if leftover is not None else ""
         youtube_urls = leftover.youtube_urls if leftover is not None else ()
+    cover_path = chosen.thumbnail_path if chosen is not None else None
+    cover_url = None if chosen is not None else pick_cover_youtube(youtube_urls)
+    lat = position[0] if position is not None else None
+    lon = position[1] if position is not None else None
     return MapTimelineCard(
         group_key=key,
         title=title,
         time_label=format_section_span(started, ended),
         cover_path=cover_path,
+        cover_url=cover_url,
         latitude=lat,
         longitude=lon,
         card_kind=entry.card_kind,
@@ -472,12 +485,14 @@ def _cover_marker_for_entry(
         key = f"section:{entry.section.id}"
         label = _section_label(entry.section)
         leftover = _day_for_section(entry.section, days)
+        youtube_urls = entry.section.youtube_urls
     elif entry.leftover_day is not None:
         leftover = entry.leftover_day
         items = list(leftover.photos)
         cover_id = leftover.cover_source_file_id
         key = f"day:{leftover.id}"
         label = _day_label(leftover)
+        youtube_urls = leftover.youtube_urls
     else:
         return None
     chosen = pick_cover_item(items, cover_id)
@@ -490,6 +505,19 @@ def _cover_marker_for_entry(
         return None
     if chosen is not None:
         return _cover_marker(chosen, key, label, position)
+    youtube_thumb = pick_cover_youtube(youtube_urls)
+    if youtube_thumb is not None:
+        return MapMarker(
+            latitude=position[0],
+            longitude=position[1],
+            label=label,
+            kind="cover",
+            preview_url=youtube_thumb,
+            day_key=key,
+            color="blue",
+            subtitle="YouTube",
+            group_key=key,
+        )
     return MapMarker(
         latitude=position[0],
         longitude=position[1],

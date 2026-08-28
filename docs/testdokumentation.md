@@ -2,9 +2,9 @@
 
 | Feld | Inhalt |
 | --- | --- |
-| Version | 1.0 |
-| Stand | 27. August 2026 |
-| Bezugsversion Software | Phase 7 erweitert, Software **R1.1.0** |
+| Version | 2.0 |
+| Stand | 28. August 2026 |
+| Bezugsversion Software | Phase 7, Software **R2.0.0** (Journal-Modell nach Design-Review) |
 | Bezug | [pflichtenheft.md](pflichtenheft.md), [konzept.md](konzept.md), [packaging/README.md](../packaging/README.md) |
 
 Diese Dokumentation beschreibt **Teststrategie, Automatisierung, manuelle Prüfung und Abdeckungslücken**. Sie ist die Testdoku zum Pflichtenheft, kein Ersatz für pytest-Ausgaben.
@@ -207,7 +207,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_project_survives_close_and_reopen` | `tests/integration/test_project_lifecycle.py` | Index überlebt Re-Open |
 | `test_exporters_share_interface` | `test_interfaces.py` | HTML/PDF/LaTeX/CEWE sind `Exporter` |
 | `test_protocols_are_importable` | `test_interfaces.py` | `MetadataProvider`, `RankingStrategy`, `MapBackend` |
-| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R1.1.0, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren** |
+| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R2.0.0, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren** |
 
 ### 4.7 GPX und zeitliche Zuordnung — FA-040 bis FA-042
 
@@ -307,8 +307,10 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_map_cache_reuses_html_when_inputs_unchanged` | `test_maps.py` | Disk-Cache ohne Rebuild |
 | `test_map_cache_rebuilds_when_provider_or_force_changes` | `test_maps.py` | Cache-Invalidierung |
 | `test_map_cache_rebuilds_when_link_color_changes` | `test_maps.py` | Cache neu bei geänderter Linienfarbe |
-| `test_pick_cover_item_uses_first_gps_photo` | `test_maps.py` | ohne Titelbild erstes Foto mit GPS |
-| `test_pick_cover_item_uses_first_gps_track_without_photo_fix` | `test_maps.py` | ohne GPS-Foto erster GPS-Track |
+| `test_pick_cover_item_uses_first_photo` | `test_maps.py` | ohne Titelbild erstes Foto |
+| `test_pick_cover_item_uses_first_track_without_photo` | `test_maps.py` | ohne Foto erster Track |
+| `test_pick_cover_youtube_uses_first_link` | `test_maps.py` | YouTube-Cover-URL |
+| `test_youtube_only_section_uses_youtube_cover` | `test_maps.py` | Abschnitt nur mit YouTube als Cover |
 | `test_parse_group_key_accepts_section_day_and_loose` | `test_maps.py` | `section:` / `day:` / `loose:` |
 | `test_build_map_timeline_cards_from_section` | `test_maps.py` | Leistenkarten aus Abschnitt inkl. Text und YouTube |
 | `test_unplaced_section_gets_pin_cover` | `test_maps.py` | leerer Abschnitt ohne GPS, Pin wird Cover |
@@ -352,7 +354,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_date_and_title_from_filename` | `test_timeline_texts.py` | Datum im Dateinamen |
 | `test_combine_imported_texts_uses_first_title` | `test_timeline_texts.py` | mehrere Texte, erster Titel |
 
-### 4.11 Reiseabschnitte und Titelbild — FA-064 bis FA-067, FA-083, FA-084
+### 4.11 Reiseabschnitte, Pool und Journal-Zeit — FA-064 bis FA-067, FA-083, FA-084
 
 | Test | Datei | Prüft |
 | --- | --- | --- |
@@ -382,6 +384,8 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_scattered_positions_do_not_coincide` | `test_timeline_sections.py` | Marker um Abschnittsposition versetzt |
 | `test_move_members_keeps_original_gps_on_map` | `test_timeline_sections.py` | GPS behalten zeigt Originalposition |
 | `test_move_members_adopts_section_position_and_scatters` | `test_timeline_sections.py` | ohne GPS-Behalten: Abschnitt, nicht übereinander |
+| `test_snap_clock_to_section_clamps_into_span` | `test_timeline_sections.py` | Journal-Datum in die Abschnitts-Spanne |
+| `test_move_members_adopts_target_section_date` | `test_timeline_sections.py` | Verschieben übernimmt das Zieldatum |
 | `test_sort_members_by_journal_does_not_change_clock` | `test_timeline_sections.py` | Spur-Sortierung ändert die Uhr nicht |
 | `test_section_cards_follow_calendar_not_creation_order` | `test_timeline_sections.py` | Abschnittskarten nach Kalendertag, nicht nach Anlage |
 | `test_section_card_items_follow_journal_time` | `test_timeline_sections.py` | Medien auf der Karte nach Journal-Zeit |
@@ -394,6 +398,12 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_timeline_leave_without_prompt_when_only_text_dirty` | `tests/test_gui_smoke.py` | Seitenwechsel ohne Rückfrage bei nur dirty Text |
 | `test_set_entry_cover_on_day_and_section` | `test_timeline_sections.py` | Foto als Eintrags-Titelbild |
 | `test_set_entry_cover_accepts_gps_track` | `test_timeline_sections.py` | Track als Eintrags-Titelbild |
+| `test_sync_assigns_media_to_day_sections` | `test_timeline_sections.py` | Import legt Auto-Tage mit Mitgliedern an |
+| `test_parked_media_stay_out_of_days_on_resync` | `test_timeline_sections.py` | Pool-Medien bleiben außerhalb der Tage |
+| `test_move_members_assigns_parked_file_to_section` | `test_timeline_sections.py` | Drop aus dem Pool auf einen Abschnitt |
+| `test_move_to_other_day_keeps_captured_at` | `test_timeline_sections.py` | Verschieben ändert nur die Journal-Zeit |
+| `test_dissolve_multi_day_stay_splits_by_original_date` | `test_timeline_sections.py` | Auflösen eines mehrtägigen Aufenthalts |
+| `test_update_section_kind_rejects_multi_day_stay_to_tag` | `test_timeline_sections.py` | mehrtägiger Aufenthalt wird nicht zum Tag |
 
 ### 4.12 Links — FA-068, FA-069
 
@@ -432,12 +442,13 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 
 | Test | Datei | Prüft |
 | --- | --- | --- |
-| `test_app_window_title_includes_version` | `tests/test_gui_smoke.py` | `Reisetagebuch R1.1.0` |
+| `test_app_window_title_includes_version` | `tests/test_gui_smoke.py` | `Reisetagebuch R2.0.0` |
 | `test_source_sync_dialog_defaults_to_timeline` | `tests/test_gui_smoke.py` | Sync-Dialog: Timeline vorausgewählt, Pool wählbar |
 | `test_source_sync_dialog_hides_destination_without_new_files` | `tests/test_gui_smoke.py` | ohne neue Dateien keine Timeline/Pool-Wahl |
 | `test_entry_widget_separates_tracks_from_media` | `tests/test_gui_smoke.py` | getrennte Galerien |
 | `test_entry_widget_track_can_be_cover` | `tests/test_gui_smoke.py` | T-Chip auf Track |
 | `test_entry_widget_shows_cover_in_heading` | `tests/test_gui_smoke.py` | Titelbild 168 px im Kartenkopf |
+| `test_entry_widget_falls_back_to_first_photo` | `tests/test_gui_smoke.py` | ohne T-Chip erstes Foto im Kartenkopf |
 | `test_entry_widget_header_is_compact` | `tests/test_gui_smoke.py` | Typ und Datum in einer Zeile; Feldtitel ohne Eingabe-Hintergrund |
 | `test_entry_widget_section_has_to_map_button` | `tests/test_gui_smoke.py` | Zur Karte an Abschnitt und Tag |
 | `test_entry_widget_thumbnail_opens_section_detail_on_map` | `tests/test_gui_smoke.py` | Rechtsklick Thumbnail → Zur Karte… öffnet Abschnittsdetail |
@@ -468,6 +479,10 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_pool_source_id_payload_roundtrip` | `tests/test_gui_smoke.py` | Pool-Drag MIME |
 | `test_gallery_wraps_to_multiple_columns_when_wide` | `tests/test_gui_smoke.py` | Galerie mehrspaltig |
 | `test_timeline_drop_pool_on_section_moves_members` | `tests/test_gui_smoke.py` | Drop aus dem Pool auf Abschnitt |
+| `test_timeline_drop_on_same_section_is_noop` | `tests/test_gui_smoke.py` | Drop auf die eigene Karte ändert nichts |
+| `test_timeline_drop_section_on_pool_parks_media` | `tests/test_gui_smoke.py` | Drop von der Karte in den Pool |
+| `test_timeline_autoscroll_step_near_edges` | `tests/test_gui_smoke.py` | Auto-Scroll-Schritt am Rand |
+| `test_timeline_drag_autoscroll_timer` | `tests/test_gui_smoke.py` | Timer startet und stoppt mit dem Drag |
 | `test_timeline_map_anchor_uses_ordered_items_not_entry_attr` | `tests/test_gui_smoke.py` | GPS-Rückfrage ohne `entry`-Attribut |
 | `test_photos_view_multi_select_and_pool_drag` | `tests/test_gui_smoke.py` | Medien: Bereichsauswahl, Ziehen in den Pool und zurück |
 | `test_media_inspector_shows_original_and_ratings` | `tests/test_gui_smoke.py` | Inspektor mit Chips |
@@ -503,7 +518,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 
 ## 5. Abdeckung gegen das Pflichtenheft
 
-### 5.1 Gut abgedeckt (Phase 7 erweitert, R1.1.0)
+### 5.1 Gut abgedeckt (Phase 7, R2.0.0)
 
 - Dateiklassifikation und rekursiver Scan
 - SHA-256 und Skip unveränderter Dateien
@@ -520,13 +535,13 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 - Quell-Sync: fehlende Dateien vollständig entfernen; neue Medien Timeline oder Pool
 - Sortierstatus Favorit/Reserve/Aussortiert inkl. Fallback auf Favoriten-Flag
 - Import bricht bei einer defekten Datei (JPEG oder GPX) nicht ab
-- Projekt anlegen, Schema (Abschnitte, URLs, Cover, Drehung), Wiederöffnen, `settings.toml` und Pfad-Rebase
-- Karte: Titelbild-Kreise je Tag/Transfer/Aufenthalt, Verbindungslinien zwischen Tag- und Aufenthaltskreisen, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad (Fotokegel, Reserve), Leiste darunter, Tagebuchtext rechts, YouTube-Thumbs unten rechts auf der Karte, Detail mit Tracklinie und Fotomarkern (Stapel naher Fotos bis Zoom 16), Foto-Popup, offline ohne OSM
-- Timeline: Tage als Abschnitte mit Mitgliedern, Medienpool, manuelle Texte bleiben, Ortsvorschläge, `used_in_journal`; Speichern-Button nur bei Abschnitten, Texten, Reisetitel, YouTube
-- Reiseabschnitte, Pending-Vorschau, Eintrags-Titelbild (Foto und Track)
+- Projekt anlegen, Schema (Abschnitte, Mitglieder, Journal-Zeit, Pool `parked`, URLs, Cover, Drehung), Wiederöffnen, `settings.toml` und Pfad-Rebase
+- Karte: Titelbild-Kreise je Tag/Transfer/Aufenthalt (Cover-Fallback Foto/Track/YouTube), Verbindungslinien zwischen Tag- und Aufenthaltskreisen, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad (Fotokegel, Reserve), Leiste darunter mit **+**, Tagebuchtext rechts, YouTube-Thumbs unten rechts auf der Karte, Detail mit Tracklinie und Fotomarkern (Stapel naher Fotos bis Zoom 16), Foto-Popup, offline ohne OSM
+- Timeline: Tage als Abschnitte mit Mitgliedern, Medienpool, Journal-Zeit, Drag & Drop Karte↔Karte und Pool inkl. Auto-Scroll, manuelle Texte bleiben, Ortsvorschläge, `used_in_journal`; Speichern-Button nur bei Abschnitten, Texten, Reisetitel, YouTube
+- Reiseabschnitte, Pending-Vorschau, Eintrags-Titelbild (Foto und Track, YouTube-Fallback)
 - YouTube- und DHV-Leonardo-URL-Normalisierung
 - Anzeigedrehung (Index, Cachepfad, Re-Import, Inspektor ohne Originalschreiben)
-- GUI-Rauch: Fenstertitel mit Version, Pipeline Import→Medien→Timeline, getrennte Medien/Tracks, Register nur per Klick, Inspektor Blättern/Zoom/Drehen/Pool
+- GUI-Rauch: Fenstertitel mit Version R2.0.0, Pipeline Import→Medien→Timeline, Pool-Spalte, getrennte Medien/Tracks, Register nur per Klick, Inspektor Blättern/Zoom/Drehen/Pool
 - Export- und Provider-*Verträge* existieren
 
 ### 5.2 Bewusst noch ohne Automatisierung
@@ -572,7 +587,7 @@ Schweregrade für manuelle Funde:
 
 ---
 
-## 7. Manuelle Testfälle (Phase 3 bis 7, Software R1.1.0, inkl. Windows-Paket)
+## 7. Manuelle Testfälle (Phase 3 bis 7, Software R2.0.0, inkl. Windows-Paket)
 
 Voraussetzung: App starten mit
 
@@ -680,7 +695,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | ein runder Kreis je Tag, Transfer oder Aufenthalt; zwischen **Tag- und Aufenthaltskreisen** in Timeline-Reihenfolge eine Verbindungslinie mit Richtungsmarker; Layer-Symbol oben rechts mit Straßenkarte / Topo / Satellit; Zahnrad unter den Zoom-Buttons; ohne gesetztes Titelbild das erste Foto mit GPS, sonst der erste GPS-Track; darunter die Timeline-Leiste mit denselben Einträgen und **+** zwischen den Karten; **Übersicht aller Kreise** im Ausschnitt |
+| Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | ein runder Kreis je Tag, Transfer oder Aufenthalt; zwischen **Tag- und Aufenthaltskreisen** in Timeline-Reihenfolge eine Verbindungslinie mit Richtungsmarker; Layer-Symbol oben rechts mit Straßenkarte / Topo / Satellit; Zahnrad unter den Zoom-Buttons; ohne gesetztes Titelbild das erste Foto, sonst das erste Track-Thumbnail, sonst das erste YouTube-Vorschaubild; darunter die Timeline-Leiste mit denselben Einträgen und **+** zwischen den Karten; **Übersicht aller Kreise** im Ausschnitt |
 | **+** zwischen zwei Leistenkarten | Dialog **Neuer Reiseabschnitt** mit Datum der Lücke; nach OK erscheint der Abschnitt in der Timeline (**Speichern**) |
 | Layer-Symbol: **Straßenkarte**, **Topo**, **Satellit** | wechselt OSM, OpenTopoMap und Esri World Imagery; Kreise und Linien bleiben; Quellenangabe je Anbieter; `offline` ohne Symbol |
 | Zahnrad: **Fotokegel anzeigen** | ab Zoom 17 ein Kegel an Fotos mit Blickrichtung und Brennweite (am Stapel und am Ursprung nach der Auswahl); im Fächer keine Kegel; bleibt nach Projekt-Neuöffnen |
@@ -692,7 +707,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Leiste: Fokus | nur die zentrierte Karte in voller Größe, die anderen etwas kleiner |
 | Leiste: Abschnitt ohne Position | roter Rand |
 | Rechtsklick auf eine gespeicherte Abschnittskarte ohne Ort, **Platzieren**, Klick in die Karte | Fadenkreuz-Cursor; der Ort liegt am Abschnitt; roter Rand verschwindet, Kreis erscheint; Zoom und Ausschnitt bleiben |
-| Rechtsklick, **Verschieben**, Klick in die Karte | Fadenkreuz; der Kreis liegt an der neuen Position; Zoom und Ausschnitt bleiben |
+| Rechtsklick, **Verschieben**, Klick in die Karte | Fadenkreuz; der Kreis liegt an der neuen Position; Zoom, Ausschnitt und Fokus der Leistenkarte bleiben |
 | Rechtsklick, **Zentrieren** | Karte schwenkt und zoomt auf den Kreis |
 | Leiste: Titelbild | füllt die Kartenfläche ohne sichtbare Ränder |
 | Leiste: Zähler oben | Fotos, GPX-Tracks, IGC (Gleitschirm), YouTube-Logo als Symbol+Zahl; Reserve nur bei Zahnrad-Option |
@@ -730,8 +745,10 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | GPS-Fotos am selben Ort | kein automatischer Ortsname; Tag zeigt das Datum |
 | Ort löschen, erneut abgleichen | kein neuer Auto-Ortsname |
 | Timeline: Titel und Text speichern, Projekt schließen und öffnen | Text noch da, `origin=manual`; erneuter Timeline-Abgleich überschreibt den Text nicht |
-| Timeline: Typ **Aufenthalt** bzw. **Transfer** an einem Tag | Abschnitt erscheint; **Speichern** nötig und aktiv; Typ **Tag** löst wieder auf |
-| Timeline: mehrere Fotos markieren, **Neuen Reiseabschnitt erstellen** (Aufenthalt) | Abschnitt erscheint; Tage bleiben; **Speichern** aktiv; ohne Speichern und Verlassen: Dialog Speichern/Verwerfen/Abbrechen |
+| Timeline: Typ **Aufenthalt** bzw. **Transfer** an einem gespeicherten Tag | die Karte bleibt derselbe Abschnitt, nur der Typ wechselt (sofort, ohne **Speichern**); zurück auf **Tag** ist ebenfalls ein Typwechsel, kein Auflösen |
+| Timeline: mehrere Fotos markieren, **Neuen Reiseabschnitt erstellen** (Aufenthalt) | Abschnitt erscheint; die bisherigen Tage bleiben; **Speichern** aktiv; ohne Speichern und Verlassen: Dialog Speichern/Verwerfen/Abbrechen |
+| ⋯ **Journal-Zeit…** an einem Medium, Uhr über Mitternacht | Clip liegt auf dem anderen Tag; `captured_at` unverändert |
+| **Originalzeit** | Journal-Zeit wieder wie die Aufnahme; Clip auf dem ursprünglichen Tag |
 | Timeline ohne Auswahl, **Neuen Reiseabschnitt erstellen**, Tag **Am** bzw. Aufenthalt/Transfer **Von Datum** / **Bis Datum** | leerer Abschnitt erscheint an der passenden Timeline-Stelle; **Speichern** aktiv |
 | ⋯ **Datum…** (Tag) bzw. **Zeitraum…** (Aufenthalt/Transfer) | Dialog übernimmt die bisherigen Daten; nach OK rutscht die Karte an die neue Stelle; bei ungespeichertem Abschnitt **Speichern** nötig |
 | ⋯ **Löschen** an einem gespeicherten Abschnitt | Abschnitt weg; Medien im Pool; Pool-Spalte öffnet sich |
@@ -741,6 +758,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | **Timeline aktualisieren** bei geändertem Titel/Text | Texte werden mitgeschrieben; **Speichern** bleibt aktiv, wenn Abschnitte oder YouTube noch ungespeichert sind |
 | DHV-Leonardo extra an gespeichertem Tag, Dialog-OK | sofort in der DB; nie als „DAV“ bezeichnet |
 | Chip **T** auf Foto und auf Track | Cover in der Kartenüberschrift; Video hat kein T |
+| Ohne Chip T | Fallback: erstes Foto, sonst erstes Track-Thumbnail, sonst erstes YouTube-Vorschaubild |
 | **Zur Karte** an einem gespeicherten Reiseabschnitt oder Tag | Seite **Karte**, passende Leistenkarte fokussiert |
 | Rechtsklick auf ein Thumbnail, **Zur Karte…** | Seite **Karte**, Detailansicht des Abschnitts, Ausschnitt auf der Position des Bildes (nur mit Kartenposition, gespeicherter Eintrag) |
 | **In den Pool** auf markierten Medien | Medien verschwinden aus Tag/Transfer/Aufenthalt; die rechte **Pool**-Spalte öffnet sich und zeigt sie |
@@ -748,7 +766,10 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Pfeil rechts außen in der Timeline oder auf **Medien** | klappt die Pool-Spalte ein und aus, wie die Navigation; keine Abschnittskarte |
 | Pool breiter ziehen, einklappen, ausklappen | dieselbe Breite wie vor dem Einklappen |
 | Pool-Spalte breiter ziehen | Vorschaubilder mehrspaltig |
-| Pool-Medium auf einen gespeicherten Tag/Transfer/Aufenthalt ziehen | Rückfrage **GPS behalten** / **Abschnittsposition**, wenn das Medium GPS hat und der Abschnitt eine Kartenposition; Originale unverändert; mehrere Medien ohne GPS-Behalten leicht versetzt auf der Karte |
+| Pool-Medium auf einen gespeicherten Tag/Transfer/Aufenthalt ziehen | Rückfrage **GPS behalten** / **Abschnittsposition**, wenn das Medium GPS hat und der Abschnitt eine Kartenposition; Originale unverändert; mehrere Medien ohne GPS-Behalten leicht versetzt auf der Karte; Journal-Zeit übernimmt das Datum des Zielabschnitts |
+| Medium einer Karte auf eine andere gespeicherte Karte ziehen | ohne Umweg über den Pool; Journal-Datum des Ziels; dieselbe GPS-Rückfrage; Originale unverändert |
+| Thumbnail an den oberen oder unteren Fensterrand ziehen | die Timeline scrollt in diese Richtung, bis das Ziel sichtbar ist; Loslassen legt das Medium dort ab |
+| Medium einer Karte auf den Pool ziehen | Medium liegt im Pool; Pool-Spalte öffnet sich |
 | Pool-Spalte: Reiter Favoriten | nur geparkte Favoriten; unbewertete Pool-Medien verschwinden aus der Ansicht, nicht aus dem Pool |
 | Medien: Favorit im Pool, Reiter Favoriten links | erscheint nicht links, sondern rechts im Pool unter Favoriten |
 
@@ -789,8 +810,8 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| App ohne Projekt | Titelleiste `Reisetagebuch R1.1.0` |
-| Projekt öffnen | `Reisetagebuch R1.1.0 - {Projekttitel}` |
+| App ohne Projekt | Titelleiste `Reisetagebuch R2.0.0` |
+| Projekt öffnen | `Reisetagebuch R2.0.0 - {Projekttitel}` |
 
 ### MT-22 Windows-Paket (FA-140–FA-144)
 
@@ -798,7 +819,7 @@ Voraussetzung: `packaging/build.ps1` erfolgreich; optional Inno Setup 6 für die
 
 | Schritt | Erwartung |
 | --- | --- |
-| `dist/Reisetagebuch/Reisetagebuch.exe` starten (ohne venv, ohne `python` auf dem PATH) | Fenster `Reisetagebuch R1.1.0`; kein Python-Fehlerdialog |
+| `dist/Reisetagebuch/Reisetagebuch.exe` starten (ohne venv, ohne `python` auf dem PATH) | Fenster `Reisetagebuch R2.0.0`; kein Python-Fehlerdialog |
 | Neues Projekt anlegen, JPEG-Ordner importieren | Index und Thumbnails wie in der Entwicklungsumgebung; Originale unverändert |
 | Seite **Karte** | WebEngine zeigt die Karte (nicht nur den HTML-Pfad) |
 | `%LOCALAPPDATA%\TravelJournal` | `config.json` / `recent.json` wie bisher, nicht im Programmordner |
@@ -841,6 +862,7 @@ Ein Phasenabschluss ohne grüne Automatisierung gilt als nicht abgenommen.
 
 | Datum | Kommando | Ergebnis |
 | --- | --- | --- |
+| 28.08.2026 | `python -m pytest` im Projekt-venv | 364 bestanden (R2.0.0) |
 | 27.08.2026 | `python -m pytest` im Projekt-venv | 264 bestanden |
 | 26.08.2026 | `python -m pytest` im Projekt-venv | 222 bestanden |
 | 18.08.2026 | `python -m pytest` im Projekt-venv | 98 bestanden |

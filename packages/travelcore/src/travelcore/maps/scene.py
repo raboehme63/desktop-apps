@@ -57,6 +57,7 @@ class MapMarker:
     label: str
     kind: str
     preview_path: Path | None = None
+    preview_url: str | None = None
     day_key: str | None = None
     color: str = "blue"
     subtitle: str | None = None

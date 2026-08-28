@@ -924,7 +924,7 @@ def leaflet_payload(scene: MapScene, html_path: Path) -> dict[str, Any]:
             "kind": marker.kind,
             "label": marker.label,
             "popup_html": _popup_body(marker, html_path),
-            "preview": _thumb_href(html_path, marker.preview_path) or "",
+            "preview": _preview_src(html_path, marker.preview_path, marker.preview_url) or "",
             "source_file_id": marker.source_file_id,
             "sort_status": marker.sort_status,
             "heading": marker.heading_degrees,
@@ -960,7 +960,7 @@ def timeline_js_cards(
             "key": card.group_key,
             "title": card.title,
             "time_label": card.time_label,
-            "cover": _thumb_href(html_path, card.cover_path) or "",
+            "cover": _preview_src(html_path, card.cover_path, card.cover_url) or "",
             "lat": card.latitude,
             "lon": card.longitude,
         }
@@ -1565,6 +1565,17 @@ def _overview_script(
         window.tjBridge.sectionClosed();
       }}
     }};
+    window.traveljournalMarkCover = function(key) {{
+      covers.eachLayer(function(layer) {{
+        var el = (layer.getElement && layer.getElement()) || layer._icon;
+        var node = el && el.querySelector ? el.querySelector('.tj-cover') : null;
+        if (!node || !node.classList) {{
+          return;
+        }}
+        var on = key && node.getAttribute('data-group-key') === key;
+        node.classList.toggle('tj-focused', on);
+      }});
+    }};
     window.traveljournalFocusCover = function(lat, lon, key, offsetY) {{
       window.traveljournalKeepFocus = true;
       if (savedView) {{
@@ -1608,15 +1619,7 @@ def _overview_script(
           pan: {{animate: true}},
           zoom: {{animate: false}}
         }});
-        covers.eachLayer(function(layer) {{
-          var el = (layer.getElement && layer.getElement()) || layer._icon;
-          var node = el && el.querySelector ? el.querySelector('.tj-cover') : null;
-          if (!node || !node.classList) {{
-            return;
-          }}
-          var on = key && node.getAttribute('data-group-key') === key;
-          node.classList.toggle('tj-focused', on);
-        }});
+        window.traveljournalMarkCover(key);
       }} catch (err) {{}}
     }};
     window.traveljournalZoomToCover = function(lat, lon, key, zoom) {{
@@ -1655,15 +1658,7 @@ def _overview_script(
           pan: {{animate: true}},
           zoom: {{animate: true}}
         }});
-        covers.eachLayer(function(layer) {{
-          var el = (layer.getElement && layer.getElement()) || layer._icon;
-          var node = el && el.querySelector ? el.querySelector('.tj-cover') : null;
-          if (!node || !node.classList) {{
-            return;
-          }}
-          var on = key && node.getAttribute('data-group-key') === key;
-          node.classList.toggle('tj-focused', on);
-        }});
+        window.traveljournalMarkCover(key);
       }} catch (err) {{}}
     }};
     window.traveljournalShowDetail = function(payload) {{
@@ -2131,7 +2126,7 @@ def _popup_body(marker: MapMarker, html_path: Path) -> str:
         parts.append(f"<div>{html.escape(marker.subtitle)}</div>")
     elif marker.kind in {"photo", "video"}:
         parts.append(f"<div>{html.escape(marker.kind)}</div>")
-    href = _thumb_href(html_path, marker.preview_path)
+    href = _preview_src(html_path, marker.preview_path, marker.preview_url)
     if href is not None:
         sid = ""
         if marker.source_file_id:
@@ -2166,6 +2161,15 @@ def _thumb_href(html_path: Path, preview: Path | None) -> str | None:
     except ValueError:
         return preview.resolve().as_uri()
     return relative.as_posix()
+
+
+def _preview_src(html_path: Path, preview: Path | None, url: str | None = None) -> str | None:
+    href = _thumb_href(html_path, preview)
+    if href:
+        return href
+    if url and url.startswith(("http://", "https://")):
+        return url
+    return None
 
 
 def interaction_config(

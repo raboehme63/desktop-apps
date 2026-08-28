@@ -18,6 +18,7 @@ from travelcore.timeline.journal import (
     scattered_positions,
     section_map_anchor,
     snap_clock_to_date,
+    snap_clock_to_section,
     snapshot_tag_position,
 )
 from travelcore.timeline.links import serialize_leonardo_urls, serialize_youtube_urls
@@ -529,7 +530,7 @@ def move_members(
     *,
     keep_gps: bool = True,
 ) -> None:
-    """Move files onto an existing section. Tag membership snaps the journal date."""
+    """Move files onto an existing section. Journal date follows the target span."""
 
     section = session.get(TripSection, section_id)
     if section is None:
@@ -542,12 +543,19 @@ def move_members(
     missing = [item for item in ids if item not in by_id]
     if missing:
         raise ProjectError("Mindestens eine Datei gehört nicht zum Projekt.")
+    previous_section_ids = {
+        row[0]
+        for row in session.execute(
+            select(SectionMember.section_id).where(SectionMember.source_file_id.in_(ids))
+        )
+    }
     clocks = _take_member_clocks(session, ids)
     session.execute(delete(SectionMember).where(SectionMember.source_file_id.in_(ids)))
     for row in rows:
         row.parked = False
         if row.id not in clocks:
             clocks[row.id] = _Clock(*init_journal_clock(row, section))
+        clocks[row.id].journal_at = snap_clock_to_section(clocks[row.id].journal_at, section)
     ordered = sorted(rows, key=lambda row: _clock_sort_key(clocks[row.id].journal_at, row.filename))
     existing = list(
         session.scalars(
@@ -561,6 +569,10 @@ def move_members(
     if not keep_gps:
         _adopt_section_positions(session, section, ordered)
     _refresh_section_span(session, section)
+    for other_id in previous_section_ids - {section.id}:
+        other = session.get(TripSection, other_id)
+        if other is not None:
+            _refresh_section_span(session, other)
     drop_empty_auto_day_sections(session, section.trip_id)
 
 

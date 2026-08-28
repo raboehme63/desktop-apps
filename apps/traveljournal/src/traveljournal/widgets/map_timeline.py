@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 from travelcore.maps.groups import MapTimelineCard, parse_group_key
 from travelcore.timeline.journal import calendar_key
 from travelcore.timeline.sections import KIND_DAY, KIND_MOVEMENT, insert_dates_between
+from traveljournal.widgets.entry_links import start_remote_pixmap
 from traveljournal.widgets.join_plus import MapSpine
 
 CARD_WIDTH = 248
@@ -122,13 +123,23 @@ class _CardWidget(QFrame):
         self.setProperty("cardKind", card.card_kind)
         self._focused = False
         self._pixmap = QPixmap()
+        self._cover_reply = None
         path = card.cover_path
         if path is not None and path.is_file():
             loaded = QPixmap(str(path))
             if not loaded.isNull():
                 self._pixmap = loaded
+        elif card.cover_url:
+            self._cover_reply = start_remote_pixmap(card.cover_url, self._on_cover_url)
         self._press: QPoint | None = None
         self._dragged = False
+
+    def _on_cover_url(self, pixmap: QPixmap | None) -> None:
+        self._cover_reply = None
+        if pixmap is None or pixmap.isNull():
+            return
+        self._pixmap = pixmap
+        self.update()
 
     def set_focused(self, focused: bool) -> None:
         self._focused = focused
@@ -374,6 +385,7 @@ class MapTimelineStrip(QScrollArea):
             widget.update()
 
     def set_cards(self, cards: tuple[MapTimelineCard, ...] | list[MapTimelineCard]) -> None:
+        keep = self._focused_key
         self._timer.stop()
         self._cards = tuple(cards)
         self._widgets = []
@@ -413,7 +425,11 @@ class MapTimelineStrip(QScrollArea):
             self._row.addWidget(widget, 0, Qt.AlignmentFlag.AlignVCenter)
         self._row.addWidget(self._right_pad)
         self._update_end_padding()
-        QTimer.singleShot(0, self._center_first)
+        keys = {widget.card.group_key for widget in self._widgets}
+        if keep in keys:
+            QTimer.singleShot(0, lambda: self.center_on(keep, emit=False))
+        else:
+            QTimer.singleShot(0, self._center_first)
 
     def center_on(self, group_key: str, *, emit: bool = True) -> None:
         widget = next((item for item in self._widgets if item.card.group_key == group_key), None)

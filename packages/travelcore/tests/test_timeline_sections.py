@@ -1037,6 +1037,80 @@ def test_move_to_other_day_keeps_captured_at(open_project: OpenProject, tmp_path
     assert len(snapshot.entries) == 1
 
 
+def test_snap_clock_to_section_clamps_into_span() -> None:
+    from types import SimpleNamespace
+
+    from travelcore.timeline.journal import snap_clock_to_section
+
+    start = datetime(2025, 6, 1, tzinfo=UTC)
+    end = datetime(2025, 6, 10, tzinfo=UTC)
+    stay = SimpleNamespace(kind=KIND_STAY, started_at=start, ended_at=end)
+    inside = datetime(2025, 6, 5, 14, 30, tzinfo=UTC)
+    assert snap_clock_to_section(inside, stay) == inside
+    before = snap_clock_to_section(datetime(2025, 5, 1, 8, 0, tzinfo=UTC), stay)
+    assert before is not None
+    assert before.date() == date(2025, 6, 1)
+    assert before.hour == 8
+    after = snap_clock_to_section(datetime(2025, 6, 20, 11, 0, tzinfo=UTC), stay)
+    assert after is not None
+    assert after.date() == date(2025, 6, 10)
+    tag = SimpleNamespace(kind=KIND_DAY, started_at=start, ended_at=start)
+    snapped_tag = snap_clock_to_section(datetime(2025, 6, 20, 11, 0, tzinfo=UTC), tag)
+    assert snapped_tag is not None
+    assert snapped_tag.date() == date(2025, 6, 1)
+
+
+def test_move_members_adopts_target_section_date(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "stay.jpg",
+        datetime_original="2025:06:01 09:00:00",
+        offset_original="+02:00",
+    )
+    write_jpeg_with_exif(
+        source / "inside.jpg",
+        datetime_original="2025:06:05 14:30:00",
+        offset_original="+02:00",
+    )
+    write_jpeg_with_exif(
+        source / "late.jpg",
+        datetime_original="2025:06:20 11:00:00",
+        offset_original="+02:00",
+    )
+    first = _index_and_sync(open_project, source)
+    by_name = {photo.filename: photo for day in first.days for photo in day.photos}
+    start, end = span_for_manual_dates(KIND_STAY, date(2025, 6, 1), date(2025, 6, 10))
+    with open_project.session_factory() as session:
+        stay = create_section(
+            session, first.trip_id, [by_name["stay.jpg"].source_file_id], kind=KIND_STAY, title="Hotel"
+        )
+        set_section_span(session, stay.id, start, end)
+        session.commit()
+        move_members(session, stay.id, [by_name["late.jpg"].source_file_id])
+        session.commit()
+        late = session.scalar(
+            select(SectionMember).where(
+                SectionMember.source_file_id == by_name["late.jpg"].source_file_id
+            )
+        )
+        move_members(session, stay.id, [by_name["inside.jpg"].source_file_id])
+        session.commit()
+        inside = session.scalar(
+            select(SectionMember).where(
+                SectionMember.source_file_id == by_name["inside.jpg"].source_file_id
+            )
+        )
+        captured = session.get(SourceFile, by_name["late.jpg"].source_file_id)
+    assert inside is not None and inside.journal_at is not None
+    assert inside.journal_at.date() == date(2025, 6, 5)
+    assert late is not None and late.journal_at is not None
+    assert late.journal_at.date() == date(2025, 6, 10)
+    assert captured is not None
+    assert captured.captured_at is not None
+    assert captured.captured_at.date() == date(2025, 6, 20)
+
+
 def test_dissolve_multi_day_stay_splits_by_original_date(open_project: OpenProject, tmp_path: Path) -> None:
     source = tmp_path / "media"
     source.mkdir()

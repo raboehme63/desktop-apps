@@ -288,6 +288,8 @@ class GalleryView(QListView):
     items_dropped = Signal(list)
     drop_hover = Signal(bool)
     map_requested = Signal(object)
+    drag_started = Signal()
+    drag_finished = Signal()
 
     def __init__(
         self, parent: QWidget | None = None, *, show_ratings: bool = True, show_cover: bool = False
@@ -366,6 +368,15 @@ class GalleryView(QListView):
             return
         event.acceptProposedAction()
         self.items_dropped.emit(ids)
+
+    def startDrag(self, supportedActions: Qt.DropAction) -> None:  # noqa: N802
+        if not self.dragEnabled():
+            return
+        self.drag_started.emit()
+        try:
+            super().startDrag(supportedActions)
+        finally:
+            self.drag_finished.emit()
 
     def enable_to_map_menu(self, enabled_for=None) -> None:  # noqa: ANN001
         """Right-click a thumbnail to emit ``map_requested`` (Timeline only)."""
