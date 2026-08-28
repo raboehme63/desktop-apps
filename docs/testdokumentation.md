@@ -101,7 +101,7 @@ Hilfsmodul: `packages/travelcore/tests/jpeg_fixtures.py`. GPX-Hilfen: `gpx_fixtu
 
 ## 4. Abbildungsmatrix Pflichtenheft → automatisierte Tests
 
-Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests sind ergänzend zu führen, nicht still zu löschen.
+Stand nach `pytest --collect-only`: **307 Tests** (28. August 2026). Neue Tests sind ergänzend zu führen, nicht still zu löschen.
 
 ### 4.1 Dateitypen und Scan — FA-010 bis FA-016
 
@@ -289,6 +289,9 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 | `test_leaflet_payload_includes_source_file_id` | `test_maps.py` | Detail-Payload: `source_file_id`, Thumbnail-Popup, Blickrichtung |
 | `test_detail_stacks_nearby_photos_until_zoom_17` | `test_maps.py` | Stapel bis Zoom 16, Anzahl, ab 17 einzeln mit Rotation; Orte ungestapelt |
 | `test_pick_cover_item_skips_rejected` | `test_maps.py` | Aussortierte Cover fallen raus |
+| `test_pick_cover_item_uses_display_position` | `test_maps.py` | Cover nutzt Journal-Anzeigeposition |
+| `test_position_for_cover_prefers_display_over_original` | `test_maps.py` | Overlay vor Original-GPS |
+| `test_map_detail_follows_section_members_after_move` | `test_maps.py` | Detail und Cover folgen dem Abschnitt, nicht der Aufnahme |
 | `test_count_card_media_splits_reserve_and_skips_rejected` | `test_maps.py` | Reserve getrennt, Aussortierte nie; IGC separat von GPX |
 | `test_photo_fov_degrees_from_35mm` | `test_maps.py` | Kegelwinkel aus 35-mm-Brennweite |
 | `test_map_detail_omits_rejected_photo` | `test_maps.py` | Aussortierte Fotos nicht im Detail; Heading/FOV am Marker |
@@ -303,13 +306,13 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 | `test_parse_group_key_accepts_section_day_and_loose` | `test_maps.py` | `section:` / `day:` / `loose:` |
 | `test_build_map_timeline_cards_from_section` | `test_maps.py` | Leistenkarten aus Abschnitt inkl. Text und YouTube |
 | `test_stay_links_connect_days_and_stays_in_timeline_order` | `test_maps.py` | Linien zwischen Tag- und Aufenthaltskreisen in Timeline-Reihenfolge |
-| `test_stay_links_connect_leftover_days` | `test_maps.py` | Resttage mit GPS werden verbunden |
+| `test_stay_links_connect_leftover_days` | `test_maps.py` | Tage mit GPS werden verbunden |
+| `test_build_map_overview_links_leftover_days` | `test_maps.py` | Übersicht verbindet Tage mit GPS |
 | `test_stay_links_skip_transfer_as_endpoint` | `test_maps.py` | Transfer-Kreis ist kein Linienende |
 | `test_stay_links_mark_transfer_between_stays` | `test_maps.py` | Transfer zwischen Endpunkten setzt `via_transfer` |
 | `test_stay_links_skip_stays_without_gps` | `test_maps.py` | Aufenthalt ohne GPS ist kein Linienende |
 | `test_stay_link_hidden_when_covers_overlap` | `test_maps.py` | Linie unsichtbar, wenn Kreise sich überdecken |
 | `test_build_map_overview_links_consecutive_stays` | `test_maps.py` | Übersicht verbindet zwei Aufenthalte über einen Transfer |
-| `test_build_map_overview_links_leftover_days` | `test_maps.py` | Übersicht verbindet Resttage mit GPS |
 | `test_parse_map_bridge_url_reads_group_key` | `tests/test_gui_smoke.py` | Expand-URL und Konsolen-Bridge |
 | `test_map_view_refresh_uses_disk_cache_without_rebuild` | `tests/test_gui_smoke.py` | MapView zeigt Cache; Leiste unter dem WebView |
 | `test_publish_map_display_writes_unique_file` | `tests/test_gui_smoke.py` | WebEngine lädt eine neue HTML-Kopie nach Rebuild |
@@ -350,8 +353,21 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 | `test_parse_and_serialize_transfer_modes` | `test_timeline_sections.py` | Verkehrsmittel-Liste |
 | `test_format_section_span_uses_object_dates` | `test_timeline_sections.py` | `am …` / `von … bis …` |
 | `test_create_section_same_day_is_am` | `test_timeline_sections.py` | Aufenthalt am selben Kalendertag |
-| `test_dissolve_section_returns_files_to_leftover_days` | `test_timeline_sections.py` | Auflösen → Resttage |
-| `test_leftover_day_sits_between_sections` | `test_timeline_sections.py` | Resttag zwischen Abschnitten |
+| `test_dissolve_section_returns_files_to_day_sections` | `test_timeline_sections.py` | Auflösen → Tage nach Journal-Zeit |
+| `test_set_journal_at_moves_clip_to_other_day` | `test_timeline_sections.py` | Journal-Zeit über Mitternacht wechselt den Tag |
+| `test_reset_journal_restores_original_day` | `test_timeline_sections.py` | Originalzeit stellt Aufnahmezeit und Tag wieder her |
+| `test_dissolve_after_journal_move_uses_journal_date` | `test_timeline_sections.py` | Auflösen nach Verschieben folgt Journal-Tag |
+| `test_resync_keeps_existing_journal_at` | `test_timeline_sections.py` | Re-Sync überschreibt Journal-Zeit nicht |
+| `test_tag_without_gps_inherits_cover_position` | `test_timeline_sections.py` | Tag ohne GPS erbt Cover-Pin |
+| `test_stay_without_gps_inherits_place` | `test_timeline_sections.py` | Aufenthalt ohne GPS erbt Ort live |
+| `test_transfer_without_gps_inherits_track_time` | `test_timeline_sections.py` | Transfer ohne GPS liegt auf dem Track |
+| `test_scattered_positions_do_not_coincide` | `test_timeline_sections.py` | Marker um Abschnittsposition versetzt |
+| `test_move_members_keeps_original_gps_on_map` | `test_timeline_sections.py` | GPS behalten zeigt Originalposition |
+| `test_move_members_adopts_section_position_and_scatters` | `test_timeline_sections.py` | ohne GPS-Behalten: Abschnitt, nicht übereinander |
+| `test_sort_members_by_journal_does_not_change_clock` | `test_timeline_sections.py` | Spur-Sortierung ändert die Uhr nicht |
+| `test_section_cards_follow_calendar_not_creation_order` | `test_timeline_sections.py` | Abschnittskarten nach Kalendertag, nicht nach Anlage |
+| `test_section_card_items_follow_journal_time` | `test_timeline_sections.py` | Medien auf der Karte nach Journal-Zeit |
+| `test_day_section_sits_between_stays` | `test_timeline_sections.py` | Tag zwischen Abschnitten |
 | `test_create_movement_section_from_last_day_files` | `test_timeline_sections.py` | Transfer aus Dateien |
 | `test_transfer_mode_is_optional_and_can_be_multiple` | `test_timeline_sections.py` | mehrere Verkehrsmittel |
 | `test_update_section_kind_switches_stay_and_transfer` | `test_timeline_sections.py` | Typ Aufenthalt ↔ Transfer |
@@ -406,8 +422,12 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 | `test_map_view_focus_group_centers_section_card` | `tests/test_gui_smoke.py` | MapView fokussiert die Abschnittskarte; Tagebuchtext rechts, YouTube-Thumbs unten rechts auf der Karte |
 | `test_map_notes_edit_shows_save_cancel_discard` | `tests/test_gui_smoke.py` | Nach Edit Speichern, Abbrechen, Verwerfen |
 | `test_map_notes_switch_card_opens_save_dialog` | `tests/test_gui_smoke.py` | Fokuswechsel bei ungespeichertem Tagebuchtext: Dialog Speichern/Abbrechen/Verwerfen |
-| `test_entry_widget_media_tab_filters_favorites` | `tests/test_gui_smoke.py` | Register filtert Favoriten |
-| `test_photos_view_media_tab_filters_favorites` | `tests/test_gui_smoke.py` | Medien-Register filtert Favoriten |
+| `test_entry_widget_media_tab_filters_favorites` | `tests/test_gui_smoke.py` | Register filtert Favoriten; Aussortierte nur unter Aussortiert |
+| `test_matches_rating_hides_rejected_from_all` | `tests/test_gui_smoke.py` | Alle blendet Aussortierte aus |
+| `test_timeline_pool_pane_lists_parked_media` | `tests/test_gui_smoke.py` | Pool-Spalte unabhängig von Abschnitten, eigenes Bewertungsregister |
+| `test_timeline_pool_restores_width_after_collapse` | `tests/test_gui_smoke.py` | Einklappen merkt die Breite, Ausklappen stellt sie wieder her |
+| `test_photos_view_pool_collapse_matches_timeline` | `tests/test_gui_smoke.py` | Medien: gleicher Pfeil, Breite bleibt |
+| `test_photos_view_media_tab_filters_favorites` | `tests/test_gui_smoke.py` | linkes Register filtert Favoriten; Aussortierte nur unter Aussortiert; Pool-Favoriten bleiben rechts |
 | `test_photos_rating_applies_to_timeline_gallery` | `tests/test_gui_smoke.py` | Medien-Bewertung erscheint in der Timeline |
 | `test_media_tabs_change_only_on_click` | `tests/test_gui_smoke.py` | Mausrad wechselt keinen Reiter |
 | `test_timeline_global_register_applies_to_all_days` | `tests/test_gui_smoke.py` | globales Register |
@@ -416,6 +436,11 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 | `test_scroll_offset_to_widget_top_uses_host_not_page_chrome` | `tests/test_gui_smoke.py` | Reveal ignoriert Reisetitel über der Liste |
 | `test_reveal_group_puts_section_top_at_list_top` | `tests/test_gui_smoke.py` | Doppelklick scrollt Abschnittskopf an den Listenanfang |
 | `test_gallery_rating_hotspots` | `tests/test_gui_smoke.py` | Bewertungs-Chips |
+| `test_pool_source_id_payload_roundtrip` | `tests/test_gui_smoke.py` | Pool-Drag MIME |
+| `test_gallery_wraps_to_multiple_columns_when_wide` | `tests/test_gui_smoke.py` | Galerie mehrspaltig |
+| `test_timeline_drop_pool_on_section_moves_members` | `tests/test_gui_smoke.py` | Drop aus dem Pool auf Abschnitt |
+| `test_timeline_map_anchor_uses_ordered_items_not_entry_attr` | `tests/test_gui_smoke.py` | GPS-Rückfrage ohne `entry`-Attribut |
+| `test_photos_view_multi_select_and_pool_drag` | `tests/test_gui_smoke.py` | Medien: Bereichsauswahl, Ziehen in den Pool und zurück |
 | `test_media_inspector_shows_original_and_ratings` | `tests/test_gui_smoke.py` | Inspektor mit Chips |
 | `test_media_inspector_rotates_display_without_writing_original` | `tests/test_gui_smoke.py` | Drehen, Original-mtime gleich |
 | `test_media_inspector_browses_section_sequence` | `tests/test_gui_smoke.py` | Blättern in der Sequenz |
@@ -432,6 +457,10 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 | `test_normalize_timeline_media_tab` | `tests/test_workspace.py` | gültige Tab-Namen |
 | `test_timeline_media_tab_persists` | `tests/test_workspace.py` | `config.json` hält das Register |
 | `test_sidebar_collapsed_persists` | `tests/test_workspace.py` | `config.json` hält die eingeklappte Navigation |
+| `test_timeline_pool_visible_persists` | `tests/test_workspace.py` | `config.json` hält die Pool-Spalte |
+| `test_pool_width_persists` | `tests/test_workspace.py` | `config.json` hält die Pool-Breite |
+| `test_pool_media_tab_persists` | `tests/test_workspace.py` | `config.json` hält das Pool-Bewertungsregister |
+| `test_show_rejected_in_all_persists` | `tests/test_workspace.py` | `config.json` hält „Aussortierte anzeigen“ |
 | `test_map_display_flags_persist_in_project` | `tests/test_workspace.py` | Zahnrad-Optionen in `settings.toml` |
 
 ---
@@ -455,9 +484,9 @@ Stand nach `pytest --collect-only`: **252 Tests** (27. August 2026). Neue Tests 
 - Sortierstatus Favorit/Reserve/Aussortiert inkl. Fallback auf Favoriten-Flag
 - Import bricht bei einer defekten Datei (JPEG oder GPX) nicht ab
 - Projekt anlegen, Schema (Abschnitte, URLs, Cover, Drehung), Wiederöffnen, `settings.toml` und Pfad-Rebase
-- Karte: Titelbild-Kreise je Abschnitt/Resttag, Verbindungslinien zwischen Tag- und Aufenthaltskreisen, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad (Fotokegel, Reserve), Leiste darunter, Tagebuchtext rechts, YouTube-Thumbs unten rechts auf der Karte, Detail mit Tracklinie und Fotomarkern (Stapel naher Fotos bis Zoom 16), Foto-Popup, offline ohne OSM
-- Timeline: Tage aus Aufnahmezeit, manuelle Texte bleiben, Ortsvorschläge, `used_in_journal`; Speichern-Button nur bei Abschnitten/Texten/Reisetitel/YouTube
-- Reiseabschnitte, Resttage, Pending-Vorschau, Eintrags-Titelbild (Foto und Track)
+- Karte: Titelbild-Kreise je Tag/Transfer/Aufenthalt, Verbindungslinien zwischen Tag- und Aufenthaltskreisen, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad (Fotokegel, Reserve), Leiste darunter, Tagebuchtext rechts, YouTube-Thumbs unten rechts auf der Karte, Detail mit Tracklinie und Fotomarkern (Stapel naher Fotos bis Zoom 16), Foto-Popup, offline ohne OSM
+- Timeline: Tage als Abschnitte mit Mitgliedern, Medienpool, manuelle Texte bleiben, Ortsvorschläge, `used_in_journal`; Speichern-Button nur bei Abschnitten, Texten, Reisetitel, YouTube
+- Reiseabschnitte, Pending-Vorschau, Eintrags-Titelbild (Foto und Track)
 - YouTube- und DHV-Leonardo-URL-Normalisierung
 - Anzeigedrehung (Index, Cachepfad, Re-Import, Inspektor ohne Originalschreiben)
 - GUI-Rauch: Fenstertitel mit Version, Pipeline Import→Medien→Timeline, getrennte Medien/Tracks, Register nur per Klick, Inspektor Blättern/Zoom/Drehen
@@ -592,7 +621,11 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Nach Import Seite **Medien** öffnen | Vorschaubilder, chronologisch; Doppelklick öffnet den Medieninspektor; Reiter Alle/Favoriten/Reserve/Aussortiert |
+| Nach Import Seite **Medien** öffnen | links Reise-Medien, rechts Medienpool (Pfeil rechts außen klappt ein/aus wie in der Timeline); jeweils Reiter Alle/Favoriten/Reserve/Aussortiert; kein Reiter Pool; Doppelklick öffnet den Medieninspektor |
+| Medien: erstes und letztes Objekt anklicken | alles dazwischen ist markiert; Strg+Klick nimmt einzelne wieder raus |
+| Medien: Auswahl auf den Pool ziehen oder **In den Pool** | Medien liegen rechts im Pool; **Zurück in die Galerie** oder Ziehen nach links holt sie zurück |
+| Medium als Aussortiert markieren | verschwindet aus Alle (Checkbox aus), Favoriten und Reserve; nur noch unter Aussortiert |
+| Register Alle: Checkbox **Aussortierte anzeigen** | nur bei Alle sichtbar; an: Aussortierte in Alle; Standard aus; bleibt in `config.json` |
 | HEIC ohne eingebettetes JPEG (HEIF Image Extensions installiert) | echtes Vorschaubild, kein Absturz |
 | HEIC ohne Codec/Erweiterung | Platzhalter, kein Absturz |
 
@@ -630,7 +663,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Nach Import Seite **Timeline** öffnen bzw. **Timeline aktualisieren** | ein Tag je Aufnahmedatum; Fotos am Kalendertag der Aufnahmezeit; Auto-Ereignis mit Medienzähler |
+| Nach Import Seite **Timeline** öffnen bzw. **Timeline aktualisieren** | ein Tag je Aufnahmedatum, Karten von früh nach spät; Fotos auf der Karte nach Journal-Zeit; Auto-Ereignis mit Medienzähler |
 | Timeline ohne ungespeicherte Abschnitte, Texte, Reisetitel oder YouTube | **Speichern** ist inaktiv |
 | Reisetitel, Titel, Tagebuchtext oder YouTube ändern bzw. neuen Abschnitt anlegen | **Speichern** wird aktiv; Rücknahme der Änderung macht ihn wieder inaktiv |
 | Bewertung, Titelbild oder DHV-Leonardo an einem **gespeicherten** Eintrag | sofort in der DB; **Speichern** bleibt inaktiv |
@@ -647,6 +680,14 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | DHV-Leonardo extra an gespeichertem Tag, Dialog-OK | sofort in der DB; nie als „DAV“ bezeichnet |
 | Chip **T** auf Foto und auf Track | Cover in der Kartenüberschrift; Video hat kein T |
 | **Zur Karte** an einem gespeicherten Reiseabschnitt oder Tag | Seite **Karte**, passende Leistenkarte fokussiert |
+| **In den Pool** auf markierten Medien | Medien verschwinden aus Tag/Transfer/Aufenthalt; die rechte **Pool**-Spalte öffnet sich und zeigt sie |
+| Pool-Spalte: Auswahl, **Zurück in die Timeline** | Medien liegen wieder auf einem Tag nach Journal-/Aufnahmezeit |
+| Pfeil rechts außen in der Timeline oder auf **Medien** | klappt die Pool-Spalte ein und aus, wie die Navigation; keine Abschnittskarte |
+| Pool breiter ziehen, einklappen, ausklappen | dieselbe Breite wie vor dem Einklappen |
+| Pool-Spalte breiter ziehen | Vorschaubilder mehrspaltig |
+| Pool-Medium auf einen gespeicherten Tag/Transfer/Aufenthalt ziehen | Rückfrage **GPS behalten** / **Abschnittsposition**, wenn das Medium GPS hat und der Abschnitt eine Kartenposition; Originale unverändert; mehrere Medien ohne GPS-Behalten leicht versetzt auf der Karte |
+| Pool-Spalte: Reiter Favoriten | nur geparkte Favoriten; unbewertete Pool-Medien verschwinden aus der Ansicht, nicht aus dem Pool |
+| Medien: Favorit im Pool, Reiter Favoriten links | erscheint nicht links, sondern rechts im Pool unter Favoriten |
 
 ### MT-18 Medieninspektor
 

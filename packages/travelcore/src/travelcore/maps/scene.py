@@ -4,18 +4,28 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from math import atan, ceil, degrees
 from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from travelcore.database.models import GpsPoint, GpsTrack, Photo, Place, SourceFile, Trip, TripDay
+from travelcore.database.models import (
+    GpsPoint,
+    GpsTrack,
+    Photo,
+    Place,
+    SectionMember,
+    SourceFile,
+    Trip,
+    TripDay,
+)
 from travelcore.media.gallery import SORT_REJECTED, effective_sort_status
 from travelcore.media.orientation import normalize_rotation_degrees
 from travelcore.media.thumbnails import cached_thumbnail_path
 from travelcore.media.types import FileKind
+from travelcore.timeline.journal import aware, calendar_key
 
 MAX_TRACK_DISPLAY_POINTS = 2500
 MAX_FLIGHT_DISPLAY_POINTS = 1200
@@ -123,7 +133,7 @@ def build_map_scene(
     *,
     size: int = 256,
 ) -> MapScene:
-    """Overview: one cover per section or leftover day."""
+    """Overview: one cover per Tag, Aufenthalt or Transfer."""
 
     from travelcore.maps.groups import build_map_overview
 
@@ -198,27 +208,47 @@ def _photo_markers(
     *,
     size: int,
     source_file_ids: set[int] | None = None,
+    positions: dict[int, tuple[float, float, bool]] | None = None,
 ) -> list[MapMarker]:
     if source_file_ids is not None and not source_file_ids:
         return []
+    filters = [
+        SourceFile.project_id == project_id,
+        SourceFile.file_kind.in_((FileKind.PHOTO.value, FileKind.VIDEO.value, FileKind.GPS.value)),
+    ]
+    if positions is None:
+        filters.append(SourceFile.gps_latitude.is_not(None))
+        filters.append(SourceFile.gps_longitude.is_not(None))
     query = (
         select(SourceFile)
         .options(selectinload(SourceFile.photo))
-        .where(
-            SourceFile.project_id == project_id,
-            SourceFile.file_kind.in_((FileKind.PHOTO.value, FileKind.VIDEO.value, FileKind.GPS.value)),
-            SourceFile.gps_latitude.is_not(None),
-            SourceFile.gps_longitude.is_not(None),
-        )
-        .order_by(SourceFile.captured_at.asc().nulls_last(), SourceFile.filename.asc())
+        .where(*filters)
     )
     if source_file_ids is not None:
         query = query.where(SourceFile.id.in_(source_file_ids))
-    rows = session.scalars(query)
+    rows = list(session.scalars(query))
+    moments = _journal_moments(session, [row.id for row in rows if row.id is not None])
+
+    def row_moment(row: SourceFile) -> datetime | None:
+        return aware(moments.get(row.id) or row.captured_at)
+
+    rows.sort(
+        key=lambda row: (
+            0 if row_moment(row) is not None else 1,
+            row_moment(row) or datetime.max.replace(tzinfo=UTC),
+            row.filename,
+        )
+    )
     day_index: dict[str, int] = {}
     markers: list[MapMarker] = []
     for row in rows:
-        if row.gps_latitude is None or row.gps_longitude is None:
+        if row.id is None:
+            continue
+        if positions is not None and row.id in positions:
+            latitude, longitude, _inherited = positions[row.id]
+        elif row.gps_latitude is not None and row.gps_longitude is not None:
+            latitude, longitude = row.gps_latitude, row.gps_longitude
+        else:
             continue
         photo = row.photo
         status = effective_sort_status(
@@ -227,7 +257,8 @@ def _photo_markers(
         )
         if status == SORT_REJECTED:
             continue
-        day_key = _day_key(row.captured_at)
+        moment = row_moment(row)
+        day_key = _day_key(moment)
         if day_key not in day_index:
             day_index[day_key] = len(day_index)
         color = _DAY_COLORS[day_index[day_key] % len(_DAY_COLORS)]
@@ -241,9 +272,9 @@ def _photo_markers(
         fov = photo_fov_degrees(row.focal_length_35mm, row.focal_length) if heading is not None else None
         markers.append(
             MapMarker(
-                latitude=row.gps_latitude,
-                longitude=row.gps_longitude,
-                label=_day_key(row.captured_at),
+                latitude=latitude,
+                longitude=longitude,
+                label=day_key,
                 kind=kind,
                 preview_path=cached_thumbnail_path(
                     thumbs_dir,
@@ -289,9 +320,21 @@ def _place_markers(session: Session, project_id: int) -> list[MapMarker]:
 
 
 def _day_key(value: datetime | None) -> str:
-    if value is None:
+    key = calendar_key(value)
+    if key is None:
         return "Ohne Datum"
-    return value.date().isoformat()
+    return key.isoformat()
+
+
+def _journal_moments(session: Session, source_ids: list[int]) -> dict[int, datetime | None]:
+    if not source_ids:
+        return {}
+    rows = session.execute(
+        select(SectionMember.source_file_id, SectionMember.journal_at).where(
+            SectionMember.source_file_id.in_(source_ids)
+        )
+    )
+    return {source_id: journal_at for source_id, journal_at in rows}
 
 
 def photo_fov_degrees(focal_35mm: float | None, focal_mm: float | None = None) -> float:

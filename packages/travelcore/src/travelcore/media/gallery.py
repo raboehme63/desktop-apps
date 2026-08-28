@@ -46,6 +46,10 @@ class GalleryItem:
     sort_status: str | None = None
     is_entry_cover: bool = False
     rotation_degrees: int = 0
+    parked: bool = False
+    journal_at: datetime | None = None
+    display_latitude: float | None = None
+    display_longitude: float | None = None
 
 
 def list_gallery_items(
@@ -100,6 +104,7 @@ def list_gallery_items(
                     bool(photo.is_favorite) if photo is not None else False,
                 ),
                 rotation_degrees=rotation,
+                parked=bool(source.parked),
             )
         )
     return items

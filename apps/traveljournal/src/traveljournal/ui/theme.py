@@ -59,6 +59,11 @@ QPushButton#primary:hover {
     background-color: #3ccbb2;
 }
 
+#timelinePool {
+    background-color: #181c27;
+    border-left: 1px solid #2a3144;
+}
+
 #mapEntrySide QPushButton {
     padding: 6px 8px;
     font-size: 12px;
@@ -84,7 +89,8 @@ QPushButton#sidebarButton:checked {
     font-weight: 600;
 }
 
-QPushButton#sidebarCollapse {
+QPushButton#sidebarCollapse,
+QPushButton#poolCollapse {
     min-width: 14px;
     max-width: 14px;
     min-height: 56px;
@@ -96,7 +102,8 @@ QPushButton#sidebarCollapse {
     color: #e8edf5;
 }
 
-QPushButton#sidebarCollapse:hover {
+QPushButton#sidebarCollapse:hover,
+QPushButton#poolCollapse:hover {
     background-color: #33415c;
     border-color: #5b6b8a;
 }
@@ -237,6 +244,11 @@ QFrame#card {
     background-color: #1a2030;
     border: 1px solid #2a3144;
     border-radius: 12px;
+}
+
+QFrame#card[dropTarget="true"],
+QFrame#timelinePool[dropTarget="true"] {
+    border: 1px solid #2eb8a0;
 }
 
 QLabel#statValue {

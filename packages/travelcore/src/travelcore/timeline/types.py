@@ -23,6 +23,11 @@ class TimelinePhoto:
     external_url: str | None = None
     sort_status: str | None = None
     rotation_degrees: int = 0
+    journal_at: datetime | None = None
+    journal_timezone_name: str | None = None
+    display_latitude: float | None = None
+    display_longitude: float | None = None
+    position_inherited: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,7 +85,7 @@ class TimelineSection:
 
 @dataclass(frozen=True, slots=True)
 class TimelineEntry:
-    """One row in the journal feed: a section or a leftover calendar day."""
+    """One row in the journal feed: a Tag, Aufenthalt, or Transfer section."""
 
     started_at: datetime | None
     section: TimelineSection | None = None

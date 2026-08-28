@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -26,7 +26,7 @@ from travelcore.maps.scene import (
     MapScene,
     StayLink,
     _center,
-    _day_key,
+    _journal_moments,
     _photo_markers,
     track_polylines,
 )
@@ -35,11 +35,14 @@ from travelcore.media.orientation import normalize_rotation_degrees
 from travelcore.media.thumbnails import cached_thumbnail_path
 from travelcore.media.types import FileKind
 from travelcore.timeline.build import load_timeline
+from travelcore.timeline.journal import aware, display_positions_for_ids
 from travelcore.timeline.links import is_igc_filename, parse_youtube_urls
 from travelcore.timeline.sections import (
     KIND_DAY,
     KIND_MOVEMENT,
+    calendar_key,
     claimed_source_ids,
+    day_section_for_date,
     format_section_span,
 )
 from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelinePhoto, TimelineSection
@@ -97,8 +100,8 @@ def build_map_overview(
     snapshot = load_timeline(session, project, thumbs_dir=thumbs_dir, size=size) if project else None
     if snapshot is not None and snapshot.entries:
         entries = list(snapshot.entries)
-        covers = _covers_from_entries(entries)
-        links = stay_links_from_entries(entries)
+        covers = _covers_from_entries(entries, list(snapshot.days))
+        links = stay_links_from_entries(entries, list(snapshot.days))
     else:
         covers = _covers_from_source_files(session, project_id, thumbs_dir, size=size)
         links = []
@@ -180,11 +183,24 @@ def _resolve_section_group(session: Session, project_id: int, section_id: int) -
         session.scalars(
             select(SectionMember.source_file_id)
             .where(SectionMember.section_id == section.id)
-            .order_by(SectionMember.sort_index.asc(), SectionMember.id.asc())
+            .order_by(
+                SectionMember.journal_at.asc().nulls_last(),
+                SectionMember.sort_index.asc(),
+                SectionMember.id.asc(),
+            )
         )
     )
+    day_id = None
+    if section.kind == KIND_DAY:
+        key = calendar_key(section.started_at)
+        trip_days = session.scalars(select(TripDay).where(TripDay.trip_id == section.trip_id))
+        for day in trip_days:
+            if calendar_key(day.date) == key:
+                day_id = day.id
+                break
     return MapGroupRef(
         source_ids=ids,
+        day_id=day_id,
         youtube_urls=parse_youtube_urls(section.youtube_urls),
     )
 
@@ -197,6 +213,9 @@ def _resolve_day_group(session: Session, project_id: int, day_id: int) -> MapGro
     if trip is None or trip.project_id != project_id:
         return None
     claimed = claimed_source_ids(session, trip.id)
+    section = day_section_for_date(session, trip.id, calendar_key(day.date), create=False)
+    if section is not None:
+        return _resolve_section_group(session, project_id, section.id)
     return MapGroupRef(
         source_ids=_leftover_source_ids_for_day(session, project_id, day, claimed),
         day_id=day.id,
@@ -284,7 +303,7 @@ def pick_cover_item(items: list[TimelinePhoto], cover_id: int | None) -> Timelin
     if cover_id is not None and cover_id in by_id:
         return by_id[cover_id]
     for item in visible:
-        if item.file_kind == FileKind.PHOTO.value and _item_has_gps(item):
+        if item.file_kind == FileKind.PHOTO.value and _item_map_position(item) is not None:
             return item
     for item in visible:
         if item.file_kind == FileKind.GPS.value:
@@ -292,22 +311,30 @@ def pick_cover_item(items: list[TimelinePhoto], cover_id: int | None) -> Timelin
     return None
 
 
-def _item_has_gps(item: TimelinePhoto) -> bool:
-    return item.gps_latitude is not None and item.gps_longitude is not None
+def _item_map_position(item: TimelinePhoto) -> tuple[float, float] | None:
+    """Journal overlay first, then original GPS. Originale remain untouched."""
+
+    if item.display_latitude is not None and item.display_longitude is not None:
+        return (item.display_latitude, item.display_longitude)
+    if item.gps_latitude is not None and item.gps_longitude is not None:
+        return (item.gps_latitude, item.gps_longitude)
+    return None
 
 
 def position_for_cover(
     cover: TimelinePhoto | None,
     items: list[TimelinePhoto],
 ) -> tuple[float, float] | None:
-    if cover is not None and cover.gps_latitude is not None and cover.gps_longitude is not None:
-        return (cover.gps_latitude, cover.gps_longitude)
+    if cover is not None:
+        chosen = _item_map_position(cover)
+        if chosen is not None:
+            return chosen
     coords = [
-        (item.gps_latitude, item.gps_longitude)
+        position
         for item in items
         if item.sort_status != SORT_REJECTED
-        and item.gps_latitude is not None
-        and item.gps_longitude is not None
+        for position in (_item_map_position(item),)
+        if position is not None
     ]
     if not coords:
         return None
@@ -367,7 +394,10 @@ def _card_from_entry(entry: TimelineEntry) -> MapTimelineCard | None:
     )
 
 
-def stay_links_from_entries(entries: list[TimelineEntry]) -> list[StayLink]:
+def stay_links_from_entries(
+    entries: list[TimelineEntry],
+    days: list[TimelineDay] | None = None,
+) -> list[StayLink]:
     """Straight links between Tag and Aufenthalt covers in timeline order.
 
     Transfer circles are not endpoints. A transfer between two linked covers is
@@ -378,7 +408,7 @@ def stay_links_from_entries(entries: list[TimelineEntry]) -> list[StayLink]:
     for index, entry in enumerate(entries):
         if entry.card_kind == KIND_MOVEMENT:
             continue
-        marker = _cover_marker_for_entry(entry)
+        marker = _cover_marker_for_entry(entry, days)
         if marker is None:
             continue
         stops.append((index, marker))
@@ -406,22 +436,28 @@ def stay_link_style(*, via_transfer: bool) -> str:
     return STAY_LINK_STYLE_STRAIGHT
 
 
-def _covers_from_entries(entries: list[TimelineEntry]) -> list[MapMarker]:
+def _covers_from_entries(
+    entries: list[TimelineEntry],
+    days: list[TimelineDay] | None = None,
+) -> list[MapMarker]:
     covers: list[MapMarker] = []
     for entry in entries:
-        marker = _cover_marker_for_entry(entry)
+        marker = _cover_marker_for_entry(entry, days)
         if marker is not None:
             covers.append(marker)
     return covers
 
 
-def _cover_marker_for_entry(entry: TimelineEntry) -> MapMarker | None:
+def _cover_marker_for_entry(
+    entry: TimelineEntry,
+    days: list[TimelineDay] | None = None,
+) -> MapMarker | None:
     if entry.section is not None:
         items = list(entry.section.items)
         cover_id = entry.section.cover_source_file_id
         key = f"section:{entry.section.id}"
         label = _section_label(entry.section)
-        leftover = None
+        leftover = _day_for_section(entry.section, days)
     elif entry.leftover_day is not None:
         leftover = entry.leftover_day
         items = list(leftover.photos)
@@ -437,6 +473,16 @@ def _cover_marker_for_entry(entry: TimelineEntry) -> MapMarker | None:
     if chosen is None or position is None:
         return None
     return _cover_marker(chosen, key, label, position)
+
+
+def _day_for_section(section: TimelineSection, days: list[TimelineDay] | None) -> TimelineDay | None:
+    if days is None or section.kind != KIND_DAY:
+        return None
+    key = calendar_key(section.started_at)
+    for day in days:
+        if day.date == key:
+            return day
+    return None
 
 
 def _cover_marker(
@@ -483,23 +529,10 @@ def _covers_from_source_files(
     *,
     size: int,
 ) -> list[MapMarker]:
-    rows = list(
-        session.scalars(
-            select(SourceFile)
-            .where(
-                SourceFile.project_id == project_id,
-                SourceFile.file_kind.in_((FileKind.PHOTO.value, FileKind.VIDEO.value, FileKind.GPS.value)),
-            )
-            .order_by(SourceFile.captured_at.asc().nulls_last(), SourceFile.filename.asc())
-        )
-    )
-    grouped: dict[date | None, list[SourceFile]] = defaultdict(list)
-    for row in rows:
-        key = row.captured_at.date() if row.captured_at is not None else None
-        grouped[key].append(row)
+    grouped = _source_files_by_journal_day(session, project_id)
     covers: list[MapMarker] = []
     for day, files in grouped.items():
-        items = [_timeline_photo_from_source(row, thumbs_dir, size=size) for row in files]
+        items = _timeline_photos_for_map(session, files, thumbs_dir, size=size)
         chosen = pick_cover_item(items, None)
         position = position_for_cover(chosen, items)
         if chosen is None or position is None:
@@ -516,23 +549,10 @@ def _cards_from_source_files(
     *,
     size: int,
 ) -> list[MapTimelineCard]:
-    rows = list(
-        session.scalars(
-            select(SourceFile)
-            .where(
-                SourceFile.project_id == project_id,
-                SourceFile.file_kind.in_((FileKind.PHOTO.value, FileKind.VIDEO.value, FileKind.GPS.value)),
-            )
-            .order_by(SourceFile.captured_at.asc().nulls_last(), SourceFile.filename.asc())
-        )
-    )
-    grouped: dict[date | None, list[SourceFile]] = defaultdict(list)
-    for row in rows:
-        key = row.captured_at.date() if row.captured_at is not None else None
-        grouped[key].append(row)
+    grouped = _source_files_by_journal_day(session, project_id)
     cards: list[MapTimelineCard] = []
     for day, files in grouped.items():
-        items = [_timeline_photo_from_source(row, thumbs_dir, size=size) for row in files]
+        items = _timeline_photos_for_map(session, files, thumbs_dir, size=size)
         chosen = pick_cover_item(items, None)
         position = position_for_cover(chosen, items)
         day_key = day.isoformat() if day is not None else "Ohne Datum"
@@ -577,14 +597,58 @@ def _timeline_photo_from_source(row: SourceFile, thumbs_dir: Path, *, size: int)
     )
 
 
-def _source_ids_for_loose_day(session: Session, project_id: int, day_key: str) -> set[int]:
-    rows = session.scalars(
-        select(SourceFile).where(
-            SourceFile.project_id == project_id,
-            SourceFile.file_kind.in_((FileKind.PHOTO.value, FileKind.VIDEO.value, FileKind.GPS.value)),
+def _source_files_by_journal_day(
+    session: Session,
+    project_id: int,
+) -> dict[date | None, list[SourceFile]]:
+    rows = list(
+        session.scalars(
+            select(SourceFile)
+            .where(
+                SourceFile.project_id == project_id,
+                SourceFile.file_kind.in_((FileKind.PHOTO.value, FileKind.VIDEO.value, FileKind.GPS.value)),
+                SourceFile.parked.is_(False),
+            )
+            .order_by(SourceFile.captured_at.asc().nulls_last(), SourceFile.filename.asc())
         )
     )
-    return {row.id for row in rows if _day_key(row.captured_at) == day_key}
+    moments = _journal_moments(session, [row.id for row in rows if row.id is not None])
+    grouped: dict[date | None, list[SourceFile]] = defaultdict(list)
+    for row in rows:
+        grouped[calendar_key(moments.get(row.id) or row.captured_at)].append(row)
+    return grouped
+
+
+def _timeline_photos_for_map(
+    session: Session,
+    rows: list[SourceFile],
+    thumbs_dir: Path,
+    *,
+    size: int,
+) -> list[TimelinePhoto]:
+    ids = [row.id for row in rows if row.id is not None]
+    moments = _journal_moments(session, ids)
+    overlays = display_positions_for_ids(session, ids)
+    items: list[TimelinePhoto] = []
+    for row in rows:
+        item = _timeline_photo_from_source(row, thumbs_dir, size=size)
+        position = overlays.get(row.id)
+        items.append(
+            replace(
+                item,
+                journal_at=moments.get(row.id),
+                display_latitude=position[0] if position is not None else item.gps_latitude,
+                display_longitude=position[1] if position is not None else item.gps_longitude,
+                position_inherited=position[2] if position is not None else False,
+            )
+        )
+    return items
+
+
+def _source_ids_for_loose_day(session: Session, project_id: int, day_key: str) -> set[int]:
+    wanted = None if day_key == "Ohne Datum" else date.fromisoformat(day_key)
+    grouped = _source_files_by_journal_day(session, project_id)
+    return {row.id for row in grouped.get(wanted, []) if row.id is not None}
 
 
 def _photo_markers_for_ids(
@@ -595,7 +659,15 @@ def _photo_markers_for_ids(
     size: int,
     source_ids: set[int],
 ) -> list[MapMarker]:
-    return _photo_markers(session, project_id, thumbs_dir, size=size, source_file_ids=source_ids)
+    overlays = display_positions_for_ids(session, source_ids)
+    return _photo_markers(
+        session,
+        project_id,
+        thumbs_dir,
+        size=size,
+        source_file_ids=source_ids,
+        positions=overlays,
+    )
 
 
 def _leftover_source_ids_for_day(
@@ -604,19 +676,23 @@ def _leftover_source_ids_for_day(
     day: TripDay,
     claimed: set[int],
 ) -> list[int]:
-    day_key = _day_key(day.date)
+    day_key = calendar_key(day.date)
     rows = session.execute(
         select(SourceFile.id, SourceFile.captured_at)
         .where(
             SourceFile.project_id == project_id,
             SourceFile.file_kind.in_((FileKind.PHOTO.value, FileKind.VIDEO.value, FileKind.GPS.value)),
+            SourceFile.parked.is_(False),
         )
         .order_by(SourceFile.captured_at.asc().nulls_last(), SourceFile.filename.asc())
     )
+    payload = list(rows)
+    moments = _journal_moments(session, [source_id for source_id, _captured in payload])
     return [
         source_id
-        for source_id, captured_at in rows
-        if source_id not in claimed and _day_key(captured_at) == day_key
+        for source_id, captured_at in payload
+        if source_id not in claimed
+        and calendar_key(moments.get(source_id) or captured_at) == day_key
     ]
 
 
@@ -645,7 +721,12 @@ def _places_for_day(session: Session, day_id: int) -> list[MapMarker]:
 
 
 def _section_label(section: TimelineSection) -> str:
-    kind = "Transfer" if section.kind == KIND_MOVEMENT else "Aufenthalt"
+    if section.kind == KIND_DAY:
+        kind = "Tag"
+    elif section.kind == KIND_MOVEMENT:
+        kind = "Transfer"
+    else:
+        kind = "Aufenthalt"
     title = (section.title or "").strip() or kind
     span = format_section_span(section.started_at, section.ended_at)
     return f"{title} · {span}"
@@ -661,6 +742,8 @@ def _section_title(section: TimelineSection) -> str:
         if origin or dest:
             return f"{origin or '?'} → {dest or '?'}"
         return "Transfer"
+    if section.kind == KIND_DAY:
+        return format_section_span(section.started_at, section.ended_at)
     place = (section.location_name or "").strip()
     return place or "Aufenthalt"
 
@@ -675,10 +758,15 @@ def _day_label(day: TimelineDay) -> str:
 
 
 def _items_span(items: list[TimelinePhoto]) -> tuple[datetime | None, datetime | None]:
-    times = [item.captured_at for item in items if item.captured_at is not None]
-    if not times:
+    times = [
+        aware(item.journal_at or item.captured_at)
+        for item in items
+        if item.journal_at is not None or item.captured_at is not None
+    ]
+    timed = [item for item in times if item is not None]
+    if not timed:
         return None, None
-    return min(times), max(times)
+    return min(timed), max(timed)
 
 
 def _day_as_span(day: TimelineDay) -> tuple[datetime | None, datetime | None]:

@@ -6,11 +6,14 @@ import os
 from pathlib import Path
 
 
-def test_main_window_starts() -> None:
+def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication, QScrollArea
 
+    from traveljournal.services import workspace as workspace_mod
     from traveljournal.ui.main_window import MainWindow
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
 
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
@@ -39,6 +42,14 @@ def test_main_window_starts() -> None:
     assert window.timeline_view._media_tabs.count() == 4
     assert window.timeline_view._media_tabs.tabText(0) == "Alle"
     assert window.timeline_view._media_tabs.tabText(1) == "Favoriten"
+    assert window.timeline_view._pool_toggle.isCheckable()
+    assert not window.timeline_view._pool_toggle.isChecked()
+    assert window.timeline_view._pool_toggle.objectName() == "poolCollapse"
+    assert window.timeline_view._pool_toggle.text() == ""
+    assert not window.timeline_view._pool_toggle.icon().isNull()
+    assert window.timeline_view._pool_toggle.toolTip() == "Medienpool ausklappen"
+    assert window.timeline_view._pool_toggle.width() <= 16
+    assert window.timeline_view._pool_pane.isHidden()
     from traveljournal.ui.sidebar import NAV_ITEMS
 
     assert [label for _, label in NAV_ITEMS] == [
@@ -61,6 +72,8 @@ def test_main_window_starts() -> None:
     collapse = window.sidebar._collapse
     assert collapse.x() + collapse.width() == window.sidebar.width()
     assert abs(collapse.geometry().center().y() - window.sidebar.height() // 2) <= 1
+    pool_toggle = window.timeline_view._pool_toggle
+    assert pool_toggle.x() + pool_toggle.width() == window.timeline_view.width()
     window.sidebar.set_collapsed(True)
     assert window.sidebar.is_collapsed()
     assert 44 <= window.sidebar.width() <= 56
@@ -69,9 +82,20 @@ def test_main_window_starts() -> None:
     assert window.sidebar._collapse.toolTip() == "Navigation ausklappen"
     window.sidebar.set_collapsed(False)
     assert window.sidebar._buttons["map"].text() == "Karte"
+    assert window.photos_view._pool_toggle.isCheckable()
+    assert not window.photos_view._pool_toggle.isChecked()
+    assert window.photos_view._pool_toggle.objectName() == "poolCollapse"
+    assert window.photos_view._pool_toggle.toolTip() == "Medienpool ausklappen"
+    assert window.photos_view._pool_pane.isHidden()
     assert window.photos_view._media_tabs.count() == 4
     assert window.photos_view._media_tabs.tabText(0) == "Alle"
     assert window.photos_view._media_tabs.tabText(3) == "Aussortiert"
+    assert window.photos_view._pool_pane._tabs.count() == 4
+    assert window.photos_view._pool_pane._tabs.tabText(1) == "Favoriten"
+    assert not window.photos_view._show_rejected.isHidden()
+    assert not window.photos_view._show_rejected.isChecked()
+    assert not window.timeline_view._show_rejected.isHidden()
+    assert not window.timeline_view._show_rejected.isChecked()
     assert window.timeline_view._trip_title.placeholderText() == "Titel der Reise"
     assert not window.timeline_view._trip_title.isEnabled()
     _ = app
@@ -224,6 +248,52 @@ def test_gallery_rating_hotspots() -> None:
     favorite = spots["favorite"]
     assert hit_rating(cell, favorite.center()) == "favorite"
     assert hit_rating(cell, QPoint(8, 8)) is None
+    _ = app
+
+
+def test_pool_source_id_payload_roundtrip() -> None:
+    from traveljournal.widgets.gallery import decode_pool_source_ids, encode_pool_source_ids
+
+    assert decode_pool_source_ids(encode_pool_source_ids([3, 3, 1, 2])) == [3, 1, 2]
+    assert decode_pool_source_ids(b"not-json") == []
+    assert decode_pool_source_ids(b"{}") == []
+
+
+def test_gallery_wraps_to_multiple_columns_when_wide() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, datetime
+
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.widgets.gallery import GalleryView
+
+    app = QApplication.instance() or QApplication([])
+    stamp = datetime(2025, 5, 15, 8, 0, tzinfo=UTC)
+
+    def item(source_file_id: int) -> GalleryItem:
+        return GalleryItem(
+            source_file_id=source_file_id,
+            path=f"{source_file_id}.jpg",
+            filename=f"{source_file_id}.jpg",
+            extension=".jpg",
+            captured_at=stamp,
+            timezone_unknown=False,
+            gps_latitude=None,
+            gps_longitude=None,
+            camera=None,
+            is_favorite=False,
+            used_in_journal=False,
+            thumbnail_path=Path("."),
+        )
+
+    view = GalleryView()
+    view.set_items([item(1), item(2), item(3), item(4)])
+    view.setFixedSize(420, 700)
+    view.show()
+    app.processEvents()
+    xs = {view.visualRect(view.model().index(row, 0)).x() for row in range(4)}
+    assert len(xs) >= 2
     _ = app
 
 
@@ -622,6 +692,43 @@ def test_map_notes_switch_card_opens_save_dialog(monkeypatch) -> None:  # noqa: 
     _ = app
 
 
+def test_matches_rating_hides_rejected_from_all() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, datetime
+
+    from travelcore.media.gallery import SORT_FAVORITE, SORT_REJECTED, SORT_RESERVE, GalleryItem
+    from traveljournal.widgets.media_tabs import matches_rating
+
+    stamp = datetime(2025, 5, 15, 8, 0, tzinfo=UTC)
+
+    def item(*, sort_status: str | None, favorite: bool = False) -> GalleryItem:
+        return GalleryItem(
+            source_file_id=1,
+            path="a.jpg",
+            filename="a.jpg",
+            extension=".jpg",
+            captured_at=stamp,
+            timezone_unknown=False,
+            gps_latitude=None,
+            gps_longitude=None,
+            camera=None,
+            is_favorite=favorite,
+            used_in_journal=False,
+            thumbnail_path=Path("."),
+            sort_status=sort_status,
+        )
+
+    rejected = item(sort_status=SORT_REJECTED)
+    assert matches_rating(item(sort_status=None), None)
+    assert matches_rating(item(sort_status=SORT_FAVORITE, favorite=True), None)
+    assert matches_rating(item(sort_status=SORT_RESERVE), None)
+    assert not matches_rating(rejected, None)
+    assert not matches_rating(rejected, SORT_FAVORITE)
+    assert not matches_rating(rejected, SORT_RESERVE)
+    assert matches_rating(rejected, SORT_REJECTED)
+    assert matches_rating(rejected, None, include_rejected=True)
+
+
 def test_entry_widget_media_tab_filters_favorites() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from datetime import UTC, datetime
@@ -660,6 +767,20 @@ def test_entry_widget_media_tab_filters_favorites() -> None:
         file_kind="photo",
         sort_status="favorite",
     )
+    rejected = TimelinePhoto(
+        source_file_id=3,
+        filename="weg.jpg",
+        path="weg.jpg",
+        thumbnail_path=Path("."),
+        captured_at=stamp,
+        used_in_journal=False,
+        is_cover=False,
+        is_favorite=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        file_kind="photo",
+        sort_status="rejected",
+    )
     day = TimelineDay(
         id=1,
         day_index=0,
@@ -667,13 +788,323 @@ def test_entry_widget_media_tab_filters_favorites() -> None:
         title=None,
         notes=None,
         origin="auto",
-        photos=(normal, favorite),
+        photos=(normal, favorite, rejected),
     )
     widget = EntryWidget(TimelineEntry(started_at=stamp, leftover_day=day))
+    assert widget._media_tabs.count() == 4
+    assert widget._media_tabs.tabText(3) == "Aussortiert"
     assert [item.filename for item in widget.gallery.items()] == ["normal.jpg", "fav.jpg"]
     widget.set_media_tab(media_tab_index("favorite"))
     assert [item.filename for item in widget.gallery.items()] == ["fav.jpg"]
+    widget.set_media_tab(media_tab_index("reserve"))
+    assert [item.filename for item in widget.gallery.items()] == []
+    widget.set_media_tab(media_tab_index("rejected"))
+    assert [item.filename for item in widget.gallery.items()] == ["weg.jpg"]
     _ = app
+
+
+def test_timeline_pool_pane_lists_parked_media(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, datetime
+
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelinePhoto, TimelineSnapshot
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.timeline_view import TimelineView
+    from traveljournal.widgets.media_tabs import media_tab_index
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    app = QApplication.instance() or QApplication([])
+    stamp = datetime(2025, 5, 15, 8, 0, tzinfo=UTC)
+    parked = GalleryItem(
+        source_file_id=9,
+        path="pool.jpg",
+        filename="pool.jpg",
+        extension=".jpg",
+        captured_at=stamp,
+        timezone_unknown=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        camera=None,
+        is_favorite=True,
+        used_in_journal=False,
+        thumbnail_path=Path("."),
+        sort_status="favorite",
+        parked=True,
+    )
+    photo = TimelinePhoto(
+        source_file_id=1,
+        filename="tag.jpg",
+        path="tag.jpg",
+        thumbnail_path=Path("."),
+        captured_at=stamp,
+        used_in_journal=False,
+        is_cover=False,
+        is_favorite=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        file_kind="photo",
+    )
+    day = TimelineDay(
+        id=1,
+        day_index=0,
+        date=stamp.date(),
+        title=None,
+        notes=None,
+        origin="auto",
+        photos=(photo,),
+    )
+    workspace = Workspace()
+    monkeypatch.setattr(workspace, "current", object())
+    view = TimelineView(workspace)
+    monkeypatch.setattr(view, "_parked_items", lambda: [parked])
+    view._snapshot = TimelineSnapshot(
+        trip_id=1,
+        title="Reise",
+        origin="auto",
+        days=(day,),
+        entries=(TimelineEntry(started_at=stamp, leftover_day=day),),
+    )
+    view._fill_entries()
+    assert view._pool_pane._tabs.count() == 4
+    assert view._pool_pane._tabs.tabText(1) == "Favoriten"
+    assert [item.filename for item in view._pool_pane.gallery.items()] == ["pool.jpg"]
+    view._pool_pane._tabs.setCurrentIndex(media_tab_index("favorite"))
+    assert [item.filename for item in view._pool_pane.gallery.items()] == ["pool.jpg"]
+    view._pool_pane._tabs.setCurrentIndex(media_tab_index("rejected"))
+    assert [item.filename for item in view._pool_pane.gallery.items()] == []
+    assert view._pool_pane.parent() is view._split
+    assert view._host_layout.indexOf(view._pool_pane) == -1
+    assert view._pool_pane.isHidden()
+    view._pool_toggle.setChecked(True)
+    assert not view._pool_pane.isHidden()
+    assert workspace.timeline_pool_visible() is True
+    assert view._pool_toggle.toolTip() == "Medienpool einklappen"
+    assert view._blocks[0]._media_tabs.count() == 4
+    assert view._blocks[0]._media_tabs.tabText(3) == "Aussortiert"
+    assert view._media_tabs.count() == 4
+    assert view._pool_pane.maximumWidth() > 800
+    _ = app
+
+
+def test_timeline_pool_restores_width_after_collapse(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.timeline_view import TimelineView
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    app = QApplication.instance() or QApplication([])
+    workspace = Workspace()
+    view = TimelineView(workspace)
+    view.resize(1100, 700)
+    view.show()
+    app.processEvents()
+    view._pool_toggle.setChecked(True)
+    app.processEvents()
+    view._split.setSizes([700, 380])
+    app.processEvents()
+    view._pool_toggle.setChecked(False)
+    app.processEvents()
+    saved = workspace.pool_width()
+    assert saved >= 360
+    view._pool_toggle.setChecked(True)
+    app.processEvents()
+    assert abs(view._split.sizes()[1] - saved) <= 8
+    _ = app
+
+
+def test_photos_view_pool_collapse_matches_timeline(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.photos_view import PhotosView
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    app = QApplication.instance() or QApplication([])
+    workspace = Workspace()
+    view = PhotosView(workspace)
+    assert view._pool_toggle.objectName() == "poolCollapse"
+    assert view._pool_pane.isHidden()
+    view.resize(1100, 700)
+    view.show()
+    app.processEvents()
+    view._pool_toggle.setChecked(True)
+    app.processEvents()
+    assert not view._pool_pane.isHidden()
+    assert workspace.timeline_pool_visible() is True
+    view._split.setSizes([700, 340])
+    app.processEvents()
+    view._pool_toggle.setChecked(False)
+    app.processEvents()
+    assert view._pool_pane.isHidden()
+    saved = workspace.pool_width()
+    assert saved >= 320
+    view._pool_toggle.setChecked(True)
+    app.processEvents()
+    assert abs(view._split.sizes()[1] - saved) <= 8
+    _ = app
+
+
+def test_timeline_drop_pool_on_section_moves_members(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, datetime
+
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.timeline.types import TimelineEntry, TimelineSection
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.timeline_view import EntryWidget, TimelineView
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    app = QApplication.instance() or QApplication([])
+    stamp = datetime(2025, 5, 15, 8, 0, tzinfo=UTC)
+    section = TimelineSection(
+        id=7,
+        kind="stay",
+        mode=None,
+        title="Bozen",
+        notes=None,
+        started_at=stamp,
+        ended_at=stamp,
+        location_name=None,
+        location_from=None,
+        location_to=None,
+        origin="manual",
+    )
+    workspace = Workspace()
+    moved: list[tuple[int, list[int]]] = []
+    def fake_move(section_id: int, ids: list[int], **_kwargs: object) -> None:
+        moved.append((section_id, list(ids)))
+
+    monkeypatch.setattr(workspace, "move_members", fake_move)
+    view = TimelineView(workspace)
+    block = EntryWidget(TimelineEntry(started_at=stamp, section=section), parent=view)
+    assert block.accepts_pool_drop()
+    view._drop_pool_on_entry(block, [9, 9, 7])
+    assert moved == [(7, [9, 7])]
+    _ = app
+
+
+def test_timeline_map_anchor_uses_ordered_items_not_entry_attr(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, datetime
+    from pathlib import Path
+
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.timeline.types import TimelineEntry, TimelinePhoto, TimelineSection
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.timeline_view import EntryWidget, TimelineView
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    app = QApplication.instance() or QApplication([])
+    stamp = datetime(2025, 5, 15, 8, 0, tzinfo=UTC)
+    stay_photo = TimelinePhoto(
+        source_file_id=1,
+        filename="ort.jpg",
+        path="ort.jpg",
+        thumbnail_path=Path("."),
+        captured_at=stamp,
+        used_in_journal=False,
+        is_cover=False,
+        is_favorite=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        display_latitude=46.0,
+        display_longitude=11.0,
+        file_kind="photo",
+    )
+    section = TimelineSection(
+        id=7,
+        kind="stay",
+        mode=None,
+        title="Bozen",
+        notes=None,
+        started_at=stamp,
+        ended_at=stamp,
+        location_name=None,
+        location_from=None,
+        location_to=None,
+        origin="manual",
+        items=(stay_photo,),
+    )
+    view = TimelineView(Workspace())
+    block = EntryWidget(TimelineEntry(started_at=stamp, section=section), parent=view)
+    assert not hasattr(block, "entry")
+    assert view._section_has_map_anchor(block, set()) is True
+    assert view._section_has_map_anchor(block, {1}) is False
+    _ = app
+
+
+def test_photos_view_multi_select_and_pool_drag(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, datetime
+
+    from PySide6.QtWidgets import QAbstractItemView, QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.photos_view import PhotosView
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    app = QApplication.instance() or QApplication([])
+    view = PhotosView(Workspace())
+    stamp = datetime(2025, 5, 15, 8, 0, tzinfo=UTC)
+
+    def item(name: str, source_file_id: int, *, parked: bool = False) -> GalleryItem:
+        return GalleryItem(
+            source_file_id=source_file_id,
+            path=name,
+            filename=name,
+            extension=".jpg",
+            captured_at=stamp,
+            timezone_unknown=False,
+            gps_latitude=None,
+            gps_longitude=None,
+            camera=None,
+            is_favorite=False,
+            used_in_journal=False,
+            thumbnail_path=Path("."),
+            parked=parked,
+        )
+
+    view._items = [
+        item("a.jpg", 1),
+        item("b.jpg", 2),
+        item("c.jpg", 3),
+        item("d.jpg", 4),
+        item("pool.jpg", 5, parked=True),
+    ]
+    view._apply_filters()
+    assert view.gallery.selectionMode() == QAbstractItemView.SelectionMode.MultiSelection
+    assert view.gallery.dragEnabled()
+    assert view.gallery.acceptDrops()
+    assert view._pool_pane.acceptDrops()
+    view.gallery.select_by_source_ids({1, 3})
+    assert {row.source_file_id for row in view.gallery.selected_items()} == {1, 2, 3}
+
+    parked: list[list[int]] = []
+    unparked: list[list[int]] = []
+    monkeypatch.setattr(view.workspace, "park_media", lambda ids: parked.append(list(ids)))
+    monkeypatch.setattr(view.workspace, "unpark_media", lambda ids: unparked.append(list(ids)))
+    monkeypatch.setattr(view, "refresh", lambda: None)
+    view._drop_on_pool([1, 5])
+    assert parked == [[1]]
+    view._drop_on_gallery([1, 5])
+    assert unparked == [[5]]
+    _ = app
+
 
 
 def test_photos_view_media_tab_filters_favorites(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
@@ -693,7 +1124,15 @@ def test_photos_view_media_tab_filters_favorites(tmp_path: Path, monkeypatch) ->
     view = PhotosView(Workspace())
     stamp = datetime(2025, 5, 15, 8, 0, tzinfo=UTC)
 
-    def item(name: str, source_file_id: int, *, favorite: bool) -> GalleryItem:
+    def item(
+        name: str,
+        source_file_id: int,
+        *,
+        favorite: bool = False,
+        parked: bool = False,
+        sort_status: str | None = None,
+    ) -> GalleryItem:
+        status = sort_status if sort_status is not None else ("favorite" if favorite else None)
         return GalleryItem(
             source_file_id=source_file_id,
             path=name,
@@ -704,20 +1143,46 @@ def test_photos_view_media_tab_filters_favorites(tmp_path: Path, monkeypatch) ->
             gps_latitude=None,
             gps_longitude=None,
             camera=None,
-            is_favorite=favorite,
+            is_favorite=favorite or status == "favorite",
             used_in_journal=False,
             thumbnail_path=Path("."),
-            sort_status="favorite" if favorite else None,
+            sort_status=status,
+            parked=parked,
         )
 
     view._items = [
-        item("normal.jpg", 1, favorite=False),
+        item("normal.jpg", 1),
         item("fav.jpg", 2, favorite=True),
+        item("weg.jpg", 3, sort_status="rejected"),
+        item("pool-fav.jpg", 4, favorite=True, parked=True),
+        item("pool.jpg", 5, parked=True),
+        item("pool-weg.jpg", 6, parked=True, sort_status="rejected"),
     ]
     view._apply_filters()
     assert [row.filename for row in view.gallery.items()] == ["normal.jpg", "fav.jpg"]
+    assert [row.filename for row in view._pool_pane.gallery.items()] == ["pool-fav.jpg", "pool.jpg"]
+    assert not view._show_rejected.isHidden()
+    assert not view._show_rejected.isChecked()
+    view._show_rejected.setChecked(True)
+    assert [row.filename for row in view.gallery.items()] == ["normal.jpg", "fav.jpg", "weg.jpg"]
+    assert [row.filename for row in view._pool_pane.gallery.items()] == [
+        "pool-fav.jpg",
+        "pool.jpg",
+        "pool-weg.jpg",
+    ]
+    view._show_rejected.setChecked(False)
+    assert [row.filename for row in view.gallery.items()] == ["normal.jpg", "fav.jpg"]
     view._media_tabs.setCurrentIndex(media_tab_index("favorite"))
+    assert view._show_rejected.isHidden()
     assert [row.filename for row in view.gallery.items()] == ["fav.jpg"]
+    view._media_tabs.setCurrentIndex(media_tab_index("reserve"))
+    assert [row.filename for row in view.gallery.items()] == []
+    view._media_tabs.setCurrentIndex(media_tab_index("rejected"))
+    assert [row.filename for row in view.gallery.items()] == ["weg.jpg"]
+    view._pool_pane._tabs.setCurrentIndex(media_tab_index("favorite"))
+    assert [row.filename for row in view._pool_pane.gallery.items()] == ["pool-fav.jpg"]
+    view._pool_pane._tabs.setCurrentIndex(media_tab_index("rejected"))
+    assert [row.filename for row in view._pool_pane.gallery.items()] == ["pool-weg.jpg"]
     _ = app
 
 

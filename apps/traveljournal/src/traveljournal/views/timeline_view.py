@@ -3,14 +3,25 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, Qt, QTimer, Signal
-from PySide6.QtGui import QPixmap, QResizeEvent, QTextOption
+from PySide6.QtCore import QDate, QDateTime, QPoint, Qt, QTime, QTimer, Signal
+from PySide6.QtGui import (
+    QDragEnterEvent,
+    QDragLeaveEvent,
+    QDragMoveEvent,
+    QDropEvent,
+    QPixmap,
+    QResizeEvent,
+    QShowEvent,
+    QTextOption,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QDateTimeEdit,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -25,6 +36,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSplitter,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -71,9 +83,19 @@ from traveljournal.widgets.entry_links import (
     igc_flights,
     links_html,
 )
-from traveljournal.widgets.gallery import GalleryView
+from traveljournal.widgets.gallery import GalleryView, source_ids_from_mime
 from traveljournal.widgets.media_inspector import MediaInspectorWindow
-from traveljournal.widgets.media_tabs import MEDIA_TABS, ClickTabBar, media_tab_index, media_tab_key
+from traveljournal.widgets.media_tabs import (
+    RATING_TABS,
+    ClickTabBar,
+    ShowRejectedCheck,
+    matches_rating,
+    media_tab_index,
+    media_tab_key,
+    rating_status_at,
+    sync_show_rejected_check,
+)
+from traveljournal.widgets.pool_pane import PoolCollapse, PoolPane
 
 _REVEAL_TOP_PAD = 12
 
@@ -120,6 +142,7 @@ class TimelineView(QWidget):
         self._loaded_trip_title = ""
         self._pending_reveal: EntryWidget | None = None
         self._media_ratings_stale = False
+        self._media_tab_touched = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 28)
@@ -148,7 +171,8 @@ class TimelineView(QWidget):
             "Typ je Karte ändern, oder Objekte markieren und einen Abschnitt anlegen. "
             "Erstes und letztes Objekt anklicken — alles dazwischen wird mitmarkiert. "
             "Strg+Klick nimmt einzelne Objekte dazwischen wieder raus. "
-            "Die Zeitspanne kommt aus den gewählten Dateien."
+            "Die Zeitspanne kommt aus den gewählten Dateien. "
+            "Pfeil rechts außen klappt den Medienpool ein und aus; die Breite bleibt erhalten."
         )
         self._subtitle.setObjectName("pageSubtitle")
         self._subtitle.setWordWrap(True)
@@ -159,23 +183,38 @@ class TimelineView(QWidget):
         refresh.clicked.connect(self.rebuild)
         self._create_button = QPushButton("Neuen Reiseabschnitt erstellen")
         self._create_button.clicked.connect(self._create_section)
+        self._park_button = QPushButton("In den Pool")
+        self._park_button.setToolTip("Ausgewählte Medien aus dem Tagebuch nehmen")
+        self._park_button.clicked.connect(self._park_selected)
+        self._journal_button = QPushButton("Journal-Zeit…")
+        self._journal_button.setToolTip("Ausgewählte Medien auf der Timeline-Uhr verschieben")
+        self._journal_button.clicked.connect(self._set_journal_time)
+        self._reset_button = QPushButton("Originalzeit")
+        self._reset_button.setToolTip("Journal-Zeit auf die Aufnahmezeit zurücksetzen")
+        self._reset_button.clicked.connect(self._reset_journal_time)
         self._save_button = QPushButton("Speichern")
         self._save_button.setObjectName("primary")
         self._save_button.clicked.connect(self._on_save_clicked)
         self._media_tabs = ClickTabBar(self)
         self._media_tabs.setObjectName("mediaSortTabs")
         self._media_tabs.setExpanding(False)
-        for label, _status in MEDIA_TABS:
+        for label, _status in RATING_TABS:
             self._media_tabs.addTab(label)
-        self._media_tabs.setCurrentIndex(media_tab_index(self.workspace.timeline_media_tab()))
+        self._media_tabs.setCurrentIndex(media_tab_index(self.workspace.timeline_media_tab(), RATING_TABS))
         self._media_tabs.currentChanged.connect(self._on_global_media_tab)
+        self._show_rejected = ShowRejectedCheck(self)
+        self._show_rejected.toggled.connect(self._on_show_rejected)
         tab_label = QLabel("Register")
         tab_label.setObjectName("pageSubtitle")
         toolbar.addWidget(refresh)
         toolbar.addWidget(self._create_button)
+        toolbar.addWidget(self._park_button)
+        toolbar.addWidget(self._journal_button)
+        toolbar.addWidget(self._reset_button)
         toolbar.addSpacing(16)
         toolbar.addWidget(tab_label)
         toolbar.addWidget(self._media_tabs)
+        toolbar.addWidget(self._show_rejected)
         toolbar.addStretch(1)
         toolbar.addWidget(self._save_button)
         root.addLayout(toolbar)
@@ -194,9 +233,27 @@ class TimelineView(QWidget):
         self._host_layout.addWidget(self._empty)
         self._host_layout.addStretch(1)
         self._scroll.setWidget(self._host)
-        root.addWidget(self._scroll, 1)
+        self._pool_pane = PoolPane(workspace=self.workspace)
+        self._pool_pane.unpark_requested.connect(self._unpark_selected)
+        self._pool_pane.item_rating_changed.connect(self._on_item_rating)
+        self._pool_pane.gallery.item_activated.connect(self._open_inspector)
+        self._pool_pane.show_rejected_changed.connect(self._on_pool_show_rejected)
+        self._split = QSplitter(Qt.Orientation.Horizontal)
+        self._split.setObjectName("timelineSplit")
+        self._split.setChildrenCollapsible(False)
+        self._split.addWidget(self._scroll)
+        self._split.addWidget(self._pool_pane)
+        self._split.setStretchFactor(0, 1)
+        self._split.setStretchFactor(1, 0)
+        root.addWidget(self._split, 1)
+        self._pool_collapse = PoolCollapse(self, self._split, self._pool_pane, self.workspace)
+        self._pool_toggle = self._pool_collapse.toggle
+        self._sync_show_rejected()
         self._save_button.setEnabled(False)
         self._create_button.setEnabled(False)
+        self._park_button.setEnabled(False)
+        self._journal_button.setEnabled(False)
+        self._reset_button.setEnabled(False)
 
     def rebuild(self) -> None:
         self._pending_youtube.clear()
@@ -204,7 +261,11 @@ class TimelineView(QWidget):
         self.timeline_changed.emit()
 
     def ensure_loaded(self) -> None:
-        self._propagate_media_tab(media_tab_index(self.workspace.timeline_media_tab()), persist=False)
+        self._propagate_media_tab(
+            media_tab_index(self.workspace.timeline_media_tab(), RATING_TABS), persist=False
+        )
+        self._sync_show_rejected()
+        self._pool_pane.sync_tab_from_workspace()
         if self._snapshot is None or self._media_ratings_stale:
             self.refresh()
             self._media_ratings_stale = False
@@ -213,6 +274,16 @@ class TimelineView(QWidget):
         """Take a rating from the Medien page into already loaded timeline cards."""
 
         self._media_ratings_stale = True
+        if not isinstance(item, GalleryItem):
+            return
+        loaded = self._snapshot is not None
+        if item.parked:
+            if loaded and not self._pool_pane.contains(item.source_file_id):
+                self.refresh()
+                return
+        elif loaded and not self._item_on_timeline(item.source_file_id):
+            self.refresh()
+            return
         self._on_item_rating(item)
 
     def confirm_leave(self) -> bool:
@@ -294,8 +365,8 @@ class TimelineView(QWidget):
             return
         shown = apply_pending_sections(snapshot, self._pending)
         self._snapshot = shown
-        leftover = sum(1 for entry in shown.entries if entry.leftover_day is not None)
-        sections = len(shown.sections)
+        leftover = sum(1 for entry in shown.entries if entry.card_kind == KIND_DAY)
+        sections = sum(1 for entry in shown.entries if entry.card_kind != KIND_DAY)
         unsaved_n = len(self._pending) + len(self._pending_youtube)
         unsaved = f" {unsaved_n} ungespeichert." if unsaved_n else ""
         self._set_trip_title_field(shown)
@@ -327,18 +398,26 @@ class TimelineView(QWidget):
                 self._host_layout.removeWidget(block)
                 block.deleteLater()
             self._blocks.clear()
-            entries = self._snapshot.entries if self._snapshot is not None else ()
-            if not entries:
+            if self.workspace.current is None:
                 self._empty.setVisible(True)
-                if self.workspace.current is None:
-                    self._empty.setText("Bitte ein Projekt öffnen.")
-                elif self._snapshot is None:
-                    self._empty.setText("Index wird geladen…")
-                else:
-                    self._empty.setText("Keine Tage in der Timeline.")
+                self._empty.setText("Bitte ein Projekt öffnen.")
                 self._create_button.setEnabled(False)
+                self._park_button.setEnabled(False)
+                self._journal_button.setEnabled(False)
+                self._reset_button.setEnabled(False)
+                self._pool_pane.set_items([])
                 return
-            self._empty.setVisible(False)
+            parked = self._parked_items()
+            self._pool_pane.set_items(parked)
+            entries = self._snapshot.entries if self._snapshot is not None else ()
+            if self._snapshot is None:
+                self._empty.setVisible(True)
+                self._empty.setText("Index wird geladen…")
+            elif not entries:
+                self._empty.setVisible(True)
+                self._empty.setText("Keine Tage in der Timeline.")
+            else:
+                self._empty.setVisible(False)
             has_sections = bool(self._snapshot.sections) if self._snapshot is not None else False
             insert_at = max(self._host_layout.count() - 1, 0)
             for entry in entries:
@@ -357,11 +436,13 @@ class TimelineView(QWidget):
                 )
                 block.selection_changed.connect(self._on_block_selection_changed)
                 block.dissolve_requested.connect(self._dissolve_section)
+                block.journal_changed.connect(self._on_journal_changed)
                 block.kind_changed.connect(lambda kind, widget=block: self._change_entry_kind(widget, kind))
                 block.media_tab_changed.connect(self._on_block_media_tab)
                 block.item_rating_changed.connect(self._on_item_rating)
                 block.open_on_map.connect(self.open_on_map.emit)
                 block.content_changed.connect(self._update_save_button)
+                block.pool_dropped.connect(lambda ids, widget=block: self._drop_pool_on_entry(widget, ids))
                 block.gallery.item_activated.connect(self._open_inspector)
                 block.track_gallery.item_activated.connect(self._open_inspector)
                 self._blocks.append(block)
@@ -377,19 +458,41 @@ class TimelineView(QWidget):
             self._scroll.verticalScrollBar().setValue(scroll)
             self._update_save_button()
 
+    def _parked_items(self) -> list[GalleryItem]:
+        if self.workspace.current is None:
+            return []
+        return [item for item in self.workspace.gallery_items() if item.parked]
+
     def _update_create_button(self) -> None:
-        self._create_button.setEnabled(bool(self._selected_source_ids()))
+        has_selection = bool(self._selected_source_ids())
+        self._create_button.setEnabled(has_selection)
+        self._park_button.setEnabled(has_selection)
+        self._journal_button.setEnabled(has_selection)
+        self._reset_button.setEnabled(has_selection)
+
+    def _set_pool_visible(self, visible: bool) -> None:
+        self._pool_collapse.set_visible(visible)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._pool_collapse.place()
+
+    def showEvent(self, event: QShowEvent) -> None:  # noqa: N802
+        super().showEvent(event)
+        self._pool_collapse.sync_from_workspace()
 
     def _on_global_media_tab(self, index: int) -> None:
+        self._media_tab_touched = True
         self._propagate_media_tab(index, persist=True)
 
     def _on_block_media_tab(self, index: int) -> None:
+        self._media_tab_touched = True
         self._propagate_media_tab(index, persist=True)
 
     def _propagate_media_tab(self, index: int, *, persist: bool) -> None:
         if self._syncing_tabs:
             return
-        index = max(0, min(index, len(MEDIA_TABS) - 1))
+        index = max(0, min(index, len(RATING_TABS) - 1))
         self._syncing_tabs = True
         try:
             if self._media_tabs.currentIndex() != index:
@@ -402,6 +505,23 @@ class TimelineView(QWidget):
                 self.workspace.set_timeline_media_tab(media_tab_key(index))
         finally:
             self._syncing_tabs = False
+        self._sync_show_rejected()
+
+    def _sync_show_rejected(self) -> None:
+        sync_show_rejected_check(
+            self._show_rejected, self._media_tabs, checked=self.workspace.show_rejected_in_all()
+        )
+
+    def _on_show_rejected(self, checked: bool) -> None:
+        self.workspace.set_show_rejected_in_all(checked)
+        for block in self._blocks:
+            block._apply_media_tab()
+        self._pool_pane.refresh_rating_filter()
+
+    def _on_pool_show_rejected(self, _checked: bool) -> None:
+        self._sync_show_rejected()
+        for block in self._blocks:
+            block._apply_media_tab()
 
     def _persist_media_tab(self) -> None:
         self.workspace.set_timeline_media_tab(media_tab_key(self._media_tabs.currentIndex()))
@@ -412,11 +532,14 @@ class TimelineView(QWidget):
         sequence = [item]
         sender = self.sender()
         if isinstance(sender, GalleryView):
-            block = sender.parent()
-            if isinstance(block, EntryWidget) and sender is block.gallery:
-                sequence = block.inspectable_media()
-        else:
-            sequence = block.track_gallery.items()
+            parent = sender.parent()
+            if isinstance(parent, EntryWidget):
+                if sender is parent.gallery:
+                    sequence = parent.inspectable_media()
+                elif sender is parent.track_gallery:
+                    sequence = parent.track_gallery.items()
+            elif isinstance(parent, PoolPane):
+                sequence = parent.gallery.items()
         window = MediaInspectorWindow(item, items=sequence, workspace=self.workspace, parent=self.window())
         window.rating_changed.connect(self._on_item_rating)
         window.rotation_changed.connect(self._on_item_rating)
@@ -429,6 +552,8 @@ class TimelineView(QWidget):
             return
         for block in self._blocks:
             block.sync_rating(item)
+        if self._pool_pane.contains(item.source_file_id):
+            self._pool_pane.sync_rating(item)
         parent = self.window()
         if parent is None:
             return
@@ -511,7 +636,9 @@ class TimelineView(QWidget):
     def _dissolve_section(self, section_id: int) -> bool:
         box = QMessageBox(self)
         box.setWindowTitle("Reiseabschnitt auflösen")
-        box.setText("Diesen Reiseabschnitt auflösen? Die Medien erscheinen wieder bei den zugehörigen Tagen.")
+        box.setText(
+            "Diesen Reiseabschnitt auflösen? Die Medien werden nach Journal-Zeit wieder Tagen zugeordnet."
+        )
         box.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
         box.button(QMessageBox.StandardButton.Ok).setText("OK")
         box.button(QMessageBox.StandardButton.Cancel).setText("Abbrechen")
@@ -533,43 +660,157 @@ class TimelineView(QWidget):
         self.status_message.emit("Reiseabschnitt aufgelöst.")
         return True
 
+    def _park_selected(self) -> None:
+        ids = self._selected_source_ids()
+        if not ids:
+            return
+        try:
+            self.workspace.park_media(ids)
+        except ProjectError as exc:
+            QMessageBox.warning(self, "Timeline", str(exc))
+            return
+        self.refresh()
+        self.timeline_changed.emit()
+        self.status_message.emit(f"{len(ids)} Medien im Pool.")
+        self._set_pool_visible(True)
+
+    def _unpark_selected(self) -> None:
+        ids = self._pool_pane.selected_source_ids()
+        if not ids:
+            return
+        try:
+            self.workspace.unpark_media(ids)
+        except ProjectError as exc:
+            QMessageBox.warning(self, "Timeline", str(exc))
+            return
+        self.refresh()
+        self.timeline_changed.emit()
+        self.status_message.emit(f"{len(ids)} Medien zurück in der Timeline.")
+
+    def _drop_pool_on_entry(self, block: EntryWidget, source_ids: list[int]) -> None:
+        ids = list(dict.fromkeys(source_ids))
+        if not ids:
+            return
+        if not block.accepts_pool_drop():
+            QMessageBox.information(
+                self,
+                "Timeline",
+                "Bitte auf einen gespeicherten Tag, Transfer oder Aufenthalt legen.",
+            )
+            return
+        if not self._commit_if_dirty():
+            return
+        keep_gps = self._confirm_keep_gps(ids, block)
+        if keep_gps is None:
+            return
+        try:
+            self.workspace.move_members(block.entity_id(), ids, keep_gps=keep_gps)
+        except ProjectError as exc:
+            QMessageBox.warning(self, "Timeline", str(exc))
+            return
+        self.refresh()
+        self.timeline_changed.emit()
+        self.status_message.emit(f"{len(ids)} Medien dem Abschnitt zugeordnet.")
+
+    def _incoming_gps_count(self, source_ids: list[int]) -> int:
+        wanted = set(source_ids)
+        return sum(
+            1
+            for item in self.workspace.gallery_items()
+            if item.source_file_id in wanted
+            and item.gps_latitude is not None
+            and item.gps_longitude is not None
+        )
+
+    def _section_has_map_anchor(self, block: EntryWidget, incoming: set[int]) -> bool:
+        if not block.accepts_pool_drop():
+            return False
+        return any(
+            item.source_file_id not in incoming and _gallery_item_has_map_position(item)
+            for item in block.ordered_items()
+        )
+
+    def _confirm_keep_gps(self, source_ids: list[int], block: EntryWidget) -> bool | None:
+        gps_count = self._incoming_gps_count(source_ids)
+        if gps_count == 0 or not self._section_has_map_anchor(block, set(source_ids)):
+            return True
+        box = QMessageBox(self)
+        box.setWindowTitle("GPS auf der Karte")
+        if gps_count == 1:
+            box.setText(
+                "Dieses Medium hat eigene GPS-Koordinaten — etwa ein Foto, das zu Hause "
+                "aufgenommen wurde. Auf der Karte die Originalposition behalten oder die "
+                "Position des Abschnitts verwenden?"
+            )
+        else:
+            box.setText(
+                f"{gps_count} Medien haben eigene GPS-Koordinaten — etwa Fotos, die zu Hause "
+                "aufgenommen wurden. Auf der Karte die Originalposition behalten oder die "
+                "Position des Abschnitts verwenden? Mehrere Medien liegen dann leicht versetzt, "
+                "nicht genau übereinander."
+            )
+        keep_btn = box.addButton("GPS behalten", QMessageBox.ButtonRole.YesRole)
+        adopt_btn = box.addButton("Abschnittsposition", QMessageBox.ButtonRole.NoRole)
+        box.addButton("Abbrechen", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked == keep_btn:
+            return True
+        if clicked == adopt_btn:
+            return False
+        return None
+
+    def _item_on_timeline(self, source_file_id: int) -> bool:
+        return any(
+            any(existing.source_file_id == source_file_id for existing in block.ordered_items())
+            for block in self._blocks
+        )
+
+    def _on_journal_changed(self) -> None:
+        self.refresh()
+        self.timeline_changed.emit()
+
+    def _set_journal_time(self) -> None:
+        items = self._selected_items()
+        if not items:
+            return
+        stamps = [item.journal_at or item.captured_at for item in items]
+        stamps = [item for item in stamps if item is not None]
+        initial = min(stamps) if stamps else datetime.now(tz=UTC)
+        dialog = JournalTimeDialog(initial, parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            self.workspace.set_journal_at([item.source_file_id for item in items], dialog.value())
+        except ProjectError as exc:
+            QMessageBox.warning(self, "Timeline", str(exc))
+            return
+        self.refresh()
+        self.timeline_changed.emit()
+        self.status_message.emit("Journal-Zeit gesetzt.")
+
+    def _reset_journal_time(self) -> None:
+        ids = self._selected_source_ids()
+        if not ids:
+            return
+        try:
+            self.workspace.reset_journal(ids)
+        except ProjectError as exc:
+            QMessageBox.warning(self, "Timeline", str(exc))
+            return
+        self.refresh()
+        self.timeline_changed.emit()
+        self.status_message.emit("Journal-Zeit auf Aufnahmezeit zurückgesetzt.")
+
     def _change_entry_kind(self, block: EntryWidget, kind: str) -> None:
         current = block.entry_kind()
         if kind == current:
             return
-        if kind == KIND_DAY:
-            if current == KIND_DAY:
-                return
-            if not self._dissolve_section(block.entity_id()):
-                block.reset_kind_combo()
-            return
-        if current == KIND_DAY:
-            ids = [item.source_file_id for item in block.ordered_items()]
-            if not ids:
-                QMessageBox.information(self, "Timeline", "Dieser Tag hat keine Medien für einen Abschnitt.")
-                block.reset_kind_combo()
-                return
-            if not self._commit_if_dirty():
-                block.reset_kind_combo()
-                return
-            title, notes = block.title_edit.text().strip() or None, block.notes_edit.toPlainText()
-            self._pending.append(
-                PendingSectionSpec(
-                    local_id=self._next_pending_id,
-                    source_file_ids=tuple(ids),
-                    kind=kind,
-                    title=title,
-                    notes=notes or None,
-                    cover_source_file_id=block.cover_source_file_id(),
-                    youtube_urls=tuple(block.youtube_urls()),
-                    leonardo_urls=tuple(block.leonardo_urls()),
-                )
-            )
-            self._next_pending_id -= 1
-            self._apply_pending_view()
-            self.status_message.emit("Reiseabschnitt angelegt. Speichern, sonst geht er verloren.")
-            return
         if block.entity_id() < 0:
+            if kind == KIND_DAY:
+                if not self._dissolve_section(block.entity_id()):
+                    block.reset_kind_combo()
+                return
             for spec in self._pending:
                 if spec.local_id == block.entity_id():
                     spec.kind = kind
@@ -582,9 +823,15 @@ class TimelineView(QWidget):
                     break
             self._apply_pending_view()
             return
+        if current == KIND_DAY and kind == KIND_DAY:
+            return
         try:
             self.workspace.update_section_kind(block.entity_id(), kind)
         except ProjectError as exc:
+            if kind == KIND_DAY:
+                if not self._dissolve_section(block.entity_id()):
+                    block.reset_kind_combo()
+                return
             QMessageBox.warning(self, "Timeline", str(exc))
             block.reset_kind_combo()
             return
@@ -798,11 +1045,13 @@ class TimelineView(QWidget):
 class EntryWidget(QFrame):
     selection_changed = Signal()
     dissolve_requested = Signal(int)
+    journal_changed = Signal()
     kind_changed = Signal(str)
     media_tab_changed = Signal(int)
     item_rating_changed = Signal(object)
     open_on_map = Signal(str)
     content_changed = Signal()
+    pool_dropped = Signal(list)
 
     def __init__(
         self,
@@ -881,6 +1130,9 @@ class EntryWidget(QFrame):
         youtube_action.triggered.connect(self._edit_youtube)
         leonardo_action = self._entry_menu.addAction("DHV-Leonardo…")
         leonardo_action.triggered.connect(self._edit_leonardo)
+        if self._kind == "section" and self._entity_id > 0:
+            sort_action = self._entry_menu.addAction("Nach Journal-Zeit sortieren")
+            sort_action.triggered.connect(self._sort_by_journal)
         self._menu_button.clicked.connect(self._popup_entry_menu)
         heading_row = QHBoxLayout()
         heading_row.setContentsMargins(0, 0, 0, 0)
@@ -912,7 +1164,7 @@ class EntryWidget(QFrame):
         )
         self._to_map_button.clicked.connect(self._request_open_on_map)
         heading_row.addWidget(self._to_map_button, 0, Qt.AlignmentFlag.AlignTop)
-        if self._kind == "section":
+        if self._kind == "section" and self._entry_kind != KIND_DAY:
             dissolve = QToolButton(self)
             dissolve.setObjectName("entryMenu")
             dissolve.setText("⊟")
@@ -960,7 +1212,7 @@ class EntryWidget(QFrame):
         self._media_tabs = ClickTabBar(self)
         self._media_tabs.setObjectName("mediaSortTabs")
         self._media_tabs.setExpanding(False)
-        for label, _status in MEDIA_TABS:
+        for label, _status in RATING_TABS:
             self._media_tabs.addTab(label)
         self._media_tabs.setVisible(media_count > 0)
         self.gallery = GalleryView(self, show_cover=True)
@@ -1012,6 +1264,15 @@ class EntryWidget(QFrame):
         self._media_tabs.currentChanged.connect(self._on_local_media_tab)
         self._refresh_cover_thumb()
         self._fit_notes()
+        self.setAcceptDrops(True)
+        self.title_edit.setAcceptDrops(False)
+        self.notes_edit.setAcceptDrops(False)
+        self.gallery.set_accept_pool_drop(True)
+        self.track_gallery.set_accept_pool_drop(True)
+        self.gallery.items_dropped.connect(self.pool_dropped.emit)
+        self.track_gallery.items_dropped.connect(self.pool_dropped.emit)
+        self.gallery.drop_hover.connect(self._set_drop_highlight)
+        self.track_gallery.drop_hover.connect(self._set_drop_highlight)
 
     def values(self) -> tuple[str, int, str, str]:
         return self._kind, self._entity_id, self.title_edit.text(), self.notes_edit.toPlainText()
@@ -1021,6 +1282,42 @@ class EntryWidget(QFrame):
 
     def entity_id(self) -> int:
         return self._entity_id
+
+    def accepts_pool_drop(self) -> bool:
+        return self._kind == "section" and self._entity_id > 0
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:  # noqa: N802
+        if self.accepts_pool_drop() and source_ids_from_mime(event.mimeData()):
+            event.acceptProposedAction()
+            self._set_drop_highlight(True)
+            return
+        event.ignore()
+
+    def dragMoveEvent(self, event: QDragMoveEvent) -> None:  # noqa: N802
+        if self.accepts_pool_drop() and source_ids_from_mime(event.mimeData()):
+            event.acceptProposedAction()
+            return
+        event.ignore()
+
+    def dragLeaveEvent(self, event: QDragLeaveEvent) -> None:  # noqa: N802
+        self._set_drop_highlight(False)
+        event.accept()
+
+    def dropEvent(self, event: QDropEvent) -> None:  # noqa: N802
+        self._set_drop_highlight(False)
+        ids = source_ids_from_mime(event.mimeData())
+        if not ids or not self.accepts_pool_drop():
+            event.ignore()
+            return
+        event.acceptProposedAction()
+        self.pool_dropped.emit(ids)
+
+    def _set_drop_highlight(self, active: bool) -> None:
+        self.setProperty("dropTarget", "true" if active else "false")
+        style = self.style()
+        if style is not None:
+            style.unpolish(self)
+            style.polish(self)
 
     def entry_kind(self) -> str:
         return self._entry_kind
@@ -1053,7 +1350,7 @@ class EntryWidget(QFrame):
         return [*self._all_gallery, *self.track_gallery.items()]
 
     def inspectable_media(self) -> list[GalleryItem]:
-        return list(self._all_gallery)
+        return list(self.gallery.items())
 
     def select_ids(self, wanted: set[int]) -> None:
         self.gallery.select_by_source_ids(wanted)
@@ -1118,15 +1415,13 @@ class EntryWidget(QFrame):
         self.media_tab_changed.emit(index)
 
     def _apply_media_tab(self) -> None:
-        wanted = MEDIA_TABS[self._media_tabs.currentIndex()][1]
-        if wanted is None:
-            shown = self._all_gallery
-        else:
-            shown = [
-                item
-                for item in self._all_gallery
-                if effective_sort_status(item.sort_status, item.is_favorite) == wanted
-            ]
+        wanted = rating_status_at(self._media_tabs.currentIndex())
+        include_rejected = self.workspace is not None and self.workspace.show_rejected_in_all()
+        shown = [
+            item
+            for item in self._all_gallery
+            if matches_rating(item, wanted, include_rejected=include_rejected)
+        ]
         self.gallery.set_items(shown)
 
     def _on_rating(self, item: object, status: str) -> None:
@@ -1208,6 +1503,16 @@ class EntryWidget(QFrame):
         self._refresh_links()
         self.content_changed.emit()
 
+    def _sort_by_journal(self) -> None:
+        if self.workspace is None or self._kind != "section" or self._entity_id <= 0:
+            return
+        try:
+            self.workspace.sort_members_by_journal(self._entity_id)
+        except ProjectError as exc:
+            QMessageBox.warning(self, "Timeline", str(exc))
+            return
+        self.journal_changed.emit()
+
     def _request_dissolve(self) -> None:
         self.dissolve_requested.emit(self._entity_id)
 
@@ -1257,11 +1562,49 @@ class EntryWidget(QFrame):
         self.notes_edit.setFixedHeight(max(88, height))
 
 
+class JournalTimeDialog(QDialog):
+    def __init__(self, initial: datetime, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Journal-Zeit")
+        stamp = initial if initial.tzinfo is not None else initial.replace(tzinfo=UTC)
+        layout = QFormLayout(self)
+        self._edit = QDateTimeEdit(self)
+        self._edit.setCalendarPopup(True)
+        self._edit.setDisplayFormat("dd.MM.yyyy HH:mm:ss")
+        self._edit.setDateTime(
+            QDateTime(
+                QDate(stamp.year, stamp.month, stamp.day),
+                QTime(stamp.hour, stamp.minute, stamp.second),
+            )
+        )
+        layout.addRow("Position auf der Timeline", self._edit)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+    def value(self) -> datetime:
+        stamp = self._edit.dateTime()
+        date = stamp.date()
+        clock = stamp.time()
+        return datetime(
+            date.year(),
+            date.month(),
+            date.day(),
+            clock.hour(),
+            clock.minute(),
+            clock.second(),
+            tzinfo=UTC,
+        )
+
+
 class NewSectionDialog(QDialog):
     def __init__(self, items: list[GalleryItem], parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Neuer Reiseabschnitt")
-        times = [item.captured_at for item in items if item.captured_at is not None]
+        times = [item.journal_at or item.captured_at for item in items if item.journal_at or item.captured_at]
         started = min(times) if times else None
         ended = max(times) if times else None
         self._form = QFormLayout(self)
@@ -1325,6 +1668,8 @@ class NewSectionDialog(QDialog):
 
 def _section_heading(section: TimelineSection) -> str:
     span = format_section_span(section.started_at, section.ended_at)
+    if section.kind == KIND_DAY:
+        return f"Tag · {span}"
     if section.kind == KIND_MOVEMENT:
         bits = ["Transfer"]
         modes = _format_modes(section.mode)
@@ -1386,7 +1731,16 @@ def _gallery_item(photo: TimelinePhoto, *, cover_id: int | None = None) -> Galle
         sort_status=photo.sort_status,
         is_entry_cover=cover_id == photo.source_file_id,
         rotation_degrees=photo.rotation_degrees,
+        journal_at=photo.journal_at,
+        display_latitude=photo.display_latitude,
+        display_longitude=photo.display_longitude,
     )
+
+
+def _gallery_item_has_map_position(item: GalleryItem) -> bool:
+    if item.display_latitude is not None and item.display_longitude is not None:
+        return True
+    return item.gps_latitude is not None and item.gps_longitude is not None
 
 
 def split_media_and_tracks(

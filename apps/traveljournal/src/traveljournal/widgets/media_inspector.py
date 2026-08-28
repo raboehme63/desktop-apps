@@ -693,7 +693,9 @@ def media_meta_text(item: GalleryItem) -> str:
         stamp = item.captured_at.strftime("%Y-%m-%d %H:%M:%S")
         if item.timezone_unknown:
             stamp += " (TZ unbekannt)"
-        parts.append(stamp)
+        parts.append(f"Aufnahme {stamp}")
+    if item.journal_at is not None and item.journal_at != item.captured_at:
+        parts.append(f"Tagebuch {item.journal_at.strftime('%Y-%m-%d %H:%M:%S')}")
     if item.gps_latitude is not None and item.gps_longitude is not None:
         parts.append(f"{item.gps_latitude:.5f}, {item.gps_longitude:.5f}")
     if item.camera:

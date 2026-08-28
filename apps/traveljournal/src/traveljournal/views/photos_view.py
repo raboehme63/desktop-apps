@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from PySide6.QtCore import QThreadPool, Signal
+from PySide6.QtCore import Qt, QThreadPool, Signal
+from PySide6.QtGui import QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QHBoxLayout,
@@ -13,21 +15,28 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
 from travelcore.media.gallery import SORT_FAVORITE, GalleryItem, effective_sort_status
+from travelcore.timeline.sections import expand_range_selection
 from traveljournal.services.workers import ThumbnailRunnable
 from traveljournal.services.workspace import Workspace
 from traveljournal.widgets.gallery import GalleryView
 from traveljournal.widgets.media_inspector import MediaInspectorWindow
 from traveljournal.widgets.media_tabs import (
-    MEDIA_TABS,
+    RATING_TABS,
     ClickTabBar,
+    ShowRejectedCheck,
+    matches_rating,
     media_tab_index,
     media_tab_key,
+    rating_status_at,
+    sync_show_rejected_check,
 )
+from traveljournal.widgets.pool_pane import PoolCollapse, PoolPane
 
 _JPEG = {".jpg", ".jpeg"}
 _HEIC = {".heic", ".heif"}
@@ -46,6 +55,11 @@ class PhotosView(QWidget):
         self._items: list[GalleryItem] = []
         self._pool = QThreadPool.globalInstance()
         self._busy = False
+        self._applying_range = False
+        self._journal_excluded: set[int] = set()
+        self._journal_displayed: set[int] = set()
+        self._pool_excluded: set[int] = set()
+        self._pool_displayed: set[int] = set()
 
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 28)
@@ -54,8 +68,11 @@ class PhotosView(QWidget):
         title = QLabel("Medien")
         title.setObjectName("pageTitle")
         subtitle = QLabel(
-            "Chronologische Galerie aus gecachten Vorschaubildern. Originale bleiben unverändert. "
-            "Qualität und Dubletten folgen in späteren Phasen."
+            "Links die Reise-Medien, rechts der Medienpool — jeweils mit Alle / Favoriten / "
+            "Reserve / Aussortiert. Erstes und letztes Objekt anklicken, dazwischen wird "
+            "mitmarkiert; Strg+Klick nimmt einzelne wieder raus. Ziehen verschiebt zwischen "
+            "Galerie und Pool. Pfeil rechts außen klappt den Pool ein und aus; die Breite "
+            "bleibt erhalten. Originale bleiben unverändert."
         )
         subtitle.setObjectName("pageSubtitle")
         subtitle.setWordWrap(True)
@@ -87,32 +104,78 @@ class PhotosView(QWidget):
         filters.addWidget(refresh)
         root.addLayout(filters)
 
+        left = QWidget()
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(0, 0, 8, 0)
+        left_layout.setSpacing(8)
         tabs = QHBoxLayout()
         tab_label = QLabel("Register")
         tab_label.setObjectName("pageSubtitle")
         self._media_tabs = ClickTabBar(self)
         self._media_tabs.setObjectName("mediaSortTabs")
         self._media_tabs.setExpanding(False)
-        for label, _status in MEDIA_TABS:
+        for label, _status in RATING_TABS:
             self._media_tabs.addTab(label)
         self._media_tabs.setCurrentIndex(media_tab_index(self.workspace.timeline_media_tab()))
         self._media_tabs.currentChanged.connect(self._on_media_tab)
+        self._show_rejected = ShowRejectedCheck(self)
+        self._show_rejected.toggled.connect(self._on_show_rejected)
         tabs.addWidget(tab_label)
         tabs.addWidget(self._media_tabs)
+        tabs.addWidget(self._show_rejected)
         tabs.addStretch(1)
-        root.addLayout(tabs)
-
+        left_layout.addLayout(tabs)
         self.gallery = GalleryView()
+        self.gallery.set_multi_select(True)
+        self.gallery.set_drag_enabled(True)
+        self.gallery.set_accept_pool_drop(True)
+        self.gallery.setToolTip(
+            "Erstes und letztes Objekt anklicken — alles dazwischen wird mitmarkiert. "
+            "Auf den Medienpool ziehen, oder aus dem Pool hierher zurücklegen."
+        )
         self.gallery.item_activated.connect(self._preview)
         self.gallery.rating_chosen.connect(self._on_rating)
-        root.addWidget(self.gallery, 1)
+        self.gallery.items_dropped.connect(self._drop_on_gallery)
+        gallery_model = self.gallery.selectionModel()
+        if gallery_model is not None:
+            gallery_model.selectionChanged.connect(self._on_journal_selection)
+        left_layout.addWidget(self.gallery, 1)
+
+        self._pool_pane = PoolPane(
+            workspace=self.workspace,
+            unpark_label="Zurück in die Galerie",
+            accept_drops=True,
+        )
+        self._pool_pane.unpark_requested.connect(self._unpark_selected)
+        self._pool_pane.items_dropped.connect(self._drop_on_pool)
+        self._pool_pane.item_rating_changed.connect(self._on_pool_rating)
+        self._pool_pane.item_activated.connect(self._preview)
+        self._pool_pane.show_rejected_changed.connect(self._on_pool_show_rejected)
+        pool_model = self._pool_pane.gallery.selectionModel()
+        if pool_model is not None:
+            pool_model.selectionChanged.connect(self._on_pool_selection)
+        self._sync_show_rejected()
+
+        self._split = QSplitter(Qt.Orientation.Horizontal)
+        self._split.setObjectName("photosSplit")
+        self._split.setChildrenCollapsible(False)
+        self._split.addWidget(left)
+        self._split.addWidget(self._pool_pane)
+        self._split.setStretchFactor(0, 1)
+        self._split.setStretchFactor(1, 0)
+        root.addWidget(self._split, 1)
+        self._pool_collapse = PoolCollapse(self, self._split, self._pool_pane, self.workspace)
+        self._pool_toggle = self._pool_collapse.toggle
 
         actions = QHBoxLayout()
         favorite_btn = QPushButton("Favorit umschalten")
         favorite_btn.clicked.connect(self._toggle_favorite)
+        pool_btn = QPushButton("In den Pool")
+        pool_btn.clicked.connect(self._park_selected)
         self.summary = QLabel("Kein Projekt geöffnet")
         self.summary.setObjectName("pageSubtitle")
         actions.addWidget(favorite_btn)
+        actions.addWidget(pool_btn)
         actions.addStretch(1)
         actions.addWidget(self.summary)
         root.addLayout(actions)
@@ -121,6 +184,7 @@ class PhotosView(QWidget):
         if self.workspace.current is None:
             self._items = []
             self.gallery.set_items([])
+            self._pool_pane.set_items([])
             self.summary.setText("Kein Projekt geöffnet")
             return
         self._items = self.workspace.gallery_items()
@@ -135,6 +199,7 @@ class PhotosView(QWidget):
         self.year.setCurrentIndex(max(index, 0))
         self.year.blockSignals(False)
         self._sync_media_tab()
+        self._sync_show_rejected()
         self._apply_filters()
 
     def _sync_media_tab(self) -> None:
@@ -147,20 +212,47 @@ class PhotosView(QWidget):
 
     def _on_media_tab(self, index: int) -> None:
         self.workspace.set_timeline_media_tab(media_tab_key(index))
+        self._sync_show_rejected()
         self._apply_filters()
 
+    def _on_show_rejected(self, checked: bool) -> None:
+        self.workspace.set_show_rejected_in_all(checked)
+        self._apply_filters()
+
+    def _on_pool_show_rejected(self, _checked: bool) -> None:
+        self._sync_show_rejected()
+        self._apply_filters()
+
+    def _sync_show_rejected(self) -> None:
+        sync_show_rejected_check(
+            self._show_rejected, self._media_tabs, checked=self.workspace.show_rejected_in_all()
+        )
+
     def _apply_filters(self) -> None:
+        journal, parked = self._partition_filtered()
+        wanted = rating_status_at(self._media_tabs.currentIndex())
+        include_rejected = self.workspace.show_rejected_in_all()
+        shown = [
+            item for item in journal if matches_rating(item, wanted, include_rejected=include_rejected)
+        ]
+        self.gallery.set_items(shown)
+        self._journal_excluded.clear()
+        self._journal_displayed.clear()
+        self._pool_excluded.clear()
+        self._pool_displayed.clear()
+        self._pool_pane.set_items(parked)
+        self.summary.setText(
+            f"{len(shown)} in der Galerie, {len(parked)} im Pool · {len(self._items)} Medien"
+        )
+
+    def _partition_filtered(self) -> tuple[list[GalleryItem], list[GalleryItem]]:
         query = self.search.text().strip().lower()
         place = self.place.currentIndex()
         kind = self.kind.currentText()
         year_text = self.year.currentText()
         unused = self.unused.isChecked()
-        wanted = (
-            MEDIA_TABS[self._media_tabs.currentIndex()][1]
-            if 0 <= self._media_tabs.currentIndex() < len(MEDIA_TABS)
-            else None
-        )
-        shown: list[GalleryItem] = []
+        journal: list[GalleryItem] = []
+        parked: list[GalleryItem] = []
         for item in self._items:
             if query and query not in item.filename.lower():
                 continue
@@ -168,30 +260,42 @@ class PhotosView(QWidget):
                 continue
             if place == 2 and item.gps_latitude is not None:
                 continue
-            if wanted is not None and effective_sort_status(item.sort_status, item.is_favorite) != wanted:
-                continue
-            if unused and item.used_in_journal:
-                continue
             if year_text != "Alle Jahre" and (
                 item.captured_at is None or str(item.captured_at.year) != year_text
             ):
                 continue
             if kind != "Alle Typen" and not _matches_kind(item.extension, kind):
                 continue
-            shown.append(item)
-        self.gallery.set_items(shown)
-        self.summary.setText(f"{len(shown)} von {len(self._items)} Medien")
+            if item.parked:
+                parked.append(item)
+                continue
+            if unused and item.used_in_journal:
+                continue
+            journal.append(item)
+        return journal, parked
 
     def clear(self) -> None:
         self._items = []
         self.gallery.set_items([])
+        self._pool_pane.set_items([])
         if self.workspace.current is None:
             self.summary.setText("Kein Projekt geöffnet")
             return
         self.summary.setText("Index wird geladen…")
 
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._pool_collapse.place()
+
+    def showEvent(self, event: QShowEvent) -> None:  # noqa: N802
+        super().showEvent(event)
+        self._pool_collapse.sync_from_workspace()
+
+    def _selected_for_rating(self) -> GalleryItem | None:
+        return self.gallery.selected_item() or self._pool_pane.gallery.selected_item()
+
     def _toggle_favorite(self) -> None:
-        item = self.gallery.selected_item()
+        item = self._selected_for_rating()
         if item is None:
             QMessageBox.information(self, "Medien", "Bitte ein Medium auswählen.")
             return
@@ -205,6 +309,103 @@ class PhotosView(QWidget):
         self._apply_item_rating(
             replace(item, sort_status=next_status, is_favorite=next_status == SORT_FAVORITE)
         )
+
+    def _park_selected(self) -> None:
+        ids = [item.source_file_id for item in self.gallery.selected_items()]
+        if not ids:
+            QMessageBox.information(self, "Medien", "Bitte Medien in der Galerie auswählen.")
+            return
+        self._park_ids(ids)
+
+    def _unpark_selected(self) -> None:
+        ids = self._pool_pane.selected_source_ids()
+        if not ids:
+            QMessageBox.information(self, "Medien", "Bitte Medien im Pool auswählen.")
+            return
+        self._unpark_ids(ids)
+
+    def _drop_on_pool(self, source_ids: list[int]) -> None:
+        wanted = set(source_ids)
+        ids = [
+            item.source_file_id
+            for item in self._items
+            if item.source_file_id in wanted and not item.parked
+        ]
+        if ids:
+            self._park_ids(ids)
+
+    def _drop_on_gallery(self, source_ids: list[int]) -> None:
+        wanted = set(source_ids)
+        ids = [
+            item.source_file_id
+            for item in self._items
+            if item.source_file_id in wanted and item.parked
+        ]
+        if ids:
+            self._unpark_ids(ids)
+
+    def _park_ids(self, ids: list[int]) -> None:
+        try:
+            self.workspace.park_media(ids)
+        except Exception as error:  # noqa: BLE001
+            QMessageBox.warning(self, "Medien", str(error))
+            return
+        parked = {item.source_file_id: item for item in self._items}
+        self.refresh()
+        self._pool_collapse.set_visible(True)
+        first = parked.get(ids[0])
+        if first is not None:
+            self.rating_changed.emit(replace(first, parked=True))
+
+    def _unpark_ids(self, ids: list[int]) -> None:
+        try:
+            self.workspace.unpark_media(ids)
+        except Exception as error:  # noqa: BLE001
+            QMessageBox.warning(self, "Medien", str(error))
+            return
+        parked = {item.source_file_id: item for item in self._items}
+        self.refresh()
+        first = parked.get(ids[0])
+        if first is not None:
+            self.rating_changed.emit(replace(first, parked=False))
+
+    def _on_journal_selection(self, *_args: object) -> None:
+        self._journal_excluded, self._journal_displayed = self._fill_gallery_range(
+            self.gallery, self._journal_excluded, self._journal_displayed
+        )
+
+    def _on_pool_selection(self, *_args: object) -> None:
+        self._pool_excluded, self._pool_displayed = self._fill_gallery_range(
+            self._pool_pane.gallery, self._pool_excluded, self._pool_displayed
+        )
+
+    def _fill_gallery_range(
+        self,
+        gallery: GalleryView,
+        excluded: set[int],
+        displayed: set[int],
+    ) -> tuple[set[int], set[int]]:
+        if self._applying_range:
+            return excluded, displayed
+        selected = {item.source_file_id for item in gallery.selected_items()}
+        ordered = [item.source_file_id for item in gallery.items()]
+        if len(selected) < 2:
+            return set(), selected
+        ctrl = bool(QApplication.keyboardModifiers() & Qt.KeyboardModifier.ControlModifier)
+        holes = set(excluded)
+        if ctrl:
+            holes |= displayed - selected
+            holes -= selected - displayed
+        filled = expand_range_selection(ordered, selected, excluded=holes)
+        span = expand_range_selection(ordered, selected)
+        holes = span - filled
+        if filled != selected:
+            self._applying_range = True
+            try:
+                gallery.select_by_source_ids(filled)
+            finally:
+                self._applying_range = False
+        return holes, filled
 
     def _on_rating(self, item: object, status: str) -> None:
         if not isinstance(item, GalleryItem):
@@ -220,11 +421,20 @@ class PhotosView(QWidget):
             replace(item, sort_status=next_status, is_favorite=next_status == SORT_FAVORITE)
         )
 
+    def _on_pool_rating(self, item: object) -> None:
+        if not isinstance(item, GalleryItem):
+            return
+        self._items = [
+            item if existing.source_file_id == item.source_file_id else existing for existing in self._items
+        ]
+        self.rating_changed.emit(item)
+
     def _preview(self, item: object) -> None:
         if not isinstance(item, GalleryItem):
             return
+        sequence = self._pool_pane.shown_items() if item.parked else self.gallery.items()
         window = MediaInspectorWindow(
-            item, items=self.gallery.items(), workspace=self.workspace, parent=self.window()
+            item, items=sequence, workspace=self.workspace, parent=self.window()
         )
         window.rating_changed.connect(self._on_inspector_rating)
         window.rotation_changed.connect(self._on_inspector_rating)

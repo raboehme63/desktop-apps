@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import json
 from collections import OrderedDict
 from pathlib import Path
 
 from PySide6.QtCore import (
     QAbstractListModel,
+    QByteArray,
     QItemSelection,
     QItemSelectionModel,
+    QMimeData,
     QModelIndex,
     QPoint,
     QRect,
@@ -16,8 +19,18 @@ from PySide6.QtCore import (
     Qt,
     Signal,
 )
-from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPixmap
+from PySide6.QtGui import (
+    QColor,
+    QDragEnterEvent,
+    QDragMoveEvent,
+    QDropEvent,
+    QFont,
+    QMouseEvent,
+    QPainter,
+    QPixmap,
+)
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QListView,
     QSizePolicy,
     QStyle,
@@ -38,6 +51,7 @@ from travelcore.media.types import GPS_EXTENSIONS, PHOTO_EXTENSIONS
 _ICON = 168
 _CELL = QSize(184, 214)
 _PLACEHOLDER = QColor("#243044")
+POOL_MIME = "application/x-traveljournal-source-ids"
 _CHIP = 22
 _CHIP_GAP = 3
 _COVER_ACTIVE = QColor("#e0b85a")
@@ -86,6 +100,36 @@ def hit_cover(cell: QRect, pos: QPoint) -> bool:
 def can_be_cover(item: GalleryItem) -> bool:
     suffix = item.extension.lower()
     return suffix in PHOTO_EXTENSIONS or suffix in GPS_EXTENSIONS
+
+
+def encode_pool_source_ids(source_ids: list[int]) -> bytes:
+    unique = list(dict.fromkeys(int(item) for item in source_ids))
+    return json.dumps(unique).encode("utf-8")
+
+
+def decode_pool_source_ids(payload: bytes) -> list[int]:
+    try:
+        data = json.loads(payload.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return []
+    if not isinstance(data, list):
+        return []
+    ids: list[int] = []
+    seen: set[int] = set()
+    for item in data:
+        if not isinstance(item, int):
+            continue
+        if item in seen:
+            continue
+        seen.add(item)
+        ids.append(item)
+    return ids
+
+
+def source_ids_from_mime(mime: QMimeData | None) -> list[int]:
+    if mime is None or not mime.hasFormat(POOL_MIME):
+        return []
+    return decode_pool_source_ids(bytes(mime.data(POOL_MIME)))
 
 
 class _PixmapCache:
@@ -148,6 +192,30 @@ class GalleryModel(QAbstractListModel):
 
     def items(self) -> list[GalleryItem]:
         return list(self._items)
+
+    def flags(self, index: QModelIndex) -> Qt.ItemFlag:  # noqa: N802
+        if not index.isValid():
+            return Qt.ItemFlag.NoItemFlags
+        return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsDragEnabled
+
+    def mimeTypes(self) -> list[str]:  # noqa: N802
+        return [POOL_MIME]
+
+    def mimeData(self, indexes: list[QModelIndex]) -> QMimeData:  # noqa: N802
+        ids: list[int] = []
+        seen: set[int] = set()
+        for index in indexes:
+            item = self.item_at(index)
+            if item is None or item.source_file_id in seen:
+                continue
+            seen.add(item.source_file_id)
+            ids.append(item.source_file_id)
+        mime = QMimeData()
+        mime.setData(POOL_MIME, QByteArray(encode_pool_source_ids(ids)))
+        return mime
+
+    def supportedDragActions(self) -> Qt.DropAction:  # noqa: N802
+        return Qt.DropAction.CopyAction
 
 
 class GalleryDelegate(QStyledItemDelegate):
@@ -214,6 +282,8 @@ class GalleryView(QListView):
     item_activated = Signal(object)
     rating_chosen = Signal(object, str)
     cover_chosen = Signal(object)
+    items_dropped = Signal(list)
+    drop_hover = Signal(bool)
 
     def __init__(
         self, parent: QWidget | None = None, *, show_ratings: bool = True, show_cover: bool = False
@@ -223,19 +293,73 @@ class GalleryView(QListView):
         self.setModel(self._model)
         self.setItemDelegate(GalleryDelegate(self, show_ratings=show_ratings, show_cover=show_cover))
         self.setViewMode(QListView.ViewMode.IconMode)
+        self.setFlow(QListView.Flow.LeftToRight)
+        self.setWrapping(True)
         self.setResizeMode(QListView.ResizeMode.Adjust)
         self.setMovement(QListView.Movement.Static)
         self.setUniformItemSizes(True)
         self.setSpacing(8)
+        self.setGridSize(QSize(_CELL.width() + 8, _CELL.height() + 8))
         self.setSelectionMode(QListView.SelectionMode.SingleSelection)
         self.doubleClicked.connect(self._emit_item)
         self._expand_to_fit = False
         self._show_ratings = show_ratings
         self._show_cover = show_cover
+        self._accept_pool_drop = False
 
     def set_multi_select(self, enabled: bool) -> None:
         mode = QListView.SelectionMode.MultiSelection if enabled else QListView.SelectionMode.SingleSelection
         self.setSelectionMode(mode)
+
+    def set_drag_enabled(self, enabled: bool) -> None:
+        self.setDragEnabled(enabled)
+        if enabled:
+            self.setDefaultDropAction(Qt.DropAction.CopyAction)
+        self._sync_drag_drop_mode()
+
+    def set_accept_pool_drop(self, enabled: bool) -> None:
+        self._accept_pool_drop = enabled
+        self._sync_drag_drop_mode()
+
+    def _sync_drag_drop_mode(self) -> None:
+        dragging = self.dragEnabled()
+        dropping = self._accept_pool_drop
+        self.setAcceptDrops(dropping)
+        if dragging and dropping:
+            self.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
+        elif dragging:
+            self.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
+        elif dropping:
+            self.setDragDropMode(QAbstractItemView.DragDropMode.DropOnly)
+        else:
+            self.setDragDropMode(QAbstractItemView.DragDropMode.NoDragDrop)
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:  # noqa: N802
+        if self._accept_pool_drop and source_ids_from_mime(event.mimeData()):
+            event.acceptProposedAction()
+            self.drop_hover.emit(True)
+            return
+        event.ignore()
+
+    def dragMoveEvent(self, event: QDragMoveEvent) -> None:  # noqa: N802
+        if self._accept_pool_drop and source_ids_from_mime(event.mimeData()):
+            event.acceptProposedAction()
+            return
+        event.ignore()
+
+    def dragLeaveEvent(self, event) -> None:  # noqa: ANN001, N802
+        if self._accept_pool_drop:
+            self.drop_hover.emit(False)
+        event.accept()
+
+    def dropEvent(self, event: QDropEvent) -> None:  # noqa: N802
+        ids = source_ids_from_mime(event.mimeData())
+        self.drop_hover.emit(False)
+        if not self._accept_pool_drop or not ids:
+            event.ignore()
+            return
+        event.acceptProposedAction()
+        self.items_dropped.emit(ids)
 
     def set_expand_to_fit(self, enabled: bool) -> None:
         """Grow with the item count so a parent scroll area can own scrolling."""

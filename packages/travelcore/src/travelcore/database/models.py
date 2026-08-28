@@ -91,6 +91,7 @@ class SourceFile(Base):
     aperture: Mapped[str | None] = mapped_column(String(32), nullable=True)
     orientation: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rotation_degrees: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    parked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
@@ -239,6 +240,10 @@ class SectionMember(Base):
     section_id: Mapped[int] = mapped_column(ForeignKey("trip_sections.id"), nullable=False, index=True)
     source_file_id: Mapped[int] = mapped_column(ForeignKey("source_files.id"), nullable=False, index=True)
     sort_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    journal_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    journal_timezone_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    journal_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    journal_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     section: Mapped[TripSection] = relationship(back_populates="members")
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import select
@@ -433,6 +434,51 @@ class Workspace:
     def dissolve_section(self, section_id: int) -> None:
         self._mutate(lambda session: timeline_sections.dissolve_section(session, section_id))
 
+    def park_media(self, source_file_ids: list[int]) -> None:
+        self._mutate(lambda session: timeline_sections.park_media(session, source_file_ids))
+
+    def unpark_media(self, source_file_ids: list[int]) -> None:
+        opened = self._require_open()
+        with opened.session_factory() as session:
+            timeline_sections.unpark_media(session, source_file_ids)
+            project = session.get(Project, opened.project_id)
+            if project is not None:
+                thumbs, size = self._thumbs_and_size()
+                timeline_build.sync_timeline(session, project, thumbs_dir=thumbs, size=size)
+            session.commit()
+
+    def move_members(
+        self,
+        section_id: int,
+        source_file_ids: list[int],
+        *,
+        keep_gps: bool = True,
+    ) -> None:
+        self._mutate(
+            lambda session: timeline_sections.move_members(
+                session, section_id, source_file_ids, keep_gps=keep_gps
+            )
+        )
+
+    def set_journal_at(
+        self,
+        source_file_ids: list[int],
+        journal_at: datetime | None,
+        *,
+        timezone_name: str | None = None,
+    ) -> None:
+        self._mutate(
+            lambda session: timeline_sections.set_journal_at(
+                session, source_file_ids, journal_at, timezone_name=timezone_name
+            )
+        )
+
+    def reset_journal(self, source_file_ids: list[int]) -> None:
+        self._mutate(lambda session: timeline_sections.reset_journal(session, source_file_ids))
+
+    def sort_members_by_journal(self, section_id: int) -> None:
+        self._mutate(lambda session: timeline_sections.sort_members_by_journal(session, section_id))
+
     def set_entry_cover(self, kind: str, entity_id: int, source_file_id: int | None) -> None:
         self._mutate(lambda session: timeline_build.set_entry_cover(session, kind, entity_id, source_file_id))
 
@@ -523,6 +569,54 @@ class Workspace:
         if bool(data.get("sidebar_collapsed")) == flag:
             return
         data["sidebar_collapsed"] = flag
+        self._save_ui_config(data)
+
+    def timeline_pool_visible(self) -> bool:
+        return self._load_ui_config().get("timeline_pool_visible") is True
+
+    def set_timeline_pool_visible(self, visible: bool) -> None:
+        flag = bool(visible)
+        data = self._load_ui_config()
+        if bool(data.get("timeline_pool_visible")) == flag:
+            return
+        data["timeline_pool_visible"] = flag
+        self._save_ui_config(data)
+
+    def pool_width(self) -> int:
+        from traveljournal.widgets.pool_pane import clamp_pool_width
+
+        return clamp_pool_width(self._load_ui_config().get("pool_width"))
+
+    def set_pool_width(self, width: int) -> None:
+        from traveljournal.widgets.pool_pane import clamp_pool_width
+
+        clamped = clamp_pool_width(width)
+        data = self._load_ui_config()
+        if data.get("pool_width") == clamped:
+            return
+        data["pool_width"] = clamped
+        self._save_ui_config(data)
+
+    def pool_media_tab(self) -> str:
+        return normalize_timeline_media_tab(self._load_ui_config().get("pool_media_tab"))
+
+    def set_pool_media_tab(self, key: str) -> None:
+        normalized = normalize_timeline_media_tab(key)
+        data = self._load_ui_config()
+        if data.get("pool_media_tab") == normalized:
+            return
+        data["pool_media_tab"] = normalized
+        self._save_ui_config(data)
+
+    def show_rejected_in_all(self) -> bool:
+        return self._load_ui_config().get("show_rejected_in_all") is True
+
+    def set_show_rejected_in_all(self, visible: bool) -> None:
+        flag = bool(visible)
+        data = self._load_ui_config()
+        if bool(data.get("show_rejected_in_all")) == flag:
+            return
+        data["show_rejected_in_all"] = flag
         self._save_ui_config(data)
 
     def remember_projects_root(self, directory: Path) -> None:

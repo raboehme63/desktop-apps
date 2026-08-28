@@ -57,7 +57,7 @@ def test_normalize_timeline_media_tab() -> None:
     assert normalize_timeline_media_tab("favorite") == "favorite"
     assert normalize_timeline_media_tab("reserve") == "reserve"
     assert normalize_timeline_media_tab("rejected") == "rejected"
-    assert normalize_timeline_media_tab("all") == "all"
+    assert normalize_timeline_media_tab("parked") == "all"
     assert normalize_timeline_media_tab("unknown") == "all"
     assert normalize_timeline_media_tab(None) == "all"
 
@@ -101,3 +101,51 @@ def test_sidebar_collapsed_persists(tmp_path: Path, monkeypatch) -> None:  # noq
     assert workspace.sidebar_collapsed() is True
     workspace.set_sidebar_collapsed(False)
     assert workspace.sidebar_collapsed() is False
+
+
+def test_timeline_pool_visible_persists(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    from traveljournal.services import workspace as workspace_mod
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    workspace = Workspace()
+    assert workspace.timeline_pool_visible() is False
+    workspace.set_timeline_pool_visible(True)
+    assert workspace.timeline_pool_visible() is True
+    workspace.set_timeline_pool_visible(False)
+    assert workspace.timeline_pool_visible() is False
+
+
+def test_pool_width_persists(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    from traveljournal.services import workspace as workspace_mod
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    workspace = Workspace()
+    assert workspace.pool_width() == 280
+    workspace.set_pool_width(360)
+    assert workspace.pool_width() == 360
+    workspace.set_pool_width(80)
+    assert workspace.pool_width() == 220
+
+
+def test_pool_media_tab_persists(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    from traveljournal.services import workspace as workspace_mod
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    workspace = Workspace()
+    assert workspace.pool_media_tab() == "all"
+    workspace.set_pool_media_tab("favorite")
+    assert workspace.pool_media_tab() == "favorite"
+    workspace.set_pool_media_tab("parked")
+    assert workspace.pool_media_tab() == "all"
+
+
+def test_show_rejected_in_all_persists(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    from traveljournal.services import workspace as workspace_mod
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    workspace = Workspace()
+    assert workspace.show_rejected_in_all() is False
+    workspace.set_show_rejected_in_all(True)
+    assert workspace.show_rejected_in_all() is True
+    workspace.set_show_rejected_in_all(False)
+    assert workspace.show_rejected_in_all() is False

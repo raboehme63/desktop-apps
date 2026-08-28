@@ -31,10 +31,23 @@ from travelcore.maps import (
     stay_links_from_entries,
 )
 from travelcore.maps.cache import map_html_path, map_stamp_path
-from travelcore.maps.groups import MapTimelineCard, count_card_media, parse_group_key, pick_cover_item
+from travelcore.maps.groups import (
+    MapTimelineCard,
+    count_card_media,
+    parse_group_key,
+    pick_cover_item,
+    position_for_cover,
+)
 from travelcore.media.gallery import SORT_REJECTED, SORT_RESERVE
 from travelcore.media.indexer import FileIndexer
-from travelcore.timeline import KIND_MOVEMENT, KIND_STAY, create_section, set_photo_sort_status, sync_timeline
+from travelcore.timeline import (
+    KIND_MOVEMENT,
+    KIND_STAY,
+    create_section,
+    move_members,
+    set_photo_sort_status,
+    sync_timeline,
+)
 from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelinePhoto, TimelineSection
 
 
@@ -107,6 +120,9 @@ def test_map_scene_includes_place(open_project: OpenProject) -> None:
                 origin="manual",
             )
         )
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        sync_timeline(session, project)
         session.commit()
 
     thumbs = open_project.directory / "thumbnails"
@@ -653,6 +669,8 @@ def _timeline_photo(
     longitude: float | None = 11.0,
     file_kind: str = "photo",
     sort_status: str | None = None,
+    display_latitude: float | None = None,
+    display_longitude: float | None = None,
 ) -> TimelinePhoto:
     return TimelinePhoto(
         source_file_id=file_id,
@@ -667,6 +685,8 @@ def _timeline_photo(
         gps_longitude=longitude if latitude is not None else None,
         file_kind=file_kind,
         sort_status=sort_status,
+        display_latitude=display_latitude,
+        display_longitude=display_longitude,
     )
 
 
@@ -723,6 +743,94 @@ def test_pick_cover_item_skips_rejected() -> None:
     chosen = pick_cover_item(items, 1)
     assert chosen is not None
     assert chosen.filename == "ok.jpg"
+
+
+def test_pick_cover_item_uses_display_position() -> None:
+    items = [
+        _timeline_photo(
+            "ohne.jpg",
+            file_id=1,
+            latitude=None,
+            display_latitude=46.0,
+            display_longitude=11.0,
+        ),
+        _timeline_photo("home.jpg", file_id=2, latitude=52.5, longitude=13.4),
+    ]
+    chosen = pick_cover_item(items, None)
+    assert chosen is not None
+    assert chosen.filename == "ohne.jpg"
+    assert position_for_cover(chosen, items) == (46.0, 11.0)
+
+
+def test_position_for_cover_prefers_display_over_original() -> None:
+    item = _timeline_photo(
+        "dok.jpg",
+        file_id=1,
+        latitude=52.5,
+        longitude=13.4,
+        display_latitude=46.0,
+        display_longitude=11.0,
+    )
+    assert position_for_cover(item, [item]) == (46.0, 11.0)
+
+
+def test_map_detail_follows_section_members_after_move(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "museum.jpg",
+        datetime_original="2025:08:20 10:00:00",
+        offset_original="+02:00",
+        latitude=(46.0, 0.0, 0.0),
+        longitude=(11.0, 0.0, 0.0),
+    )
+    write_jpeg_with_exif(
+        source / "gipfel.jpg",
+        datetime_original="2025:08:21 10:00:00",
+        offset_original="+02:00",
+        latitude=(47.0, 0.0, 0.0),
+        longitude=(12.0, 0.0, 0.0),
+    )
+    write_jpeg_with_exif(
+        source / "ausweis.jpg",
+        datetime_original="2025:08:20 11:00:00",
+        offset_original="+02:00",
+        latitude=(52.5, 0.0, 0.0),
+        longitude=(13.4, 0.0, 0.0),
+    )
+    thumbs = open_project.directory / "thumbnails"
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        FileIndexer().index(session, project, source, project_dir=open_project.directory)
+        snapshot = sync_timeline(session, project, thumbs_dir=thumbs)
+        by_name = {item.filename: item.source_file_id for day in snapshot.days for item in day.photos}
+        create_section(
+            session, snapshot.trip_id, [by_name["museum.jpg"]], kind=KIND_STAY, title="Museum"
+        )
+        stay_b = create_section(
+            session, snapshot.trip_id, [by_name["gipfel.jpg"]], kind=KIND_STAY, title="Gipfel"
+        )
+        move_members(session, stay_b.id, [by_name["ausweis.jpg"]], keep_gps=False)
+        session.commit()
+        cards = {card.title: card for card in build_map_timeline(session, open_project.project_id, thumbs)}
+        detail_a = build_map_group_detail(
+            session, open_project.project_id, cards["Museum"].group_key, thumbs
+        )
+        detail_b = build_map_group_detail(
+            session, open_project.project_id, cards["Gipfel"].group_key, thumbs
+        )
+        overview = build_map_overview(session, open_project.project_id, thumbs)
+    names_a = {item.subtitle for item in detail_a.markers if item.kind == "photo"}
+    names_b = {item.subtitle for item in detail_b.markers if item.kind == "photo"}
+    assert names_a == {"museum.jpg"}
+    assert names_b == {"gipfel.jpg", "ausweis.jpg"}
+    ausweis = next(item for item in detail_b.markers if item.subtitle == "ausweis.jpg")
+    assert abs(ausweis.latitude - 52.5) > 1.0
+    assert abs(ausweis.latitude - 47.0) < 0.02
+    gipfel_cover = next(item for item in overview.markers if item.group_key == cards["Gipfel"].group_key)
+    assert abs(gipfel_cover.latitude - 52.5) > 1.0
+    assert abs(gipfel_cover.latitude - 47.0) < 0.02
 
 
 def test_count_card_media_splits_reserve_and_skips_rejected() -> None:
@@ -1116,6 +1224,6 @@ def test_build_map_overview_links_leftover_days(open_project: OpenProject, tmp_p
     link = scene.stay_links[0]
     assert link.start == (46.0, 11.0)
     assert link.end == (47.0, 12.0)
-    assert link.start_key.startswith("day:")
-    assert link.end_key.startswith("day:")
+    assert link.start_key.startswith("section:")
+    assert link.end_key.startswith("section:")
     assert link.via_transfer is False

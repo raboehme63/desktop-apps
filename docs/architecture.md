@@ -82,7 +82,8 @@ Zuletzt geöffnete Projekte stehen unter
 sie in Phase 7 noch nicht. Der Fenstertitel lautet `Reisetagebuch R{Version}`
 bzw. `Reisetagebuch R{Version} - {Projekttitel}`. Das Medienregister
 (Timeline und Medienseite) steht in `%LOCALAPPDATA%\TravelJournal\config.json` (`timeline_media_tab`),
-ebenso die eingeklappte linke Navigation (`sidebar_collapsed`).
+ebenso die eingeklappte linke Navigation (`sidebar_collapsed`), der Medienpool
+(`timeline_pool_visible`, `pool_width`).
 
 ## Timeline
 
@@ -90,15 +91,40 @@ Nach dem Import ruft die App `sync_timeline` auf. Die Bibliothek:
 
 1. legt eine `Trip`-Zeile an, falls fehlend
 2. erzeugt oder aktualisiert `TripDay`-Zeilen je Kalendertag der Aufnahmezeit
-3. legt ein automatisches Ereignis pro Tag an (Medienzähler)
-4. schlägt Orte vor, wenn der Tag noch keine Orte hat
-5. löscht leere Auto-Tage ohne manuelle Texte oder Orte
+3. legt Tag-Abschnitte mit Mitgliedern für unzugeordnete, nicht geparkte Medien an
+4. legt ein automatisches Ereignis pro Tag an (Medienzähler)
+5. schlägt Orte vor, wenn der Tag noch keine Orte hat
+6. löscht leere Auto-Tage und leere Auto-Tag-Abschnitte ohne Text
 
-Die Timeline-UI mischt **Reiseabschnitte** (`trip_sections` / `section_members`)
-und **Tage** (früher Resttage). Der Typ ist in der Oberfläche **Tag**, **Transfer**
-oder **Aufenthalt**; gespeichert bleiben `stay` und `movement`, Tage ohne Abschnitt.
-Neu angelegte Abschnitte sind `PendingSectionSpec` (negative `local_id`) bis
-Timeline-Speichern. Overlay `apply_pending_sections` ist Vorschau.
+Die Timeline-UI zeigt **Tage**, **Transfers** und **Aufenthalte** als
+`trip_sections` mit `section_members`. Beim Index-Abgleich werden unzugeordnete,
+nicht geparkte Medien dem Auto-Tag ihres Aufnahmedatums zugeordnet. Geparkte
+Medien liegen im Medienpool: in der Timeline und auf der Medienseite eine
+einblendbare rechte Spalte über die volle Höhe (Pfeil rechts außen wie die
+Navigation, keine Abschnittskarte). Einklappen merkt die Breite (`pool_width`
+in `config.json`) und stellt sie beim Ausklappen wieder her; ein/aus ist
+`timeline_pool_visible`. Unabhängig von Tag, Transfer und
+Aufenthalt. Wird die Spalte breiter gezogen, liegen die Vorschaubilder mehrspaltig.
+Drag & Drop aus dem Pool auf einen gespeicherten Tag, Transfer oder Aufenthalt
+ordnet die Medien dort zu (`move_members`, `parked` wird aufgehoben).
+Die Medienseite zeigt denselben Bestand als zwei Bereiche: links
+Reise-Medien, rechts den Medienpool — jeweils mit Alle / Favoriten /
+Reserve / Aussortiert. Mehrfachauswahl wie in der Timeline (erster und letzter
+Klick füllen den Bereich, Strg+Klick nimmt Löcher raus). Ziehen legt Medien
+in den Pool oder zurück in die Galerie. Bewertung und Zugehörigkeit
+(Abschnitt vs. Pool) sind unabhängig.
+Jede Mitgliedschaft
+trägt eine **Journal-Zeit** (`section_members.journal_at`, initial die Aufnahmezeit
+inkl. Zeitzonenname). Die Timeline sortiert und gruppiert nach dieser Uhr;
+`captured_at` bleibt das Original. Verschieben setzt nur `journal_at`. Ein Tag
+folgt magnetisch dem Kalendertag der Journal-Zeit. Auflösen eines Aufenthalts
+oder Transfers erzeugt Tage nach Journal-Zeit. **Originalzeit** kopiert
+`captured_at` zurück. Medien ohne GPS erben eine Anzeigeposition: Aufenthalt
+live vom Ort/Cover, Tag als Snapshot vom Cover-Pin, Transfer entlang des Tracks
+bei Journal-Zeit. Beim Verschieben auf einen Abschnitt kann der Benutzer
+Original-GPS auf der Karte behalten oder die Abschnittsposition übernehmen
+(`journal_latitude`/`journal_longitude`, mehrere Medien versetzt). Originale
+GPS-Felder werden dabei nicht geschrieben.
 
 `TimelineView._has_unsaved_work` steuert den Speichern-Button: aktiv bei
 `_pending`, dirty Reisetitel, dirty Titel/Notizen oder dirty YouTube
@@ -116,8 +142,8 @@ Eintrags-Titelbilder (`cover_source_file_id`, Foto oder GPS-Track) und
 Anzeigedrehung (`rotation_degrees`) überleben Re-Sync bzw. Re-Import.
 Der Reisetitel (`trips.title`) folgt zuerst dem Projektnamen; nach manueller
 Eingabe in der Timeline (`origin=manual`) überschreibt der Abgleich ihn nicht.
-Fotos gehören über `captured_at` zu einem Tag; das Flag `used_in_journal`
-ändert die Zugehörigkeit nicht.
+Fotos gehören über `journal_at` (Mitgliedschaft) zu einem Tag; `captured_at`
+ändert die Zugehörigkeit nicht. Das Flag `used_in_journal` ebenfalls nicht.
 
 YouTube-URLs werden nur mit Timeline-Speichern persistiert.
 DHV-Leonardo-URLs am IGC-Track und an gespeicherten Tagen/Abschnitten
@@ -130,18 +156,26 @@ gespeicherten Einträgen) und öffnet den Medieninspektor. Bewertungen auf der
 Medienseite gelten in der Timeline; Änderungen aktualisieren Timeline, Karte
 und Galerie.
 
-Der Medieninspektor blättert in der Sequenz des Tags/Abschnitts (bzw. der
-Medienseite), zoomt mit dem Mausrad, dreht die Anzeige in 90°-Schritten und
-ändert Originale nicht. Reiter Alle/Favoriten/Reserve/Aussortiert (Timeline und
-Medienseite) wechseln nur per Klick, nicht durch Mausrad.
+Der Medieninspektor blättert in der Sequenz des Tags/Abschnitts bzw. des
+Medienpools (oder der Medienseite), zoomt mit dem Mausrad, dreht die Anzeige in 90°-Schritten und
+ändert Originale nicht. Reiter Alle/Favoriten/Reserve/Aussortiert (Timeline-Abschnitte,
+Medien-Galerie und Pool) wechseln nur per Klick, nicht durch Mausrad. Pool ist
+kein Filterregister, sondern ein Mediencontainer: auf der Timeline und der
+Medienseite die einblendbare rechte Spalte (Pfeil rechts außen wie die Navigation),
+jeweils mit eigenem Bewertungsregister (`pool_media_tab`, unabhängig von
+`timeline_media_tab`). Die Breite überlebt Einklappen und steht in `pool_width`.
+Aussortierte Medien erscheinen nur unter Aussortiert, nicht in Favoriten oder Reserve.
+Im Register Alle blendet die Checkbox **Aussortierte anzeigen** sie ein (Standard aus,
+`show_rejected_in_all` in `config.json`).
 
 ## Karte
 
 `build_map_scene` (delegiert an `build_map_overview`) und `build_map_timeline`
 in `travelcore.maps.groups` bauen die Übersicht: ein Titelbild je gespeichertem
 Tag, Transfer oder Aufenthalt
-(`cover_source_file_id`, sonst das erste Foto mit GPS, sonst der erste GPS-Track). Position ist
-die Cover-GPS, sonst der Schwerpunkt der geotaggten Mitglieder. Unsaved
+(`cover_source_file_id`, sonst das erste Foto mit Kartenposition, sonst der erste GPS-Track). Position ist
+die Journal-Anzeigeposition des Covers (`display_latitude`, sonst Original-GPS), sonst der Schwerpunkt der
+Mitglieder mit Anzeigeposition. Detailmarker und -reihenfolge folgen `section_members` und `journal_at`. Unsaved
 Pending-Abschnitte erscheinen nicht auf der Karte. Zwischen **Tag- und Aufenthaltskreisen**
 in Timeline-Reihenfolge liegen `StayLink`-Polylinien mit Richtungsmarker (gleiche
 Positionen wie die runden Cover). Transfer-Kreise sind keine Endpunkte. Bei
@@ -217,6 +251,9 @@ SQLAlchemy 2, Alembic, eine SQLite-Datei je Projekt. Migrationen:
 - `009_photo_sort_status` – `photos.sort_status`
 - `010_entry_cover` – `cover_source_file_id` an Tag und Abschnitt
 - `011_rotation_degrees` – `source_files.rotation_degrees` (Anzeigedrehung)
+- `012_drop_overnight_stays` – Übernachtungen entfernt
+- `013_day_sections_parked` – Tag als Abschnitt, `source_files.parked`
+- `014_section_member_journal` – Journal-Zeit und geerbte Position an `section_members`
 
 ## Windows-Paketierung
 
