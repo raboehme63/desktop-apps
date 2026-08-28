@@ -2858,6 +2858,7 @@ def test_map_timeline_strip_centers_first_card() -> None:
         cover_dest_rect,
         hexagon_cut,
         nearest_card_index,
+        section_card_menu_items,
         transfer_hexagon_path,
     )
 
@@ -2947,6 +2948,17 @@ def test_map_timeline_strip_centers_first_card() -> None:
     assert titles == ["Eins", "Zwei", "Drei", "Ohne Ort"]
     assert strip._widgets[3].card.needs_pin is True
     assert strip._widgets[0].card.needs_pin is False
+    assert section_card_menu_items(strip._widgets[0].card) == (
+        ("Platzieren", False),
+        ("Verschieben", True),
+        ("Zentrieren", True),
+    )
+    assert section_card_menu_items(strip._widgets[3].card) == (
+        ("Platzieren", True),
+        ("Verschieben", False),
+        ("Zentrieren", False),
+    )
+    assert section_card_menu_items(strip._widgets[2].card) == ()
     assert strip.show_reserve() is False
     assert strip._widgets[0].card.visible_counts(show_reserve=False) == (2, 1, 2, 3)
     strip.set_show_reserve(True)

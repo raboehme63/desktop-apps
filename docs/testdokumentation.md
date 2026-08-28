@@ -324,7 +324,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_map_view_refresh_uses_disk_cache_without_rebuild` | `tests/test_gui_smoke.py` | MapView zeigt Cache; Leiste unter dem WebView |
 | `test_publish_map_display_writes_unique_file` | `tests/test_gui_smoke.py` | WebEngine lädt eine neue HTML-Kopie nach Rebuild |
 | `test_map_view_applies_prepared_result_when_shown` | `tests/test_gui_smoke.py` | Hintergrund-Karte wird beim Öffnen der Seite übernommen |
-| `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Leiste zentriert; Transfer-Sechseck; Zähler Fotos/Tracks/IGC/YouTube; Plus zwischen Karten |
+| `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Leiste zentriert; Transfer-Sechseck; Zähler; Plus; Rechtsklick Platzieren/Verschieben/Zentrieren |
 | `test_inspector_map_opens_thumbnail_then_original_on_double_click` | `tests/test_gui_smoke.py` | Inspektor: Vorschau, Doppelklick Original |
 
 ### 4.10 Timeline — FA-014, FA-060 bis FA-063, FA-080 bis FA-082
@@ -691,7 +691,9 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Leiste: Transfer-Karte | liegendes Sechseck, gleiche Größe wie Rechteckkarten; Schrift etwas kleiner |
 | Leiste: Fokus | nur die zentrierte Karte in voller Größe, die anderen etwas kleiner |
 | Leiste: Abschnitt ohne Position | roter Rand |
-| Rechtsklick auf eine gespeicherte Abschnittskarte, **Platzieren**, Klick in die Karte | Fadenkreuz-Cursor; der Ort liegt am Abschnitt; roter Rand verschwindet, Kreis erscheint; Zoom und Ausschnitt bleiben |
+| Rechtsklick auf eine gespeicherte Abschnittskarte ohne Ort, **Platzieren**, Klick in die Karte | Fadenkreuz-Cursor; der Ort liegt am Abschnitt; roter Rand verschwindet, Kreis erscheint; Zoom und Ausschnitt bleiben |
+| Rechtsklick, **Verschieben**, Klick in die Karte | Fadenkreuz; der Kreis liegt an der neuen Position; Zoom und Ausschnitt bleiben |
+| Rechtsklick, **Zentrieren** | Karte schwenkt und zoomt auf den Kreis |
 | Leiste: Titelbild | füllt die Kartenfläche ohne sichtbare Ränder |
 | Leiste: Zähler oben | Fotos, GPX-Tracks, IGC (Gleitschirm), YouTube-Logo als Symbol+Zahl; Reserve nur bei Zahnrad-Option |
 | Einfachklick auf eine Leistenkarte | Karte zentriert, Zoom bleibt; rechts der Tagebucheintrag, nach Edit Speichern/Abbrechen/Verwerfen; YouTube-Thumbs unten rechts auf der Karte übereinander (erster Link unten) |

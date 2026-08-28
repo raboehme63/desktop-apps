@@ -40,6 +40,21 @@ CARD_RADIUS = 22
 CARD_IDLE_SCALE = 0.70
 HEXAGON_CUT_RATIO = 0.28
 _FOCUS_DELAY_MS = 180
+COVER_FOCUS_ZOOM = 14
+
+
+def section_card_menu_items(card: MapTimelineCard) -> tuple[tuple[str, bool], ...]:
+    """Right-click actions for a saved section card: place, move, or zoom to the cover."""
+
+    kind, raw = parse_group_key(card.group_key)
+    if kind != "section" or not isinstance(raw, int) or raw <= 0:
+        return ()
+    placed = not card.needs_pin
+    return (
+        ("Platzieren", not placed),
+        ("Verschieben", placed),
+        ("Zentrieren", placed),
+    )
 
 
 def cover_dest_rect(target: QRectF, pixmap_width: float, pixmap_height: float) -> QRectF:
@@ -94,6 +109,7 @@ class _CardWidget(QFrame):
     clicked = Signal(str)
     open_requested = Signal(str)
     place_requested = Signal(str)
+    zoom_requested = Signal(str)
 
     def __init__(self, card: MapTimelineCard, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -258,14 +274,22 @@ class _CardWidget(QFrame):
         super().mouseDoubleClickEvent(event)
 
     def _show_card_menu(self, global_pos: QPoint) -> None:
-        kind, raw = parse_group_key(self.card.group_key)
-        if kind != "section" or not isinstance(raw, int) or raw <= 0:
+        items = section_card_menu_items(self.card)
+        if not items:
             return
         menu = QMenu(self)
-        action = menu.addAction("Platzieren")
+        for label, enabled in items:
+            action = menu.addAction(label)
+            action.setEnabled(enabled)
         chosen = menu.exec(global_pos)
-        if chosen is action:
+        if chosen is None:
+            return
+        label = chosen.text()
+        if label in {"Platzieren", "Verschieben"}:
             self.place_requested.emit(self.card.group_key)
+            return
+        if label == "Zentrieren":
+            self.zoom_requested.emit(self.card.group_key)
 
     def _include_reserve(self) -> bool:
         strip = self._strip()
@@ -284,6 +308,7 @@ class MapTimelineStrip(QScrollArea):
     focus_changed = Signal(str)
     open_in_timeline = Signal(str)
     place_requested = Signal(str)
+    zoom_requested = Signal(str)
     add_between = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -383,6 +408,7 @@ class MapTimelineStrip(QScrollArea):
             widget.clicked.connect(self.center_on)
             widget.open_requested.connect(self.open_in_timeline.emit)
             widget.place_requested.connect(self.place_requested.emit)
+            widget.zoom_requested.connect(self.zoom_requested.emit)
             self._widgets.append(widget)
             self._row.addWidget(widget, 0, Qt.AlignmentFlag.AlignVCenter)
         self._row.addWidget(self._right_pad)

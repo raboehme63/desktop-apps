@@ -1619,6 +1619,53 @@ def _overview_script(
         }});
       }} catch (err) {{}}
     }};
+    window.traveljournalZoomToCover = function(lat, lon, key, zoom) {{
+      window.traveljournalKeepFocus = true;
+      if (savedView) {{
+        stopPhotoRotate();
+        focusedPhotoId = null;
+        detail.clearLayers();
+        coneLayer.clearLayers();
+        spiderLineLayer.clearLayers();
+        spiderMarkerLayer.clearLayers();
+        coneSpecs = [];
+        photoEntries = [];
+        window._tjPhotoCluster = null;
+        lastDetailPayload = null;
+        if (!map.hasLayer(covers)) {{
+          map.addLayer(covers);
+        }}
+        savedView = null;
+        setCloseVisible(false);
+        drawStayLinks();
+        if (window.tjBridge && window.tjBridge.sectionClosed) {{
+          window.tjBridge.sectionClosed();
+        }}
+      }}
+      if (typeof lat !== 'number' || typeof lon !== 'number') {{
+        return;
+      }}
+      var targetZoom = typeof zoom === 'number' ? zoom : 14;
+      try {{
+        if (map.stop) {{
+          map.stop();
+        }}
+        map.setView(L.latLng(lat, lon), targetZoom, {{
+          animate: true,
+          pan: {{animate: true}},
+          zoom: {{animate: true}}
+        }});
+        covers.eachLayer(function(layer) {{
+          var el = (layer.getElement && layer.getElement()) || layer._icon;
+          var node = el && el.querySelector ? el.querySelector('.tj-cover') : null;
+          if (!node || !node.classList) {{
+            return;
+          }}
+          var on = key && node.getAttribute('data-group-key') === key;
+          node.classList.toggle('tj-focused', on);
+        }});
+      }} catch (err) {{}}
+    }};
     window.traveljournalShowDetail = function(payload) {{
       renderDetail(payload, false);
     }};

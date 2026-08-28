@@ -207,6 +207,7 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
     assert "doubleClickZoom.disable" in text
     assert "covers.getBounds" in text
     assert "traveljournalFocusCover" in text
+    assert "traveljournalZoomToCover" in text
     assert "map.unproject(point" in text
     assert "animate: true" in text
     assert "traveljournalOverlayPad" in text

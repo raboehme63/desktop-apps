@@ -199,7 +199,7 @@ Tag, Transfer oder Aufenthalt
 (`cover_source_file_id`, sonst das erste Foto mit Kartenposition, sonst der erste GPS-Track, sonst der Abschnitts-Pin). Position ist
 die Journal-Anzeigeposition des Covers (`display_latitude`, sonst Original-GPS), sonst der Schwerpunkt der
 Mitglieder mit Anzeigeposition, sonst `pin_latitude`/`pin_longitude`. Detailmarker und -reihenfolge folgen `section_members` und `journal_at`. Abschnitte ohne Koordinate bleiben in der
-Leiste mit rotem Rand; Rechtsklick **Platzieren** setzt den Pin per Kartenklick, Zoom und Ausschnitt bleiben. Unsaved
+Leiste mit rotem Rand. Rechtsklick **Platzieren** / **Verschieben** (Fadenkreuz, Zoom bleibt) bzw. **Zentrieren** (schwenkt und zoomt auf den Kreis). Unsaved
 Pending-Abschnitte erscheinen nicht auf der Karte. Zwischen **Tag- und Aufenthaltskreisen**
 in Timeline-Reihenfolge liegen `StayLink`-Polylinien mit Richtungsmarker (gleiche
 Positionen wie die runden Cover). Transfer-Kreise sind keine Endpunkte. Bei

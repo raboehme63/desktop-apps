@@ -34,7 +34,7 @@ from traveljournal.widgets.entry_links import (
     MAP_YOUTUBE_THUMB_SIZE,
     YouTubeThumbsRow,
 )
-from traveljournal.widgets.map_timeline import MapTimelineStrip
+from traveljournal.widgets.map_timeline import COVER_FOCUS_ZOOM, MapTimelineStrip
 from traveljournal.widgets.media_inspector import MediaInspectorWindow
 
 try:
@@ -673,6 +673,7 @@ class MapView(QWidget):
         self._place_view: tuple[float, float, float] | None = None
         self._placed_strip_key = ""
         self._placing_key = ""
+        self._placing_move = False
         self._pending_detail_key = ""
         self._pending_detail_media = 0
         self._notes_group_key = ""
@@ -693,7 +694,7 @@ class MapView(QWidget):
         self._subtitle = QLabel(
             "Titelbilder der Tage, Transfers und Aufenthalte. "
             "Einfachklick in der Leiste zentriert, Doppelklick öffnet den Eintrag in der Timeline. "
-            "Abschnitte ohne Position haben einen roten Rand; Rechtsklick → Platzieren."
+            "Rechtsklick auf eine Abschnittskarte: Platzieren, Verschieben oder Zentrieren."
         )
         self._subtitle.setObjectName("pageSubtitle")
         self._subtitle.setWordWrap(True)
@@ -772,6 +773,7 @@ class MapView(QWidget):
         self._timeline.focus_changed.connect(self._on_timeline_focus)
         self._timeline.open_in_timeline.connect(self.open_in_timeline.emit)
         self._timeline.place_requested.connect(self._start_place_mode)
+        self._timeline.zoom_requested.connect(self._zoom_to_cover)
         self._timeline.add_between.connect(self.insert_section.emit)
         self._web_host = QWidget()
         self._web_layout = QVBoxLayout(self._web_host)
@@ -847,6 +849,7 @@ class MapView(QWidget):
         self._place_view = None
         self._placed_strip_key = ""
         self._placing_key = ""
+        self._placing_move = False
         self._pending_detail_key = ""
         self._pending_detail_media = 0
         self._clear_entry_panel()
@@ -1227,24 +1230,32 @@ class MapView(QWidget):
         kind, raw = parse_group_key(group_key)
         if kind != "section" or not isinstance(raw, int) or raw <= 0:
             return
+        card = self._timeline.card(group_key)
         self._placing_key = group_key
+        self._placing_move = card is not None and not card.needs_pin
         if self._web is not None:
             self._web.setCursor(Qt.CursorShape.CrossCursor)
             self._web.page().runJavaScript(_CAPTURE_VIEW_JS, self._store_place_view)
         self._run_js("if (window.traveljournalSetPlaceMode) traveljournalSetPlaceMode(true);")
-        self.status_message.emit("Klick auf die Karte setzt den Ort. Esc bricht ab.")
+        if self._placing_move:
+            self.status_message.emit("Klick auf die Karte verschiebt den Ort. Esc bricht ab.")
+        else:
+            self.status_message.emit("Klick auf die Karte setzt den Ort. Esc bricht ab.")
 
     def _cancel_place_mode(self) -> None:
         was_placing = bool(self._placing_key)
+        moving = self._placing_move
         self._placing_key = ""
+        self._placing_move = False
         self._run_js("if (window.traveljournalSetPlaceMode) traveljournalSetPlaceMode(false);")
         if self._web is not None:
             self._web.unsetCursor()
         if was_placing:
-            self.status_message.emit("Platzieren abgebrochen.")
+            self.status_message.emit("Verschieben abgebrochen." if moving else "Platzieren abgebrochen.")
 
     def _on_map_place(self, latitude: float, longitude: float) -> None:
         key = self._placing_key
+        moving = self._placing_move
         if not key:
             return
         kind, raw = parse_group_key(key)
@@ -1257,6 +1268,7 @@ class MapView(QWidget):
             QMessageBox.warning(self, "Karte", str(exc))
             return
         self._placing_key = ""
+        self._placing_move = False
         self._run_js("if (window.traveljournalSetPlaceMode) traveljournalSetPlaceMode(false);")
         if self._web is not None:
             self._web.unsetCursor()
@@ -1268,7 +1280,26 @@ class MapView(QWidget):
             self.refresh(force=True)
         else:
             self._web.page().runJavaScript(_CAPTURE_VIEW_JS, self._refresh_after_place)
-        self.status_message.emit("Ort dem Abschnitt zugeordnet.")
+        self.status_message.emit("Ort verschoben." if moving else "Ort dem Abschnitt zugeordnet.")
+
+    def _zoom_to_cover(self, group_key: str) -> None:
+        card = self._timeline.card(group_key)
+        if card is None or card.latitude is None or card.longitude is None:
+            return
+        self._timeline.center_on(group_key, emit=False)
+        payload = json.dumps(
+            {
+                "lat": card.latitude,
+                "lon": card.longitude,
+                "key": group_key,
+                "zoom": COVER_FOCUS_ZOOM,
+            },
+            ensure_ascii=True,
+        )
+        self._run_js(
+            "(function(p){if(window.traveljournalZoomToCover)"
+            "traveljournalZoomToCover(p.lat,p.lon,p.key,p.zoom);})(" + payload + ");"
+        )
 
     def _on_timeline_focus(self, group_key: str) -> None:
         previous = self._notes_group_key
