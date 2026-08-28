@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, QObject, QSize, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QRadioButton,
     QScrollArea,
     QSplitter,
     QTableWidget,
@@ -33,6 +35,7 @@ from travelcore.config import AppSettings
 from travelcore.database.models import FileError, SourceFile
 from travelcore.exceptions import ProjectError
 from travelcore.media.indexer import IndexResult
+from travelcore.media.purge import SourceSyncPlan
 from travelcore.media.thumbnails import cached_thumbnail_path
 from travelcore.media.types import FileKind
 from traveljournal.services.workers import IndexLoadRunnable, IndexRunnable
@@ -85,7 +88,9 @@ class ImportView(QWidget):
             "Quellverzeichnis rekursiv durchsuchen. Aufnahmezeit und GPS aus Metadaten; "
             "Fotos ohne Koordinaten werden zeitlich mit GPX- und IGC-Tracks abgeglichen. "
             "Klick oder Mouseover zeigt Vorschau und Metadaten. "
-            "IGC-Flüge: Pilot aus dem Log; DHV-Leonardo-Link per Doppelklick."
+            "IGC-Flüge: Pilot aus dem Log; DHV-Leonardo-Link per Doppelklick. "
+            "Synchronisieren entfernt fehlende Dateien aus dem Tagebuch und fragt, "
+            "ob neue Medien in die Timeline oder in den Pool sollen."
         )
         subtitle.setObjectName("pageSubtitle")
         subtitle.setWordWrap(True)
@@ -104,9 +109,16 @@ class ImportView(QWidget):
         analyze.setObjectName("primary")
         analyze.clicked.connect(self._start_import)
         self._analyze_button = analyze
+        sync = QPushButton("Synchronisieren")
+        sync.setToolTip(
+            "Fehlende Dateien aus dem Tagebuch entfernen; neue Medien in die Timeline oder den Pool legen"
+        )
+        sync.clicked.connect(self._start_sync)
+        self._sync_button = sync
         picker_layout.addWidget(self.path_edit, 1)
         picker_layout.addWidget(browse)
         picker_layout.addWidget(analyze)
+        picker_layout.addWidget(sync)
         root.addWidget(picker)
 
         self.progress = QProgressBar()
@@ -386,24 +398,70 @@ class ImportView(QWidget):
             self.path_edit.setText(directory)
 
     def _start_import(self) -> None:
+        path = self._ready_source_path()
+        if path is None:
+            return
+        self._run_index(path)
+
+    def _start_sync(self) -> None:
+        path = self._ready_source_path()
+        if path is None:
+            return
+        try:
+            plan = self.workspace.plan_source_sync(path)
+        except ProjectError as exc:
+            QMessageBox.warning(self, "Synchronisieren", str(exc))
+            return
+        if plan.new_count == 0 and plan.missing_count == 0:
+            QMessageBox.information(
+                self,
+                "Synchronisieren",
+                "Keine neuen und keine fehlenden Dateien. "
+                "Unveränderte Dateien können Sie mit „Dateien analysieren“ nachziehen.",
+            )
+            return
+        dialog = SourceSyncDialog(plan, parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self._run_index(path, remove_missing=True, park_new_media=dialog.park_new_media())
+
+    def _ready_source_path(self) -> Path | None:
         if self.workspace.current is None:
             QMessageBox.information(self, "Import", "Bitte zuerst ein Projekt anlegen oder öffnen.")
-            return
+            return None
         source = self.path_edit.text().strip()
         if not source:
             QMessageBox.information(self, "Import", "Bitte ein Quellverzeichnis wählen.")
-            return
+            return None
         path = Path(source)
         if not path.is_dir():
             QMessageBox.warning(self, "Import", "Das gewählte Verzeichnis existiert nicht.")
-            return
+            return None
         if self._busy:
+            return None
+        return path
+
+    def _run_index(
+        self,
+        path: Path,
+        *,
+        remove_missing: bool = False,
+        park_new_media: bool = False,
+    ) -> None:
+        opened = self.workspace.current
+        if opened is None:
             return
         self._busy = True
         self._analyze_button.setEnabled(False)
+        self._sync_button.setEnabled(False)
         self.progress.setValue(0)
         self.progress.setFormat("Verzeichnis wird durchsucht…")
-        worker = IndexRunnable(self.workspace.current, path)
+        worker = IndexRunnable(
+            opened,
+            path,
+            remove_missing=remove_missing,
+            park_new_media=park_new_media,
+        )
         worker.signals.progress.connect(self._on_progress)
         worker.signals.files_ready.connect(self._on_files_ready)
         worker.signals.finished.connect(self._on_finished)
@@ -424,13 +482,15 @@ class ImportView(QWidget):
     def _on_finished(self, result: object) -> None:
         self._busy = False
         self._analyze_button.setEnabled(True)
+        self._sync_button.setEnabled(True)
         self._list_refresh.stop()
         if not isinstance(result, IndexResult):
             return
         self.progress.setValue(self.progress.maximum())
         summary = (
             f"Import fertig: {result.indexed} neu, {result.updated} aktualisiert, "
-            f"{result.skipped_unchanged} unverändert, {result.positions_matched} Positionen aus Track, "
+            f"{result.skipped_unchanged} unverändert, {result.removed} entfernt, "
+            f"{result.positions_matched} Positionen aus Track, "
             f"{result.positions_unmatched} ohne Ort, "
             f"{result.thumbnails_written} Vorschaubilder, {result.errors} Fehler"
         )
@@ -446,6 +506,7 @@ class ImportView(QWidget):
     def _on_failed(self, message: str) -> None:
         self._busy = False
         self._analyze_button.setEnabled(True)
+        self._sync_button.setEnabled(True)
         self._list_refresh.stop()
         self.refresh()
         self.progress.setFormat("Import fehlgeschlagen")
@@ -718,3 +779,76 @@ class FlightLinkDialog(QDialog):
 
     def url_value(self) -> str:
         return self.url_edit.text().strip()
+
+
+def _sync_name_line(count: int, names: tuple[str, ...], *, empty: str, nonempty: str) -> str:
+    if count <= 0:
+        return empty
+    shown = ", ".join(names)
+    extra = count - len(names)
+    sample = f"{shown} …" if extra > 0 else shown
+    return nonempty.format(count=count, sample=sample)
+
+
+class SourceSyncDialog(QDialog):
+    """Confirm purge of missing files and choose Timeline vs Pool for new media."""
+
+    def __init__(self, plan: SourceSyncPlan, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Synchronisieren")
+        self.resize(520, 280)
+        root = QVBoxLayout(self)
+        intro = QLabel(
+            "Das Quellverzeichnis wird mit dem Tagebuch abgeglichen. "
+            "Originaldateien bleiben unverändert."
+        )
+        intro.setWordWrap(True)
+        root.addWidget(intro)
+        new_line = _sync_name_line(
+            plan.new_count,
+            plan.new_names,
+            empty="Keine neuen Dateien.",
+            nonempty="{count} neue Dateien ({sample}).",
+        )
+        missing_line = _sync_name_line(
+            plan.missing_count,
+            plan.missing_names,
+            empty="Keine fehlenden Dateien.",
+            nonempty=(
+                "{count} Dateien sind nicht mehr im Ordner ({sample}) "
+                "und werden aus dem Tagebuch entfernt (Timeline, Pool, Vorschaubilder)."
+            ),
+        )
+        new_label = QLabel(new_line)
+        new_label.setWordWrap(True)
+        missing_label = QLabel(missing_line)
+        missing_label.setWordWrap(True)
+        missing_label.setObjectName("pageSubtitle")
+        root.addWidget(new_label)
+        root.addWidget(missing_label)
+        self._timeline = QRadioButton("In die Timeline (Tage nach Aufnahmezeit)", self)
+        self._pool = QRadioButton("In den Medienpool", self)
+        self._timeline.setChecked(True)
+        group = QButtonGroup(self)
+        group.addButton(self._timeline)
+        group.addButton(self._pool)
+        dest = QLabel("Neue Medien")
+        dest.setObjectName("pageSubtitle")
+        root.addWidget(dest)
+        root.addWidget(self._timeline)
+        root.addWidget(self._pool)
+        has_new = plan.new_count > 0
+        dest.setVisible(has_new)
+        self._timeline.setVisible(has_new)
+        self._pool.setVisible(has_new)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Synchronisieren")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Abbrechen")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+    def park_new_media(self) -> bool:
+        return self._pool.isChecked() and not self._pool.isHidden()

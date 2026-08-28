@@ -11,26 +11,17 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from travelcore.config import AppSettings
-from travelcore.database.models import (
-    FileError,
-    GpsTrack,
-    Photo,
-    PhotoAnalysis,
-    Project,
-    SimilarityGroupMember,
-    SourceFile,
-    TextNote,
-    Video,
-)
+from travelcore.database.models import FileError, Project, SourceFile
 from travelcore.exceptions import MetadataError, ProjectError
 from travelcore.gps.ingest import ingest_gps_tracks
 from travelcore.gps.match import DERIVED_SOURCES
 from travelcore.media.extract import ExtractRequest, FileFacts, extract_many, init_extract_worker
 from travelcore.media.hashing import sha256_file
+from travelcore.media.purge import purge_source_files
 from travelcore.media.scanner import ScannedFile, is_skipped_source_path, scan_source_directory
 from travelcore.media.thumbnails import ensure_photo_and_video_rows, generate_project_thumbnails
 from travelcore.media.types import FileKind
@@ -72,7 +63,9 @@ class IndexResult:
     positions_unmatched: int = 0
     thumbnails_written: int = 0
     thumbnails_skipped: int = 0
+    removed: int = 0
     media_changed: bool = False
+    new_media_ids: list[int] = field(default_factory=list)
     by_kind: dict[str, int] = field(default_factory=dict)
 
 
@@ -92,6 +85,7 @@ class IndexContext:
     checkpoint_every: int = _DEFAULT_CHECKPOINT_EVERY
     project_dir: Path | None = None
     generate_thumbnails: bool = True
+    remove_missing: bool = False
     gps_delta: int = 120
     scanned_files: list[ScannedFile] = field(default_factory=list)
     existing: dict[str, SourceFile] = field(default_factory=dict)
@@ -140,6 +134,7 @@ class FileIndexer:
         progress: ProgressCallback | None = None,
         project_dir: Path | None = None,
         generate_thumbnails: bool = True,
+        remove_missing: bool = False,
         checkpoint: CheckpointCallback | None = None,
         checkpoint_every: int = _DEFAULT_CHECKPOINT_EVERY,
     ) -> IndexResult:
@@ -177,6 +172,7 @@ class FileIndexer:
             checkpoint_every=checkpoint_every,
             project_dir=project_dir,
             generate_thumbnails=generate_thumbnails,
+            remove_missing=remove_missing,
             gps_delta=gps_delta,
             stored=stored,
         )
@@ -354,7 +350,7 @@ class FileIndexer:
         scanned: ScannedFile,
         existing: SourceFile | None,
         facts: FileFacts | None,
-    ) -> tuple[str, bool]:
+    ) -> tuple[str, bool, SourceFile]:
         if facts is not None and facts.io_error:
             raise OSError(facts.io_error)
 
@@ -371,7 +367,7 @@ class FileIndexer:
                 existing.status = "ok"
                 existing.error_message = None
                 metadata_error = self._apply_facts(session, project, existing, scanned, facts)
-                return "skipped", metadata_error
+                return "skipped", metadata_error, existing
 
         digest = _digest_from_facts(facts, scanned, self.compute_hash)
         now = datetime.now(tz=UTC)
@@ -395,7 +391,7 @@ class FileIndexer:
             )
             session.add(row)
             metadata_error = self._apply_facts(session, project, row, scanned, facts)
-            return "indexed", metadata_error
+            return "indexed", metadata_error, row
 
         existing.filename = scanned.filename
         existing.file_kind = scanned.kind.value
@@ -409,7 +405,7 @@ class FileIndexer:
         existing.status = "ok"
         existing.error_message = None
         metadata_error = self._apply_facts(session, project, existing, scanned, facts)
-        return "updated", metadata_error
+        return "updated", metadata_error, existing
 
     def _apply_facts(
         self,
@@ -500,7 +496,17 @@ class ScanStage:
             row.path: row
             for row in ctx.session.scalars(select(SourceFile).where(SourceFile.project_id == ctx.project.id))
         }
-        _drop_skipped_source_files(ctx.session, ctx.existing)
+        thumbs_dir = (ctx.project_dir / "thumbnails") if ctx.project_dir is not None else None
+        _drop_skipped_source_files(ctx.session, ctx.existing, thumbs_dir=thumbs_dir)
+        if ctx.remove_missing:
+            scanned_paths = {str(item.path) for item in ctx.scanned_files}
+            missing = [row for path, row in list(ctx.existing.items()) if path not in scanned_paths]
+            ctx.result.removed = purge_source_files(
+                ctx.session,
+                missing,
+                existing=ctx.existing,
+                thumbs_dir=thumbs_dir,
+            )
 
 
 class ExtractStage:
@@ -530,6 +536,7 @@ class PersistStage:
         counts: Counter[str] = Counter()
         last_checkpoint = 0.0
         interval = max(ctx.checkpoint_every, 1)
+        new_media_rows: list[SourceFile] = []
 
         def maybe_checkpoint(index: int) -> None:
             nonlocal last_checkpoint
@@ -556,7 +563,7 @@ class PersistStage:
                     )
                 )
             try:
-                action, metadata_error = ctx.indexer._upsert_file(
+                action, metadata_error, row = ctx.indexer._upsert_file(
                     session,
                     project,
                     scanned,
@@ -565,6 +572,8 @@ class PersistStage:
                 )
                 if action == "indexed":
                     result.indexed += 1
+                    if scanned.kind != FileKind.TEXT:
+                        new_media_rows.append(row)
                 elif action == "updated":
                     result.updated += 1
                 else:
@@ -598,6 +607,7 @@ class PersistStage:
 
         result.by_kind = dict(counts)
         session.flush()
+        result.new_media_ids = [row.id for row in new_media_rows if row.id is not None]
 
 
 class GpsIngestStage:
@@ -665,26 +675,16 @@ def _unchanged(existing: SourceFile, scanned: ScannedFile) -> bool:
     return existing.sha256 is not None
 
 
-def _drop_skipped_source_files(session: Session, existing: dict[str, SourceFile]) -> int:
+def _drop_skipped_source_files(
+    session: Session,
+    existing: dict[str, SourceFile],
+    *,
+    thumbs_dir: Path | None = None,
+) -> int:
     """Remove previously indexed JPEG caches (thumbnails/) from the file index."""
 
     stale = [row for path, row in existing.items() if is_skipped_source_path(Path(path))]
-    if not stale:
-        return 0
-    ids = [row.id for row in stale]
-    photo_ids = list(session.scalars(select(Photo.id).where(Photo.source_file_id.in_(ids))))
-    if photo_ids:
-        session.execute(delete(PhotoAnalysis).where(PhotoAnalysis.photo_id.in_(photo_ids)))
-    session.execute(delete(Photo).where(Photo.source_file_id.in_(ids)))
-    session.execute(delete(Video).where(Video.source_file_id.in_(ids)))
-    session.execute(delete(SimilarityGroupMember).where(SimilarityGroupMember.source_file_id.in_(ids)))
-    session.execute(update(GpsTrack).where(GpsTrack.source_file_id.in_(ids)).values(source_file_id=None))
-    session.execute(update(TextNote).where(TextNote.source_file_id.in_(ids)).values(source_file_id=None))
-    session.execute(delete(SourceFile).where(SourceFile.id.in_(ids)))
-    for row in stale:
-        existing.pop(row.path, None)
-    session.flush()
-    return len(ids)
+    return purge_source_files(session, stale, existing=existing, thumbs_dir=thumbs_dir)
 
 
 def _project_dir_from_session(session: Session) -> Path | None:

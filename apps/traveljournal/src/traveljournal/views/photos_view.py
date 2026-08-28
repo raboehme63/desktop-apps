@@ -438,6 +438,7 @@ class PhotosView(QWidget):
         )
         window.rating_changed.connect(self._on_inspector_rating)
         window.rotation_changed.connect(self._on_inspector_rating)
+        window.park_changed.connect(self._on_inspector_park)
         window.show()
         window.raise_()
         window.activateWindow()
@@ -453,6 +454,15 @@ class PhotosView(QWidget):
         ]
         self._apply_filters()
         self.rating_changed.emit(item)
+
+    def _on_inspector_park(self, item: object) -> None:
+        if not isinstance(item, GalleryItem):
+            return
+        self.refresh()
+        if item.parked:
+            self._pool_collapse.set_visible(True)
+        self.rating_changed.emit(item)
+        self.status_message.emit("Medium im Pool." if item.parked else "Medium zurück in der Galerie.")
 
     def apply_media_rating(self, item: object) -> None:
         """Take a rating from the map or Timeline into the already loaded gallery."""

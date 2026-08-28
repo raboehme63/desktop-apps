@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
-from PySide6.QtCore import QDate, QDateTime, QPoint, Qt, QTime, QTimer, Signal
+from PySide6.QtCore import QDate, QDateTime, QEvent, QObject, QPoint, QRect, Qt, QTime, QTimer, Signal
 from PySide6.QtGui import (
+    QColor,
     QDragEnterEvent,
     QDragLeaveEvent,
     QDragMoveEvent,
     QDropEvent,
+    QPainter,
+    QPaintEvent,
+    QPen,
     QPixmap,
+    QPolygon,
     QResizeEvent,
     QShowEvent,
     QTextOption,
@@ -21,6 +26,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QDateEdit,
     QDateTimeEdit,
     QDialog,
     QDialogButtonBox,
@@ -35,8 +41,11 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QScrollBar,
     QSizePolicy,
     QSplitter,
+    QStyle,
+    QStyleOptionSlider,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -50,7 +59,9 @@ from travelcore.media.gallery import (
     effective_sort_status,
 )
 from travelcore.media.types import FileKind
+from travelcore.project_settings import DEFAULT_STAY_LINK_COLOR
 from travelcore.timeline.build import apply_pending_sections
+from travelcore.timeline.journal import calendar_key
 from travelcore.timeline.links import (
     normalize_leonardo_url,
     parse_leonardo_urls,
@@ -63,9 +74,11 @@ from travelcore.timeline.sections import (
     KIND_MOVEMENT,
     KIND_STAY,
     expand_range_selection,
+    format_scroll_date,
     format_section_span,
     parse_modes,
     serialize_modes,
+    span_for_manual_dates,
 )
 from travelcore.timeline.types import (
     PendingSectionSpec,
@@ -97,14 +110,65 @@ from traveljournal.widgets.media_tabs import (
 )
 from traveljournal.widgets.pool_pane import PoolCollapse, PoolPane
 
-_REVEAL_TOP_PAD = 12
+_REVEAL_TOP_PAD = 0
+_REVEAL_RETRY_MS = (0, 32, 80, 160, 320)
 
 
 def scroll_offset_to_widget_top(host: QWidget, child: QWidget, *, padding: int = _REVEAL_TOP_PAD) -> int:
-    """Scrollbar value that puts ``child``'s top at the top of the scroll host."""
+    """Scrollbar value that puts ``child``'s top flush with the top of the scroll host."""
 
     top = child.mapTo(host, QPoint(0, 0)).y()
     return max(0, top - padding)
+
+
+def scroll_delta_to_widget_top(child: QWidget, viewport: QWidget, *, padding: int = _REVEAL_TOP_PAD) -> int:
+    """How much to add to the scrollbar so ``child``'s top sits at the viewport top."""
+
+    return child.mapTo(viewport, QPoint(0, 0)).y() - padding
+
+
+def span_index_at_mid(spans: list[tuple[int, int]], mid: int) -> int | None:
+    """Index of the span that contains ``mid``, else the nearest by center."""
+
+    if not spans:
+        return None
+    for index, (top, bottom) in enumerate(spans):
+        if top <= mid < bottom:
+            return index
+    best = 0
+    best_dist = abs((spans[0][0] + spans[0][1]) / 2 - mid)
+    for index, (top, bottom) in enumerate(spans[1:], start=1):
+        dist = abs((top + bottom) / 2 - mid)
+        if dist < best_dist:
+            best = index
+            best_dist = dist
+    return best
+
+
+def timeline_center_date(blocks: list[EntryWidget], host: QWidget, mid_y: int) -> str | None:
+    """Date of the section that occupies vertical host coordinate ``mid_y``."""
+
+    if not blocks:
+        return None
+    spans: list[tuple[int, int]] = []
+    for block in blocks:
+        top = block.mapTo(host, QPoint(0, 0)).y()
+        spans.append((top, top + block.height()))
+    index = span_index_at_mid(spans, mid_y)
+    if index is None:
+        return None
+    return blocks[index].scroll_date()
+
+
+def _scrollbar_slider_rect(bar: QScrollBar) -> QRect:
+    opt = QStyleOptionSlider()
+    bar.initStyleOption(opt)
+    return bar.style().subControlRect(
+        QStyle.ComplexControl.CC_ScrollBar,
+        opt,
+        QStyle.SubControl.SC_ScrollBarSlider,
+        bar,
+    )
 
 
 _MODE_LABELS = (
@@ -118,6 +182,42 @@ _MODE_LABELS = (
     ("other", "Sonstiges"),
 )
 _COVER_HEAD = 72
+_TIMELINE_JOIN_H = 56
+_TIMELINE_JOIN_LINE = 5
+
+
+class TimelineJoin(QWidget):
+    """Vertical timeline spine between cards, with a downward arrow."""
+
+    def __init__(self, color: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("timelineJoin")
+        self._color = QColor(color)
+        if not self._color.isValid():
+            self._color = QColor(DEFAULT_STAY_LINK_COLOR)
+        self.setFixedHeight(_TIMELINE_JOIN_H)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+
+    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        cx = self.width() // 2
+        tip_y = self.height() - 6
+        shaft_end = tip_y - 12
+        painter.setPen(QPen(self._color, _TIMELINE_JOIN_LINE, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        painter.drawLine(cx, 2, cx, shaft_end)
+        arrow = QPolygon(
+            [
+                QPoint(cx, tip_y),
+                QPoint(cx - 10, shaft_end - 2),
+                QPoint(cx + 10, shaft_end - 2),
+            ]
+        )
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(self._color)
+        painter.drawPolygon(arrow)
 
 
 class TimelineView(QWidget):
@@ -134,6 +234,7 @@ class TimelineView(QWidget):
         self._pending_youtube: dict[tuple[str, int], list[str]] = {}
         self._next_pending_id = -1
         self._blocks: list[EntryWidget] = []
+        self._joins: list[TimelineJoin] = []
         self._loading = False
         self._applying_range = False
         self._excluded_ids: set[int] = set()
@@ -168,10 +269,12 @@ class TimelineView(QWidget):
 
         self._subtitle = QLabel(
             "Tage, Transfers und Aufenthalte chronologisch untereinander. "
-            "Typ je Karte ändern, oder Objekte markieren und einen Abschnitt anlegen. "
+            "Typ je Karte ändern, Objekte markieren und einen Abschnitt anlegen, "
+            "oder ohne Auswahl einen leeren Abschnitt mit Datum erzeugen "
+            "(Tag: am, Aufenthalt/Transfer: von–bis). "
+            "⋯-Menü löscht einen Abschnitt; die Medien landen im Pool. "
             "Erstes und letztes Objekt anklicken — alles dazwischen wird mitmarkiert. "
             "Strg+Klick nimmt einzelne Objekte dazwischen wieder raus. "
-            "Die Zeitspanne kommt aus den gewählten Dateien. "
             "Pfeil rechts außen klappt den Medienpool ein und aus; die Breite bleibt erhalten."
         )
         self._subtitle.setObjectName("pageSubtitle")
@@ -222,17 +325,39 @@ class TimelineView(QWidget):
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._host = QWidget()
         self._host_layout = QVBoxLayout(self._host)
         self._host_layout.setContentsMargins(0, 0, 8, 0)
-        self._host_layout.setSpacing(16)
+        self._host_layout.setSpacing(0)
         self._empty = QLabel("Bitte ein Projekt öffnen.")
         self._empty.setObjectName("pageSubtitle")
         self._empty.setWordWrap(True)
         self._host_layout.addWidget(self._empty)
-        self._host_layout.addStretch(1)
+        self._tail = QWidget(self._host)
+        self._tail.setObjectName("timelineRevealTail")
+        self._host_layout.addWidget(self._tail)
         self._scroll.setWidget(self._host)
+        self._preserve_scroll = True
+        self._revealing = False
+        self._scroll_slider_down = False
+        self._scroll_date = QLabel(self._scroll)
+        self._scroll_date.setObjectName("timelineScrollDate")
+        self._scroll_date.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._scroll_date.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._scroll_date.hide()
+        self._scroll_hide = QTimer(self)
+        self._scroll_hide.setSingleShot(True)
+        self._scroll_hide.setInterval(900)
+        self._scroll_hide.timeout.connect(self._scroll_date.hide)
+        bar = self._scroll.verticalScrollBar()
+        bar.valueChanged.connect(self._on_timeline_scroll)
+        bar.actionTriggered.connect(self._on_scroll_action)
+        bar.sliderPressed.connect(self._on_scroll_slider_pressed)
+        bar.sliderReleased.connect(self._on_scroll_slider_released)
+        bar.rangeChanged.connect(self._on_scroll_range_changed)
+        self._scroll.installEventFilter(self)
         self._pool_pane = PoolPane(workspace=self.workspace)
         self._pool_pane.unpark_requested.connect(self._unpark_selected)
         self._pool_pane.item_rating_changed.connect(self._on_item_rating)
@@ -393,11 +518,7 @@ class TimelineView(QWidget):
         scroll = self._scroll.verticalScrollBar().value()
         self._host.setUpdatesEnabled(False)
         try:
-            for block in self._blocks:
-                block.hide()
-                self._host_layout.removeWidget(block)
-                block.deleteLater()
-            self._blocks.clear()
+            self._clear_entry_rows()
             if self.workspace.current is None:
                 self._empty.setVisible(True)
                 self._empty.setText("Bitte ein Projekt öffnen.")
@@ -420,7 +541,13 @@ class TimelineView(QWidget):
                 self._empty.setVisible(False)
             has_sections = bool(self._snapshot.sections) if self._snapshot is not None else False
             insert_at = max(self._host_layout.count() - 1, 0)
-            for entry in entries:
+            join_color = self._join_color()
+            for index, entry in enumerate(entries):
+                if index:
+                    join = TimelineJoin(join_color, self._host)
+                    self._joins.append(join)
+                    self._host_layout.insertWidget(insert_at, join)
+                    insert_at += 1
                 override = None
                 if entry.section is not None:
                     override = self._pending_youtube.get(("section", entry.section.id))
@@ -436,6 +563,8 @@ class TimelineView(QWidget):
                 )
                 block.selection_changed.connect(self._on_block_selection_changed)
                 block.dissolve_requested.connect(self._dissolve_section)
+                block.delete_requested.connect(self._delete_section)
+                block.span_requested.connect(self._edit_section_span)
                 block.journal_changed.connect(self._on_journal_changed)
                 block.kind_changed.connect(lambda kind, widget=block: self._change_entry_kind(widget, kind))
                 block.media_tab_changed.connect(self._on_block_media_tab)
@@ -455,8 +584,25 @@ class TimelineView(QWidget):
             self._loading = False
             self._excluded_ids.clear()
             self._displayed_selection = set(self._selected_source_ids())
-            self._scroll.verticalScrollBar().setValue(scroll)
+            self._sync_reveal_tail()
+            if self._preserve_scroll:
+                self._scroll.verticalScrollBar().setValue(scroll)
+            self._preserve_scroll = True
             self._update_save_button()
+
+    def _clear_entry_rows(self) -> None:
+        for widget in (*self._blocks, *self._joins):
+            widget.hide()
+            self._host_layout.removeWidget(widget)
+            widget.deleteLater()
+        self._blocks.clear()
+        self._joins.clear()
+
+    def _join_color(self) -> str:
+        try:
+            return self.workspace.map_link_color()
+        except ProjectError:
+            return DEFAULT_STAY_LINK_COLOR
 
     def _parked_items(self) -> list[GalleryItem]:
         if self.workspace.current is None:
@@ -465,7 +611,12 @@ class TimelineView(QWidget):
 
     def _update_create_button(self) -> None:
         has_selection = bool(self._selected_source_ids())
-        self._create_button.setEnabled(has_selection)
+        self._create_button.setEnabled(self._snapshot is not None)
+        self._create_button.setToolTip(
+            "Ausgewählte Medien in einem neuen Abschnitt zusammenfassen"
+            if has_selection
+            else "Leeren Abschnitt mit Datum (Tag: am, Aufenthalt/Transfer: von–bis) anlegen"
+        )
         self._park_button.setEnabled(has_selection)
         self._journal_button.setEnabled(has_selection)
         self._reset_button.setEnabled(has_selection)
@@ -476,6 +627,7 @@ class TimelineView(QWidget):
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
         super().resizeEvent(event)
         self._pool_collapse.place()
+        self._sync_reveal_tail()
 
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802
         super().showEvent(event)
@@ -543,6 +695,7 @@ class TimelineView(QWidget):
         window = MediaInspectorWindow(item, items=sequence, workspace=self.workspace, parent=self.window())
         window.rating_changed.connect(self._on_item_rating)
         window.rotation_changed.connect(self._on_item_rating)
+        window.park_changed.connect(self._on_inspector_park)
         window.show()
         window.raise_()
         window.activateWindow()
@@ -559,6 +712,15 @@ class TimelineView(QWidget):
             return
         for inspector in parent.findChildren(MediaInspectorWindow):
             inspector.sync_from_item(item)
+
+    def _on_inspector_park(self, item: object) -> None:
+        if not isinstance(item, GalleryItem):
+            return
+        self.refresh()
+        self.timeline_changed.emit()
+        if item.parked:
+            self._set_pool_visible(True)
+        self.status_message.emit("Medium im Pool." if item.parked else "Medium zurück in der Timeline.")
 
     def _selected_source_ids(self) -> list[int]:
         ids: list[int] = []
@@ -606,16 +768,18 @@ class TimelineView(QWidget):
 
     def _create_section(self) -> None:
         source_ids = self._selected_source_ids()
-        if not source_ids:
-            QMessageBox.information(self, "Timeline", "Bitte zuerst Objekte in den Medienrastern auswählen.")
-            return
         if not self._commit_if_dirty():
             return
-        items = self._selected_items()
-        dialog = NewSectionDialog(items, self)
+        if source_ids:
+            items = self._selected_items()
+            dialog = NewSectionDialog(items, self)
+        else:
+            dialog = EmptySectionDialog(self._default_section_date(), self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         payload = dialog.values()
+        started = payload.get("started_at")
+        ended = payload.get("ended_at")
         self._pending.append(
             PendingSectionSpec(
                 local_id=self._next_pending_id,
@@ -627,11 +791,21 @@ class TimelineView(QWidget):
                 location_name=payload.get("location_name"),
                 location_from=payload.get("location_from"),
                 location_to=payload.get("location_to"),
+                started_at=started if isinstance(started, datetime) else None,
+                ended_at=ended if isinstance(ended, datetime) else None,
             )
         )
         self._next_pending_id -= 1
         self._apply_pending_view()
         self.status_message.emit("Reiseabschnitt angelegt. Speichern, sonst geht er verloren.")
+
+    def _default_section_date(self) -> date:
+        if self._snapshot is not None:
+            for entry in reversed(self._snapshot.entries):
+                key = calendar_key(entry.started_at)
+                if key is not None:
+                    return key
+        return date.today()
 
     def _dissolve_section(self, section_id: int) -> bool:
         box = QMessageBox(self)
@@ -659,6 +833,75 @@ class TimelineView(QWidget):
         self.timeline_changed.emit()
         self.status_message.emit("Reiseabschnitt aufgelöst.")
         return True
+
+    def _delete_section(self, section_id: int) -> bool:
+        pending = section_id < 0
+        box = QMessageBox(self)
+        box.setWindowTitle("Reiseabschnitt löschen")
+        if pending:
+            box.setText("Diesen noch nicht gespeicherten Abschnitt verwerfen?")
+        else:
+            box.setText("Diesen Reiseabschnitt löschen? Alle Medien landen im Medienpool.")
+        box.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
+        box.button(QMessageBox.StandardButton.Ok).setText("OK")
+        box.button(QMessageBox.StandardButton.Cancel).setText("Abbrechen")
+        if box.exec() != QMessageBox.StandardButton.Ok:
+            return False
+        self._pending_youtube.pop(("section", section_id), None)
+        if pending:
+            self._pending = [spec for spec in self._pending if spec.local_id != section_id]
+            self._apply_pending_view()
+            self.status_message.emit("Reiseabschnitt verworfen.")
+            return True
+        try:
+            self.workspace.delete_section(section_id)
+        except ProjectError as exc:
+            QMessageBox.warning(self, "Timeline", str(exc))
+            return False
+        self.refresh()
+        self.timeline_changed.emit()
+        self.status_message.emit("Reiseabschnitt gelöscht. Medien liegen im Pool.")
+        self._set_pool_visible(True)
+        return True
+
+    def _edit_section_span(self, section_id: int) -> None:
+        section = self._section_by_id(section_id)
+        if section is None:
+            return
+        dialog = SectionSpanDialog(section.kind, section.started_at, section.ended_at, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        started, ended = dialog.span()
+        done = "Datum gesetzt." if section.kind == KIND_DAY else "Zeitraum gesetzt."
+        if section_id < 0:
+            self._sync_pending_from_widgets()
+            for spec in self._pending:
+                if spec.local_id != section_id:
+                    continue
+                spec.started_at = started
+                spec.ended_at = ended
+                break
+            self._apply_pending_view()
+            self.status_message.emit(f"{done} Speichern, sonst geht die Änderung verloren.")
+            return
+        if not self._commit_if_dirty():
+            return
+        try:
+            self.workspace.set_section_span(section_id, started, ended)
+        except ProjectError as exc:
+            QMessageBox.warning(self, "Timeline", str(exc))
+            return
+        self.refresh()
+        self.timeline_changed.emit()
+        self.status_message.emit(done)
+
+    def _section_by_id(self, section_id: int) -> TimelineSection | None:
+        if self._snapshot is None:
+            return None
+        for entry in self._snapshot.entries:
+            if entry.section is not None and entry.section.id == section_id:
+                return entry.section
+        return None
 
     def _park_selected(self) -> None:
         ids = self._selected_source_ids()
@@ -840,15 +1083,20 @@ class TimelineView(QWidget):
         self.status_message.emit("Abschnittstyp geändert.")
 
     def reveal_group(self, group_key: str) -> None:
-        """Scroll so the matching day or section starts at the top of the list."""
+        """Scroll so the matching day or section sits flush under the timeline toolbar."""
 
         self.ensure_loaded()
         block = self._block_for_group_key(group_key)
         if block is None:
             return
         self._pending_reveal = block
-        QTimer.singleShot(0, self._apply_pending_reveal)
-        QTimer.singleShot(32, self._apply_pending_reveal)
+        for delay in _REVEAL_RETRY_MS:
+            QTimer.singleShot(delay, self._apply_pending_reveal)
+
+    def begin_reveal(self) -> None:
+        """Skip restoring the old scrollbar position on the next refresh."""
+
+        self._preserve_scroll = False
 
     def _block_for_group_key(self, group_key: str) -> EntryWidget | None:
         kind, ident = parse_group_key(group_key)
@@ -863,14 +1111,96 @@ class TimelineView(QWidget):
 
     def _apply_pending_reveal(self) -> None:
         block = self._pending_reveal
-        if block is None or block not in self._blocks:
+        if block is None or block not in self._blocks or self._revealing:
             return
-        host = self._scroll.widget()
-        if host is None:
+        viewport = self._scroll.viewport()
+        bar = self._scroll.verticalScrollBar()
+        self._revealing = True
+        try:
+            self._sync_reveal_tail()
+            delta = scroll_delta_to_widget_top(block, viewport)
+            if delta == 0:
+                return
+            bar.setValue(max(0, min(bar.maximum(), bar.value() + delta)))
+        finally:
+            self._revealing = False
+
+    def _sync_reveal_tail(self) -> None:
+        extra = max(0, self._scroll.viewport().height() - 24)
+        self._tail.setMinimumHeight(extra)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
+        scroll = getattr(self, "_scroll", None)
+        if scroll is not None and watched is scroll and event.type() == QEvent.Type.Resize:
+            self._place_scroll_date()
+        return super().eventFilter(watched, event)
+
+    def _on_scroll_slider_pressed(self) -> None:
+        self._pending_reveal = None
+        self._scroll_slider_down = True
+        self._scroll_hide.stop()
+        self._sync_scroll_date(show=True)
+
+    def _on_scroll_action(self, _action: int) -> None:
+        self._pending_reveal = None
+
+    def _on_scroll_slider_released(self) -> None:
+        self._scroll_slider_down = False
+        self._scroll_hide.start()
+
+    def _on_timeline_scroll(self, _value: int = 0) -> None:
+        if self._revealing:
+            return
+        self._sync_scroll_date(show=True)
+        if not self._scroll_slider_down:
+            self._scroll_hide.start()
+
+    def _on_scroll_range_changed(self, *_args: int) -> None:
+        if self._pending_reveal is not None:
+            self._apply_pending_reveal()
+        if not self._scroll_date.isHidden():
+            self._place_scroll_date()
+
+    def _sync_scroll_date(self, *, show: bool) -> None:
+        if self._loading or not show:
+            self._scroll_date.hide()
             return
         bar = self._scroll.verticalScrollBar()
-        value = scroll_offset_to_widget_top(host, block)
-        bar.setValue(min(value, bar.maximum()))
+        host = self._scroll.widget()
+        viewport = self._scroll.viewport()
+        if not self._blocks or bar.maximum() <= 0 or host is None:
+            self._scroll_date.hide()
+            return
+        mid_y = bar.value() + viewport.height() // 2
+        text = timeline_center_date(self._blocks, host, mid_y)
+        if not text:
+            self._scroll_date.hide()
+            return
+        self._scroll_date.setText(text)
+        self._scroll_date.adjustSize()
+        self._scroll_date.show()
+        self._place_scroll_date()
+
+    def _place_scroll_date(self) -> None:
+        if self._scroll_date.isHidden():
+            return
+        bar = self._scroll.verticalScrollBar()
+        handle = _scrollbar_slider_rect(bar)
+        if not handle.isValid() or handle.height() <= 0:
+            return
+        label = self._scroll_date
+        label.adjustSize()
+        bar_origin = bar.mapTo(self._scroll, QPoint(0, 0))
+        handle_center = bar.mapTo(self._scroll, handle.center())
+        anchor_x = bar_origin.x()
+        if anchor_x <= 0:
+            anchor_x = self._scroll.viewport().width()
+        x = anchor_x - label.width()
+        y = handle_center.y() - label.height() // 2
+        y = max(0, min(y, self._scroll.height() - label.height()))
+        x = max(0, min(x, self._scroll.width() - label.width()))
+        label.move(x, y)
+        label.raise_()
 
     def _selected_items(self) -> list[GalleryItem]:
         items: list[GalleryItem] = []
@@ -994,6 +1324,8 @@ class TimelineView(QWidget):
                     youtube_urls=list(spec.youtube_urls),
                     leonardo_urls=list(spec.leonardo_urls),
                     cover_source_file_id=spec.cover_source_file_id,
+                    started_at=spec.started_at,
+                    ended_at=spec.ended_at,
                 )
         except ProjectError as exc:
             QMessageBox.warning(self, "Timeline", str(exc))
@@ -1045,6 +1377,8 @@ class TimelineView(QWidget):
 class EntryWidget(QFrame):
     selection_changed = Signal()
     dissolve_requested = Signal(int)
+    delete_requested = Signal(int)
+    span_requested = Signal(int)
     journal_changed = Signal()
     kind_changed = Signal(str)
     media_tab_changed = Signal(int)
@@ -1083,6 +1417,7 @@ class EntryWidget(QFrame):
             cover_id = section.cover_source_file_id
             title_ph = "Titel des Abschnitts"
             notes_ph = "Tagebucheintrag für diesen Abschnitt"
+            self._center_date = format_scroll_date(section.started_at, section.ended_at)
         elif day is not None:
             self._kind = "day"
             self._entity_id = day.id
@@ -1095,6 +1430,9 @@ class EntryWidget(QFrame):
             cover_id = day.cover_source_file_id
             title_ph = "Titel des Tages"
             notes_ph = "Tagebucheintrag — aus importierten Texten vorbefüllt"
+            self._center_date = (
+                day.date.strftime("%d.%m.%Y") if day.date is not None else "Ohne Datum"
+            )
         else:
             self._kind = "day"
             self._entity_id = 0
@@ -1104,6 +1442,7 @@ class EntryWidget(QFrame):
             items = ()
             title_ph = "Titel"
             notes_ph = ""
+            self._center_date = "Ohne Datum"
         self._db_youtube_urls = list(youtube)
         self._youtube_urls = list(youtube if youtube_override is None else youtube_override)
         self._leonardo_urls = list(leonardo)
@@ -1133,6 +1472,13 @@ class EntryWidget(QFrame):
         if self._kind == "section" and self._entity_id > 0:
             sort_action = self._entry_menu.addAction("Nach Journal-Zeit sortieren")
             sort_action.triggered.connect(self._sort_by_journal)
+        if self._kind == "section":
+            span_label = "Datum…" if self._entry_kind == KIND_DAY else "Zeitraum…"
+            span_action = self._entry_menu.addAction(span_label)
+            span_action.triggered.connect(self._request_span)
+            self._entry_menu.addSeparator()
+            delete_action = self._entry_menu.addAction("Löschen…")
+            delete_action.triggered.connect(self._request_delete)
         self._menu_button.clicked.connect(self._popup_entry_menu)
         heading_row = QHBoxLayout()
         heading_row.setContentsMargins(0, 0, 0, 0)
@@ -1282,6 +1628,9 @@ class EntryWidget(QFrame):
 
     def entity_id(self) -> int:
         return self._entity_id
+
+    def scroll_date(self) -> str:
+        return self._center_date
 
     def accepts_pool_drop(self) -> bool:
         return self._kind == "section" and self._entity_id > 0
@@ -1516,6 +1865,12 @@ class EntryWidget(QFrame):
     def _request_dissolve(self) -> None:
         self.dissolve_requested.emit(self._entity_id)
 
+    def _request_delete(self) -> None:
+        self.delete_requested.emit(self._entity_id)
+
+    def _request_span(self) -> None:
+        self.span_requested.emit(self._entity_id)
+
     def _request_open_on_map(self) -> None:
         if self._entity_id <= 0:
             return
@@ -1664,6 +2019,164 @@ class NewSectionDialog(QDialog):
             "location_from": (self.location_from.text().strip() or None) if movement else None,
             "location_to": (self.location_to.text().strip() or None) if movement else None,
         }
+
+
+class EmptySectionDialog(QDialog):
+    def __init__(self, initial: date, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Neuer Reiseabschnitt")
+        self._form = QFormLayout(self)
+        self.kind = QComboBox()
+        self.kind.addItem("Tag", KIND_DAY)
+        self.kind.addItem("Aufenthalt", KIND_STAY)
+        self.kind.addItem("Transfer", KIND_MOVEMENT)
+        self.kind.currentIndexChanged.connect(self._sync_kind)
+        self.mode = ModePicker(self)
+        self.title_edit = QLineEdit()
+        self.title_edit.setPlaceholderText("z. B. Besuch von Berlin")
+        self.location_name = QLineEdit()
+        self.location_name.setPlaceholderText("Ort des Aufenthalts")
+        self.location_from = QLineEdit()
+        self.location_from.setPlaceholderText("von")
+        self.location_to = QLineEdit()
+        self.location_to.setPlaceholderText("nach")
+        self.date_edit = QDateEdit(self)
+        self.date_edit.setCalendarPopup(True)
+        self.date_edit.setDisplayFormat("dd.MM.yyyy")
+        self.date_edit.setDate(QDate(initial.year, initial.month, initial.day))
+        self.from_edit = QDateEdit(self)
+        self.from_edit.setCalendarPopup(True)
+        self.from_edit.setDisplayFormat("dd.MM.yyyy")
+        self.from_edit.setDate(self.date_edit.date())
+        self.until_edit = QDateEdit(self)
+        self.until_edit.setCalendarPopup(True)
+        self.until_edit.setDisplayFormat("dd.MM.yyyy")
+        self.until_edit.setDate(self.date_edit.date())
+        self._form.addRow("Typ", self.kind)
+        self._form.addRow("Transfer per", self.mode)
+        self._form.addRow("Titel", self.title_edit)
+        self._form.addRow("Am", self.date_edit)
+        self._form.addRow("Von Datum", self.from_edit)
+        self._form.addRow("Bis Datum", self.until_edit)
+        self._form.addRow("Ort", self.location_name)
+        self._form.addRow("Von", self.location_from)
+        self._form.addRow("Nach", self.location_to)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._try_accept)
+        buttons.rejected.connect(self.reject)
+        self._form.addRow(buttons)
+        self._sync_kind()
+
+    def _set_row_visible(self, field: QWidget, visible: bool) -> None:
+        field.setVisible(visible)
+        label = self._form.labelForField(field)
+        if label is not None:
+            label.setVisible(visible)
+
+    def _sync_kind(self) -> None:
+        kind = self.kind.currentData()
+        movement = kind == KIND_MOVEMENT
+        stay = kind == KIND_STAY
+        tag = kind == KIND_DAY
+        self._set_row_visible(self.mode, movement)
+        self._set_row_visible(self.location_from, movement)
+        self._set_row_visible(self.location_to, movement)
+        self._set_row_visible(self.location_name, stay)
+        self._set_row_visible(self.date_edit, tag)
+        self._set_row_visible(self.from_edit, not tag)
+        self._set_row_visible(self.until_edit, not tag)
+
+    def _try_accept(self) -> None:
+        try:
+            self.values()
+        except ProjectError as exc:
+            QMessageBox.warning(self, "Reiseabschnitt", str(exc))
+            return
+        self.accept()
+
+    def values(self) -> dict[str, object]:
+        kind = str(self.kind.currentData())
+        if kind == KIND_DAY:
+            started, ended = span_for_manual_dates(kind, _date_from_edit(self.date_edit))
+        else:
+            started, ended = span_for_manual_dates(
+                kind, _date_from_edit(self.from_edit), _date_from_edit(self.until_edit)
+            )
+        movement = kind == KIND_MOVEMENT
+        return {
+            "kind": kind,
+            "mode": self.mode.serialized() if movement else None,
+            "title": self.title_edit.text().strip() or None,
+            "notes": None,
+            "location_name": None if kind != KIND_STAY else (self.location_name.text().strip() or None),
+            "location_from": (self.location_from.text().strip() or None) if movement else None,
+            "location_to": (self.location_to.text().strip() or None) if movement else None,
+            "started_at": started,
+            "ended_at": ended,
+        }
+
+
+class SectionSpanDialog(QDialog):
+    """Edit Tag (am) or Stay/Transfer (von–bis) without changing originals."""
+
+    def __init__(
+        self,
+        kind: str,
+        started_at: datetime | None,
+        ended_at: datetime | None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._kind = kind
+        start = calendar_key(started_at) or date.today()
+        end = calendar_key(ended_at) or start
+        self.setWindowTitle("Datum" if kind == KIND_DAY else "Zeitraum")
+        self._form = QFormLayout(self)
+        self.date_edit = QDateEdit(self)
+        self.date_edit.setCalendarPopup(True)
+        self.date_edit.setDisplayFormat("dd.MM.yyyy")
+        self.date_edit.setDate(QDate(start.year, start.month, start.day))
+        self.from_edit = QDateEdit(self)
+        self.from_edit.setCalendarPopup(True)
+        self.from_edit.setDisplayFormat("dd.MM.yyyy")
+        self.from_edit.setDate(QDate(start.year, start.month, start.day))
+        self.until_edit = QDateEdit(self)
+        self.until_edit.setCalendarPopup(True)
+        self.until_edit.setDisplayFormat("dd.MM.yyyy")
+        self.until_edit.setDate(QDate(end.year, end.month, end.day))
+        if kind == KIND_DAY:
+            self._form.addRow("Am", self.date_edit)
+        else:
+            self._form.addRow("Von", self.from_edit)
+            self._form.addRow("Bis", self.until_edit)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._try_accept)
+        buttons.rejected.connect(self.reject)
+        self._form.addRow(buttons)
+
+    def _try_accept(self) -> None:
+        try:
+            self.span()
+        except ProjectError as exc:
+            QMessageBox.warning(self, self.windowTitle(), str(exc))
+            return
+        self.accept()
+
+    def span(self) -> tuple[datetime, datetime]:
+        if self._kind == KIND_DAY:
+            return span_for_manual_dates(self._kind, _date_from_edit(self.date_edit))
+        return span_for_manual_dates(
+            self._kind, _date_from_edit(self.from_edit), _date_from_edit(self.until_edit)
+        )
+
+
+def _date_from_edit(edit: QDateEdit) -> date:
+    chosen = edit.date()
+    return date(chosen.year(), chosen.month(), chosen.day())
 
 
 def _section_heading(section: TimelineSection) -> str:

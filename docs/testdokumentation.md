@@ -101,7 +101,7 @@ Hilfsmodul: `packages/travelcore/tests/jpeg_fixtures.py`. GPX-Hilfen: `gpx_fixtu
 
 ## 4. Abbildungsmatrix Pflichtenheft → automatisierte Tests
 
-Stand nach `pytest --collect-only`: **307 Tests** (28. August 2026). Neue Tests sind ergänzend zu führen, nicht still zu löschen.
+Stand nach `pytest --collect-only`: **332 Tests** (28. August 2026). Neue Tests sind ergänzend zu führen, nicht still zu löschen.
 
 ### 4.1 Dateitypen und Scan — FA-010 bis FA-016
 
@@ -117,7 +117,7 @@ Stand nach `pytest --collect-only`: **307 Tests** (28. August 2026). Neue Tests 
 | `test_scan_finds_igc_flight_log` | `test_scanner.py` | IGC wird als GPS gefunden |
 | `test_scan_skips_thumbnail_jpegs` | `test_scanner.py` | `thumbnails/` und `cache/` nicht als Fotos |
 
-### 4.2 Index, Hash, Fehler — FA-020 bis FA-024, FA-095
+### 4.2 Index, Hash, Fehler — FA-020 bis FA-026, FA-095
 
 | Test | Datei | Prüft |
 | --- | --- | --- |
@@ -126,6 +126,10 @@ Stand nach `pytest --collect-only`: **307 Tests** (28. August 2026). Neue Tests 
 | `test_different_files_differ` | `test_hashing.py` | unterschiedliche Bytes |
 | `test_indexer_writes_source_files` | `test_indexer.py` | Foto+GPX im Index, SHA-256, Dateisystemzeit als Fallback |
 | `test_indexer_skips_unchanged_files` | `test_indexer.py` | zweiter Lauf zählt `skipped_unchanged` |
+| `test_plan_source_sync_counts_new_and_missing` | `test_indexer.py` | Diff neue vs. fehlende Dateien |
+| `test_indexer_keeps_missing_files_without_sync_flag` | `test_indexer.py` | Analyse löscht keine fehlenden Dateien |
+| `test_indexer_sync_removes_missing_photo_from_journal` | `test_indexer.py` | Sync: Index, Mitgliedschaft, Cover, Fehler, Thumb weg; Neue im Pool |
+| `test_indexer_sync_deletes_gps_track_for_missing_gpx` | `test_indexer.py` | fehlende GPX löscht Track und Punkte |
 | `test_corrupt_jpeg_does_not_abort_import` | `test_indexer.py` | kaputtes JPG erzeugt Fehlerzeile, gültiges JPG bleibt indexiert |
 | `test_indexer_checkpoint_commits_partial_progress` | `test_indexer.py` | Zwischenstände sind in einer zweiten Session sichtbar |
 | `test_extract_file_facts_hashes_and_reads_jpeg` | `test_extract.py` | Hash+EXIF ohne SQLite |
@@ -203,7 +207,7 @@ Stand nach `pytest --collect-only`: **307 Tests** (28. August 2026). Neue Tests 
 | `test_project_survives_close_and_reopen` | `tests/integration/test_project_lifecycle.py` | Index überlebt Re-Open |
 | `test_exporters_share_interface` | `test_interfaces.py` | HTML/PDF/LaTeX/CEWE sind `Exporter` |
 | `test_protocols_are_importable` | `test_interfaces.py` | `MetadataProvider`, `RankingStrategy`, `MapBackend` |
-| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R1.1.0, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister |
+| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R1.1.0, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren** |
 
 ### 4.7 GPX und zeitliche Zuordnung — FA-040 bis FA-042
 
@@ -248,6 +252,8 @@ Stand nach `pytest --collect-only`: **307 Tests** (28. August 2026). Neue Tests 
 | --- | --- | --- |
 | `test_ensure_thumbnail_writes_square_jpeg` | `test_thumbnails.py` | 32×32-JPEG, Original-mtime unverändert |
 | `test_ensure_thumbnail_skips_existing` | `test_thumbnails.py` | Cache wird nicht überschrieben |
+| `test_ensure_thumbnail_skips_huge_png` | `test_thumbnails.py` | PNG über der Pixelgrenze ohne Thumb |
+| `test_ensure_thumbnail_drafts_huge_jpeg` | `test_thumbnails.py` | JPEG über der Pixelgrenze per Draft |
 | `test_corrupt_jpeg_returns_none` | `test_thumbnails.py` | kein Absturz, keine Zieldatei |
 | `test_heic_uses_embedded_jpeg_preview` | `test_thumbnails.py` | Fake-HEIC mit JPEG-Payload |
 | `test_heic_jpeg_item_becomes_thumbnail` | `test_thumbnails.py` | HEIF-`jpeg`-Item über `iinf`/`iloc` |
@@ -305,6 +311,7 @@ Stand nach `pytest --collect-only`: **307 Tests** (28. August 2026). Neue Tests 
 | `test_pick_cover_item_uses_first_gps_track_without_photo_fix` | `test_maps.py` | ohne GPS-Foto erster GPS-Track |
 | `test_parse_group_key_accepts_section_day_and_loose` | `test_maps.py` | `section:` / `day:` / `loose:` |
 | `test_build_map_timeline_cards_from_section` | `test_maps.py` | Leistenkarten aus Abschnitt inkl. Text und YouTube |
+| `test_unplaced_section_gets_pin_cover` | `test_maps.py` | leerer Abschnitt ohne GPS, Pin wird Cover |
 | `test_stay_links_connect_days_and_stays_in_timeline_order` | `test_maps.py` | Linien zwischen Tag- und Aufenthaltskreisen in Timeline-Reihenfolge |
 | `test_stay_links_connect_leftover_days` | `test_maps.py` | Tage mit GPS werden verbunden |
 | `test_build_map_overview_links_leftover_days` | `test_maps.py` | Übersicht verbindet Tage mit GPS |
@@ -313,7 +320,7 @@ Stand nach `pytest --collect-only`: **307 Tests** (28. August 2026). Neue Tests 
 | `test_stay_links_skip_stays_without_gps` | `test_maps.py` | Aufenthalt ohne GPS ist kein Linienende |
 | `test_stay_link_hidden_when_covers_overlap` | `test_maps.py` | Linie unsichtbar, wenn Kreise sich überdecken |
 | `test_build_map_overview_links_consecutive_stays` | `test_maps.py` | Übersicht verbindet zwei Aufenthalte über einen Transfer |
-| `test_parse_map_bridge_url_reads_group_key` | `tests/test_gui_smoke.py` | Expand-URL und Konsolen-Bridge |
+| `test_parse_map_bridge_url_reads_group_key` | `tests/test_gui_smoke.py` | Expand-URL, Konsolen-Bridge, Platzieren-Konsole |
 | `test_map_view_refresh_uses_disk_cache_without_rebuild` | `tests/test_gui_smoke.py` | MapView zeigt Cache; Leiste unter dem WebView |
 | `test_publish_map_display_writes_unique_file` | `tests/test_gui_smoke.py` | WebEngine lädt eine neue HTML-Kopie nach Rebuild |
 | `test_map_view_applies_prepared_result_when_shown` | `tests/test_gui_smoke.py` | Hintergrund-Karte wird beim Öffnen der Seite übernommen |
@@ -345,15 +352,24 @@ Stand nach `pytest --collect-only`: **307 Tests** (28. August 2026). Neue Tests 
 | `test_date_and_title_from_filename` | `test_timeline_texts.py` | Datum im Dateinamen |
 | `test_combine_imported_texts_uses_first_title` | `test_timeline_texts.py` | mehrere Texte, erster Titel |
 
-### 4.11 Reiseabschnitte und Titelbild — FA-064 bis FA-067, FA-083
+### 4.11 Reiseabschnitte und Titelbild — FA-064 bis FA-067, FA-083, FA-084
 
 | Test | Datei | Prüft |
 | --- | --- | --- |
 | `test_expand_range_selection_fills_between_first_and_last` | `test_timeline_sections.py` | Bereich zwischen erstem und letztem Klick |
 | `test_parse_and_serialize_transfer_modes` | `test_timeline_sections.py` | Verkehrsmittel-Liste |
 | `test_format_section_span_uses_object_dates` | `test_timeline_sections.py` | `am …` / `von … bis …` |
+| `test_format_scroll_date_is_compact` | `test_timeline_sections.py` | kompaktes Datum am Timeline-Schieber |
 | `test_create_section_same_day_is_am` | `test_timeline_sections.py` | Aufenthalt am selben Kalendertag |
 | `test_dissolve_section_returns_files_to_day_sections` | `test_timeline_sections.py` | Auflösen → Tage nach Journal-Zeit |
+| `test_create_empty_section_uses_manual_date` | `test_timeline_sections.py` | leerer Abschnitt mit manuellem Datum |
+| `test_span_for_manual_dates_tag_and_range` | `test_timeline_sections.py` | Tag am, Aufenthalt/Transfer von–bis, Ende vor Start abgelehnt |
+| `test_create_empty_stay_keeps_von_bis_span` | `test_timeline_sections.py` | leerer Aufenthalt mit von–bis |
+| `test_empty_stays_sort_by_span_not_creation` | `test_timeline_sections.py` | leere Aufenthalte nach Spanne, `set_section_span` sortiert neu |
+| `test_set_section_span_snaps_tag_members` | `test_timeline_sections.py` | Tag-Datum ändert Journal-Tag der Medien |
+| `test_delete_section_parks_members_in_pool` | `test_timeline_sections.py` | Löschen legt Medien in den Pool |
+| `test_apply_pending_empty_section_keeps_manual_date` | `test_timeline_sections.py` | leere Pending-Vorschau mit Datum |
+| `test_apply_pending_empty_stay_keeps_range` | `test_timeline_sections.py` | leere Pending-Vorschau mit von–bis |
 | `test_set_journal_at_moves_clip_to_other_day` | `test_timeline_sections.py` | Journal-Zeit über Mitternacht wechselt den Tag |
 | `test_reset_journal_restores_original_day` | `test_timeline_sections.py` | Originalzeit stellt Aufnahmezeit und Tag wieder her |
 | `test_dissolve_after_journal_move_uses_journal_date` | `test_timeline_sections.py` | Auflösen nach Verschieben folgt Journal-Tag |
@@ -410,11 +426,13 @@ Stand nach `pytest --collect-only`: **307 Tests** (28. August 2026). Neue Tests 
 | `test_orient_image_applies_exif_then_user_rotation` | `test_orientation.py` | EXIF zuerst, dann Nutzer |
 | `test_can_rotate_photos_and_videos_not_tracks` | `test_orientation.py` | Tracks nicht drehbar |
 
-### 4.15 GUI-Rauch — FA-064, FA-082, FA-090, FA-102, FA-103, FA-105
+### 4.15 GUI-Rauch — FA-064, FA-082, FA-090, FA-092, FA-102, FA-103, FA-105
 
 | Test | Datei | Prüft |
 | --- | --- | --- |
 | `test_app_window_title_includes_version` | `tests/test_gui_smoke.py` | `Reisetagebuch R1.1.0` |
+| `test_source_sync_dialog_defaults_to_timeline` | `tests/test_gui_smoke.py` | Sync-Dialog: Timeline vorausgewählt, Pool wählbar |
+| `test_source_sync_dialog_hides_destination_without_new_files` | `tests/test_gui_smoke.py` | ohne neue Dateien keine Timeline/Pool-Wahl |
 | `test_entry_widget_separates_tracks_from_media` | `tests/test_gui_smoke.py` | getrennte Galerien |
 | `test_entry_widget_track_can_be_cover` | `tests/test_gui_smoke.py` | T-Chip auf Track |
 | `test_entry_widget_shows_cover_in_heading` | `tests/test_gui_smoke.py` | 72-px-Cover in der Karte |
@@ -434,7 +452,10 @@ Stand nach `pytest --collect-only`: **307 Tests** (28. August 2026). Neue Tests 
 | `test_timeline_save_button_only_when_dirty` | `tests/test_gui_smoke.py` | Speichern aktiv bei Reisetitel, Text, YouTube, Pending-Abschnitt; sonst inaktiv |
 | `test_timeline_leave_without_prompt_when_only_text_dirty` | `tests/test_gui_smoke.py` | `confirm_leave` ohne Dialog bei nur dirty Text |
 | `test_scroll_offset_to_widget_top_uses_host_not_page_chrome` | `tests/test_gui_smoke.py` | Reveal ignoriert Reisetitel über der Liste |
-| `test_reveal_group_puts_section_top_at_list_top` | `tests/test_gui_smoke.py` | Doppelklick scrollt Abschnittskopf an den Listenanfang |
+| `test_timeline_join_is_wide_downward_connector` | `tests/test_gui_smoke.py` | senkrechte Verbindungslinie zwischen Timeline-Karten |
+| `test_span_index_at_mid_contains_then_nearest` | `tests/test_gui_smoke.py` | mittlerer Abschnitt für den Schieber |
+| `test_timeline_scroll_date_follows_handle` | `tests/test_gui_smoke.py` | Datum klebt am Timeline-Schieber |
+| `test_reveal_group_puts_section_top_at_list_top` | `tests/test_gui_smoke.py` | Karten-Sprung setzt die Karten-Oberkante an die Viewport-Oberkante (nicht die Mitte); nachwachsen der vorherigen Karte bleibt bündig |
 | `test_gallery_rating_hotspots` | `tests/test_gui_smoke.py` | Bewertungs-Chips |
 | `test_pool_source_id_payload_roundtrip` | `tests/test_gui_smoke.py` | Pool-Drag MIME |
 | `test_gallery_wraps_to_multiple_columns_when_wide` | `tests/test_gui_smoke.py` | Galerie mehrspaltig |
@@ -442,12 +463,16 @@ Stand nach `pytest --collect-only`: **307 Tests** (28. August 2026). Neue Tests 
 | `test_timeline_map_anchor_uses_ordered_items_not_entry_attr` | `tests/test_gui_smoke.py` | GPS-Rückfrage ohne `entry`-Attribut |
 | `test_photos_view_multi_select_and_pool_drag` | `tests/test_gui_smoke.py` | Medien: Bereichsauswahl, Ziehen in den Pool und zurück |
 | `test_media_inspector_shows_original_and_ratings` | `tests/test_gui_smoke.py` | Inspektor mit Chips |
+| `test_media_inspector_parks_and_unparks_from_pool_button` | `tests/test_gui_smoke.py` | Inspektor: In den Pool / Zurückholen |
 | `test_media_inspector_rotates_display_without_writing_original` | `tests/test_gui_smoke.py` | Drehen, Original-mtime gleich |
 | `test_media_inspector_browses_section_sequence` | `tests/test_gui_smoke.py` | Blättern in der Sequenz |
+| `test_media_inspector_rating_advances_to_next_photo` | `tests/test_gui_smoke.py` | Bewertung im Inspektor springt zum nächsten Foto, letztes bleibt |
 | `test_inspector_keeps_photo_aspect_on_resize` | `tests/test_gui_smoke.py` | Eckgriff proportional |
 | `test_inspector_allows_free_window_resize` | `tests/test_gui_smoke.py` | Ränder frei |
 | `test_media_inspector_zoom_arrows_and_fit` | `tests/test_gui_smoke.py` | Zoom und Einpassen |
 | `test_youtube_links_dialog_add_and_delete` | `tests/test_gui_smoke.py` | YouTube-Dialog |
+| `test_empty_section_dialog_shows_am_or_von_bis` | `tests/test_gui_smoke.py` | leerer Abschnitt: Tag Am, Aufenthalt von–bis |
+| `test_section_span_dialog_tag_vs_range` | `tests/test_gui_smoke.py` | Datum… / Zeitraum… und Dialoge nach Typ |
 | `test_parse_map_bridge_url_reads_group_key` | `tests/test_gui_smoke.py` | Karten-Expand-Bridge |
 | `test_map_view_refresh_uses_disk_cache_without_rebuild` | `tests/test_gui_smoke.py` | Karten-Cache; Leiste unter dem WebView |
 | `test_publish_map_display_writes_unique_file` | `tests/test_gui_smoke.py` | WebEngine lädt eine neue HTML-Kopie nach Rebuild |
@@ -478,9 +503,10 @@ Stand nach `pytest --collect-only`: **307 Tests** (28. August 2026). Neue Tests 
 - Hilfsskript Polar-JSON `routes` → Sibling-GPX (`tests/test_json_routes_to_gpx.py`)
 - IGC-Parsing, Pilot, DHV-Leonardo-Link überlebt Re-Import
 - KML/GeoJSON-Parser für Track-Vorschauen (kein Ingest)
-- JPEG-Thumbnails, HEIC-Vorschau (Windows-Shell/WIC oder eingebettetes JPEG), Originale unverändert
+- JPEG-Thumbnails (große JPEGs per Decoder-Draft), HEIC-Vorschau (Windows-Shell/WIC oder eingebettetes JPEG), Originale unverändert
 - Track-Thumbs (rote Spur, OSM-Ausschnitt oder schwarz offline)
 - Importliste während des Einlesens und nach GPS-Abgleich, bevor Thumbnails erzeugt werden
+- Quell-Sync: fehlende Dateien vollständig entfernen; neue Medien Timeline oder Pool
 - Sortierstatus Favorit/Reserve/Aussortiert inkl. Fallback auf Favoriten-Flag
 - Import bricht bei einer defekten Datei (JPEG oder GPX) nicht ab
 - Projekt anlegen, Schema (Abschnitte, URLs, Cover, Drehung), Wiederöffnen, `settings.toml` und Pfad-Rebase
@@ -489,7 +515,7 @@ Stand nach `pytest --collect-only`: **307 Tests** (28. August 2026). Neue Tests 
 - Reiseabschnitte, Pending-Vorschau, Eintrags-Titelbild (Foto und Track)
 - YouTube- und DHV-Leonardo-URL-Normalisierung
 - Anzeigedrehung (Index, Cachepfad, Re-Import, Inspektor ohne Originalschreiben)
-- GUI-Rauch: Fenstertitel mit Version, Pipeline Import→Medien→Timeline, getrennte Medien/Tracks, Register nur per Klick, Inspektor Blättern/Zoom/Drehen
+- GUI-Rauch: Fenstertitel mit Version, Pipeline Import→Medien→Timeline, getrennte Medien/Tracks, Register nur per Klick, Inspektor Blättern/Zoom/Drehen/Pool
 - Export- und Provider-*Verträge* existieren
 
 ### 5.2 Bewusst noch ohne Automatisierung
@@ -497,7 +523,7 @@ Stand nach `pytest --collect-only`: **307 Tests** (28. August 2026). Neue Tests 
 | Lücke | FA | Grund / nächste Phase |
 | --- | --- | --- |
 | Visuelle Marker-Vorschau / Bedienung in Qt | FA-050–FA-053 | Szene und Bridge in `test_maps.py` / `test_gui_smoke.py`; visuell MT-12 |
-| Timeline-Bedienung | FA-060–FA-069, FA-080 | Logik in `test_timeline*.py`; Speichern-Button `test_gui_smoke.py`; visuell MT-13, MT-18–MT-21 |
+| Timeline-Bedienung | FA-060–FA-069, FA-080, FA-084 | Logik in `test_timeline*.py`; Speichern-Button und Schieber-Datum `test_gui_smoke.py`; visuell MT-13, MT-18–MT-21 |
 | Windows-Endnutzerpaket | FA-140–FA-144 | kein pytest; manuell MT-22 nach `packaging/build.ps1` |
 | Galeriefilter in der UI | FA-101 | Logik der Liste automatisiert; Filter nur MT-09 |
 | Zuletzt verwendete Projekte in der UI | FA-091 | `recent.json` ohne Oberfläche; manuell nicht zwingend |
@@ -575,6 +601,15 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Quelle mit mehr als 250 unterstützten Dateien | Tabellenzeilen = indexierte Dateien; Zähler und Fußzeile („N Dateien in der Liste“) stimmen überein |
 | Klick oder Mouseover auf eine Fotozeile | Rechts: Vorschaubild (nach Thumbnail-Lauf) und Metadaten inkl. GPS/Kamera |
 
+### MT-23 Quellverzeichnis synchronisieren
+
+| Schritt | Erwartung |
+| --- | --- |
+| JPEG aus dem Quellordner löschen, **Synchronisieren** | Datei verschwindet aus Importliste, Timeline, Galerie und Pool; Vorschaubild im Projektcache weg; Originalordner unverändert (die Datei bleibt gelöscht) |
+| Neues JPEG in den Quellordner legen, **Synchronisieren**, **In den Medienpool** | erscheint rechts im Pool, nicht als Tag-Mitglied |
+| Neues JPEG, **Synchronisieren**, **In die Timeline** | erscheint im Auto-Tag des Aufnahmedatums |
+| **Dateien analysieren** nach Löschen einer Datei im Ordner | Indexzeile bleibt (additiv, keine Löschung) |
+
 ### MT-05 Defekte Datei
 
 | Schritt | Erwartung |
@@ -642,10 +677,12 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Leiste: Tag-Karte | Kalendersymbol oben rechts |
 | Leiste: Transfer-Karte | liegendes Sechseck, gleiche Größe wie Rechteckkarten; Schrift etwas kleiner |
 | Leiste: Fokus | nur die zentrierte Karte in voller Größe, die anderen etwas kleiner |
+| Leiste: Abschnitt ohne Position | roter Rand |
+| Rechtsklick auf eine gespeicherte Abschnittskarte, **Platzieren**, Klick in die Karte | Fadenkreuz-Cursor; der Ort liegt am Abschnitt; roter Rand verschwindet, Kreis erscheint |
 | Leiste: Titelbild | füllt die Kartenfläche ohne sichtbare Ränder |
 | Leiste: Zähler oben | Fotos, GPX-Tracks, IGC (Gleitschirm), YouTube-Logo als Symbol+Zahl; Reserve nur bei Zahnrad-Option |
 | Einfachklick auf eine Leistenkarte | Karte zentriert, Zoom bleibt; rechts der Tagebucheintrag, nach Edit Speichern/Abbrechen/Verwerfen; YouTube-Thumbs unten rechts auf der Karte übereinander (erster Link unten) |
-| Doppelklick auf eine Leistenkarte | Seite **Timeline**, derselbe Eintrag mit Kopfzeile oben in der Liste (unter Reisetitel und Werkzeugleiste) |
+| Doppelklick auf eine Leistenkarte | Seite **Timeline**, Oberkante der Zielkarte bündig mit der Unterkante von Reisetitel/Werkzeugleiste (nicht die Kartenmitte zentriert); der vorherige Abschnitt schaut nicht heraus |
 | Leiste nach links/rechts ziehen oder Mausrad | Karten verschieben sich horizontal; Klick trifft die Karte, nicht die OSM-Kacheln |
 | Hineinzoomen, dann eine Leistenkarte anklicken | die Karte schwenkt auf diesen Eintrag, **Zoom bleibt** |
 | Zwei nahe Tag-/Aufenthaltskreise, weit herausgezoomt | Verbindungslinie unsichtbar, sobald sich die Kreise überdecken |
@@ -663,7 +700,8 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Nach Import Seite **Timeline** öffnen bzw. **Timeline aktualisieren** | ein Tag je Aufnahmedatum, Karten von früh nach spät; Fotos auf der Karte nach Journal-Zeit; Auto-Ereignis mit Medienzähler |
+| Nach Import Seite **Timeline** öffnen bzw. **Timeline aktualisieren** | ein Tag je Aufnahmedatum, Karten von früh nach spät; zwischen den Karten Abstand und senkrechte Verbindungslinie mit Pfeil nach unten; Fotos auf der Karte nach Journal-Zeit; Auto-Ereignis mit Medienzähler |
+| Vertikalen Schieber ziehen | links am Griff das Datum des Abschnitts in der Bildmitte (`14.05.2025` bzw. `01.–10.08.2025`) |
 | Timeline ohne ungespeicherte Abschnitte, Texte, Reisetitel oder YouTube | **Speichern** ist inaktiv |
 | Reisetitel, Titel, Tagebuchtext oder YouTube ändern bzw. neuen Abschnitt anlegen | **Speichern** wird aktiv; Rücknahme der Änderung macht ihn wieder inaktiv |
 | Bewertung, Titelbild oder DHV-Leonardo an einem **gespeicherten** Eintrag | sofort in der DB; **Speichern** bleibt inaktiv |
@@ -673,6 +711,9 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Timeline: Titel und Text speichern, Projekt schließen und öffnen | Text noch da, `origin=manual`; erneuter Timeline-Abgleich überschreibt den Text nicht |
 | Timeline: Typ **Aufenthalt** bzw. **Transfer** an einem Tag | Abschnitt erscheint; **Speichern** nötig und aktiv; Typ **Tag** löst wieder auf |
 | Timeline: mehrere Fotos markieren, **Neuen Reiseabschnitt erstellen** (Aufenthalt) | Abschnitt erscheint; Tage bleiben; **Speichern** aktiv; ohne Speichern und Verlassen: Dialog Speichern/Verwerfen/Abbrechen |
+| Timeline ohne Auswahl, **Neuen Reiseabschnitt erstellen**, Tag **Am** bzw. Aufenthalt/Transfer **Von Datum** / **Bis Datum** | leerer Abschnitt erscheint an der passenden Timeline-Stelle; **Speichern** aktiv |
+| ⋯ **Datum…** (Tag) bzw. **Zeitraum…** (Aufenthalt/Transfer) | Dialog übernimmt die bisherigen Daten; nach OK rutscht die Karte an die neue Stelle; bei ungespeichertem Abschnitt **Speichern** nötig |
+| ⋯ **Löschen** an einem gespeicherten Abschnitt | Abschnitt weg; Medien im Pool; Pool-Spalte öffnet sich |
 | Transfer mit mehreren Verkehrsmitteln, **Speichern**, ⊟ auflösen | Dateien wieder auf Tagen |
 | YouTube im ⋯-Menü, Dialog-OK | **Speichern** wird aktiv; ohne Speichern die Timeline verlassen: Dialog Verwerfen/Abbrechen; nach Verwerfen YouTube nicht in der DB |
 | Nur Titel oder Tagebuchtext ändern und die Timeline verlassen | keine Rückfrage; die Edits bleiben in der Timeline, bis **Speichern**; Schließen des Fensters verwirft sie |
@@ -695,12 +736,15 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | --- | --- |
 | Timeline: Doppelklick auf ein Foto in einem Tag mit mehreren Bildern | eigenes Fenster; Titel `datei.jpg · 2 von N` |
 | Pfeiltasten oder Klick in den linken/rechten Rand | nächstes/vorheriges Bild derselben Sequenz; weiße Pfeile beim Überfahren der Ränder |
+| Bewertung (Favorit / Reserve / Aussortiert) | speichert sofort und zeigt das nächste Foto; das letzte bleibt |
 | Mausrad über dem Foto | Zoom um den Cursor; Ziehen verschiebt bei Zoom |
 | Doppelklick in die Bildmitte | Einpassen |
 | Ecke unten rechts ziehen | Fenster wächst proportional zum Foto |
 | Fensterrand ziehen | frei breiter oder höher |
 | Maximieren oder F11 | Foto eingepasst, schwarze Ränder, Zoom zurückgesetzt |
 | Seite **Medien**: Doppelklick | dieselbe Sequenz wie die aktuelle Galerie |
+| **In den Pool** im Inspektor (Timeline, Medien oder Karte) | Medium liegt im Pool; Button wird **Zurückholen**; Originale unverändert |
+| **Zurückholen** im Inspektor | Medium wieder in Timeline und Galerie |
 
 ### MT-19 Anzeigedrehung
 
@@ -762,7 +806,7 @@ Diese Fälle werden mit der jeweiligen Phase verbindlich.
 | Karte / Leiste / Kreis-Detail | `test_maps.py`, `tests/test_gui_smoke.py` (Map-Fälle), manuell MT-12 |
 | Inspektor / Drehung / Register | `test_orientation.py`, `tests/test_gui_smoke.py`, manuell MT-18–MT-21 |
 | Windows-Paket (`packaging/`) | manuell MT-22 (kein pytest) |
-| UI-Importliste | MT-04 |
+| UI-Importliste | MT-04, MT-23 |
 | Vor Phasenabschluss | pytest grün + manuelle Fälle der Phase + Ruff |
 
 Ein Phasenabschluss ohne grüne Automatisierung gilt als nicht abgenommen.

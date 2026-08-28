@@ -77,6 +77,12 @@ class MapTimelineCard:
     igc_reserve_count: int = 0
     youtube_count: int = 0
 
+    @property
+    def needs_pin(self) -> bool:
+        """True when the strip card has no map coordinate yet."""
+
+        return self.latitude is None or self.longitude is None
+
     def visible_counts(self, *, show_reserve: bool) -> tuple[int, int, int, int]:
         """Photo, GPX-track, IGC and YouTube counts; reserve only when ``show_reserve``."""
 
@@ -106,6 +112,8 @@ def build_map_overview(
         covers = _covers_from_source_files(session, project_id, thumbs_dir, size=size)
         links = []
     center = _center(covers, ())
+    if center is None and (snapshot is not None and snapshot.entries):
+        center = (50.0, 10.0)
     return MapScene(markers=tuple(covers), polylines=(), stay_links=tuple(links), center=center)
 
 
@@ -363,7 +371,9 @@ def _card_from_entry(entry: TimelineEntry) -> MapTimelineCard | None:
     else:
         return None
     chosen = pick_cover_item(items, cover_id)
-    position = position_for_cover(chosen, items)
+    position = _view_pin(entry.section) if entry.section is not None else None
+    if position is None:
+        position = position_for_cover(chosen, items)
     if position is None and leftover is not None:
         marker = _fallback_place_marker(leftover, key, title)
         if marker is not None:
@@ -467,12 +477,31 @@ def _cover_marker_for_entry(
     else:
         return None
     chosen = pick_cover_item(items, cover_id)
-    position = position_for_cover(chosen, items)
+    position = _view_pin(entry.section) if entry.section is not None else None
+    if position is None:
+        position = position_for_cover(chosen, items)
     if position is None and leftover is not None:
         return _fallback_place_marker(leftover, key, label)
-    if chosen is None or position is None:
+    if position is None:
         return None
-    return _cover_marker(chosen, key, label, position)
+    if chosen is not None:
+        return _cover_marker(chosen, key, label, position)
+    return MapMarker(
+        latitude=position[0],
+        longitude=position[1],
+        label=label,
+        kind="cover",
+        day_key=key,
+        color="blue",
+        subtitle="Platziert",
+        group_key=key,
+    )
+
+
+def _view_pin(section: TimelineSection | None) -> tuple[float, float] | None:
+    if section is None or section.pin_latitude is None or section.pin_longitude is None:
+        return None
+    return (float(section.pin_latitude), float(section.pin_longitude))
 
 
 def _day_for_section(section: TimelineSection, days: list[TimelineDay] | None) -> TimelineDay | None:

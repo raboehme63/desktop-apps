@@ -101,7 +101,7 @@ class MapScene:
 
     @property
     def empty(self) -> bool:
-        return not self.markers and not self.polylines
+        return not self.markers and not self.polylines and self.center is None
 
 
 def stay_link_visible(pixel_distance: float, *, cover_px: float = COVER_ICON_PX) -> bool:

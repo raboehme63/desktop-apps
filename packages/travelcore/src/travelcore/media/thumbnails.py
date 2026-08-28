@@ -36,6 +36,7 @@ _HEIC_SUFFIXES = {".heic", ".heif"}
 _RAW_SUFFIXES = PHOTO_EXTENSIONS - _PILLOW_SUFFIXES - _HEIC_SUFFIXES
 _JPEG_SOI = b"\xff\xd8\xff"
 _THUMB_FILL = (18, 21, 28)
+# Full-size decode above this is too expensive. JPEG still uses Image.draft first.
 _MAX_THUMB_SOURCE_PIXELS = 40_000_000
 _MAX_TRACK_POINTS = 800
 _RAW_PREVIEW_BYTES = 32 * 1024 * 1024
@@ -103,7 +104,7 @@ def ensure_thumbnail(
             tile_cache=tile_cache,
             use_map_tiles=use_map_tiles,
         )
-    image = _open_preview(source)
+    image = _open_preview(source, size=size)
     if image is None:
         return None
     try:
@@ -445,20 +446,28 @@ def extract_largest_embedded_jpeg(data: bytes) -> bytes | None:
     return best if best_pixels >= 16 * 16 else None
 
 
-def _open_preview(source: Path) -> Image.Image | None:
+def _open_preview(source: Path, *, size: int = 256) -> Image.Image | None:
     suffix = source.suffix.lower()
     try:
         if suffix in _PILLOW_SUFFIXES:
             image = Image.open(source)
             width, height = image.size
             if width * height > _MAX_THUMB_SOURCE_PIXELS:
+                if suffix in {".jpg", ".jpeg"}:
+                    drafted = _draft_or_close(image, size)
+                    if drafted is not None:
+                        return drafted
+                    windows = decode_windows_thumbnail(source, size=max(int(size), 256))
+                    if windows is not None:
+                        return windows
+                else:
+                    image.close()
                 logger.warning(
                     "Thumbnail skipped, image too large: %s (%sx%s)",
                     source.name,
                     width,
                     height,
                 )
-                image.close()
                 return None
             return image
         if suffix in _HEIC_SUFFIXES:
@@ -483,6 +492,22 @@ def _open_preview(source: Path) -> Image.Image | None:
         logger.debug("No preview image for %s", source.name)
         return None
     return None
+
+
+def _draft_or_close(image: Image.Image, size: int) -> Image.Image | None:
+    """Decode JPEG/MPO at a reduced size so 48 MP phone photos still get a thumbnail."""
+
+    target = max(int(size) * 4, 512)
+    try:
+        image.draft("RGB", (target, target))
+    except (OSError, ValueError, SyntaxError):
+        image.close()
+        return None
+    width, height = image.size
+    if width * height > _MAX_THUMB_SOURCE_PIXELS:
+        image.close()
+        return None
+    return image
 
 
 def _read_prefix(source: Path, limit: int) -> bytes:

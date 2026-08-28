@@ -80,6 +80,8 @@ class TimelineSection:
     youtube_urls: tuple[str, ...] = ()
     leonardo_urls: tuple[str, ...] = ()
     cover_source_file_id: int | None = None
+    pin_latitude: float | None = None
+    pin_longitude: float | None = None
     items: tuple[TimelinePhoto, ...] = ()
 
 
@@ -134,3 +136,5 @@ class PendingSectionSpec:
     youtube_urls: tuple[str, ...] = ()
     leonardo_urls: tuple[str, ...] = ()
     cover_source_file_id: int | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None

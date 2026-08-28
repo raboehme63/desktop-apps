@@ -740,6 +740,172 @@ def test_indexer_drops_previously_indexed_thumbnails(open_project: OpenProject, 
     assert str(thumb) not in paths
 
 
+def test_plan_source_sync_counts_new_and_missing(open_project: OpenProject, tmp_path: Path) -> None:
+    from travelcore.media.purge import plan_source_sync
+
+    source = tmp_path / "media"
+    source.mkdir()
+    write_plain_jpeg(source / "keep.jpg")
+    gone = write_plain_jpeg(source / "gone.jpg")
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        FileIndexer().index(session, project, source, generate_thumbnails=False)
+        session.commit()
+    gone.unlink()
+    write_plain_jpeg(source / "neu.jpg")
+    with open_project.session_factory() as session:
+        plan = plan_source_sync(session, open_project.project_id, source)
+    assert plan.new_count == 1
+    assert plan.missing_count == 1
+    assert plan.present_count == 1
+    assert plan.new_names == ("neu.jpg",)
+    assert plan.missing_names == ("gone.jpg",)
+
+
+def test_indexer_keeps_missing_files_without_sync_flag(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_plain_jpeg(source / "keep.jpg")
+    gone = write_plain_jpeg(source / "gone.jpg")
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        FileIndexer().index(session, project, source, generate_thumbnails=False)
+        session.commit()
+    gone.unlink()
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        result = FileIndexer().index(session, project, source, generate_thumbnails=False)
+        session.commit()
+        names = {row.filename for row in session.scalars(select(SourceFile))}
+    assert result.removed == 0
+    assert names == {"keep.jpg", "gone.jpg"}
+
+
+def test_indexer_sync_removes_missing_photo_from_journal(open_project: OpenProject, tmp_path: Path) -> None:
+    from travelcore.database.models import FileError, SectionMember, TripSection
+    from travelcore.media.thumbnails import cached_thumbnail_path
+    from travelcore.timeline.sections import park_media
+
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "keep.jpg",
+        datetime_original="2025:06:01 10:00:00",
+        offset_original="+02:00",
+    )
+    gone_path = write_jpeg_with_exif(
+        source / "gone.jpg",
+        datetime_original="2025:06:01 11:00:00",
+        offset_original="+02:00",
+    )
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        FileIndexer().index(
+            session, project, source, project_dir=open_project.directory, generate_thumbnails=True
+        )
+        session.commit()
+        sync_timeline(session, project, thumbs_dir=open_project.directory / "thumbnails")
+        gone = session.scalar(select(SourceFile).where(SourceFile.filename == "gone.jpg"))
+        keep = session.scalar(select(SourceFile).where(SourceFile.filename == "keep.jpg"))
+        assert gone is not None and keep is not None
+        gone_id = gone.id
+        keep_id = keep.id
+        gone_sha = gone.sha256
+        session.add(
+            FileError(
+                project_id=project.id,
+                path=gone.path,
+                stage="index",
+                message="alte Warnung",
+            )
+        )
+        section = session.scalar(select(TripSection))
+        assert section is not None
+        section.cover_source_file_id = gone_id
+        session.commit()
+    thumb = cached_thumbnail_path(
+        open_project.directory / "thumbnails",
+        source_file_id=gone_id,
+        sha256=gone_sha,
+        size=256,
+    )
+    assert thumb.is_file()
+    gone_path.unlink()
+    write_jpeg_with_exif(
+        source / "neu.jpg",
+        datetime_original="2025:06:02 09:00:00",
+        offset_original="+02:00",
+    )
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        result = FileIndexer().index(
+            session,
+            project,
+            source,
+            project_dir=open_project.directory,
+            generate_thumbnails=True,
+            remove_missing=True,
+        )
+        park_media(session, result.new_media_ids)
+        sync_timeline(session, project, thumbs_dir=open_project.directory / "thumbnails")
+        session.commit()
+        names = {row.filename: row for row in session.scalars(select(SourceFile))}
+        member_ids = set(session.scalars(select(SectionMember.source_file_id)))
+        errors = list(session.scalars(select(FileError)))
+        section = session.scalar(select(TripSection).where(TripSection.cover_source_file_id == gone_id))
+    assert result.removed == 1
+    assert result.indexed == 1
+    assert "gone.jpg" not in names
+    assert "keep.jpg" in names
+    assert "neu.jpg" in names
+    assert names["neu.jpg"].parked is True
+    assert keep_id in member_ids
+    assert names["neu.jpg"].id not in member_ids
+    assert errors == []
+    assert section is None
+    assert not thumb.is_file()
+
+
+def test_indexer_sync_deletes_gps_track_for_missing_gpx(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_plain_jpeg(source / "foto.jpg")
+    gpx = write_gpx(
+        source / "spur.gpx",
+        [
+            (46.0, 11.0, 260.0, "2025-05-15T13:31:50Z"),
+            (46.2, 11.2, 280.0, "2025-05-15T13:32:10Z"),
+        ],
+    )
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        FileIndexer().index(session, project, source, generate_thumbnails=False)
+        session.commit()
+        assert session.scalar(select(func.count()).select_from(GpsTrack)) == 1
+        assert session.scalar(select(func.count()).select_from(GpsPoint)) >= 2
+    gpx.unlink()
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        result = FileIndexer().index(
+            session, project, source, generate_thumbnails=False, remove_missing=True
+        )
+        session.commit()
+        names = {row.filename for row in session.scalars(select(SourceFile))}
+        tracks = session.scalar(select(func.count()).select_from(GpsTrack))
+        points = session.scalar(select(func.count()).select_from(GpsPoint))
+    assert result.removed == 1
+    assert names == {"foto.jpg"}
+    assert tracks == 0
+    assert points == 0
+
+
 def test_indexer_can_defer_thumbnails(open_project: OpenProject, tmp_path: Path) -> None:
     source = tmp_path / "media"
     source.mkdir()

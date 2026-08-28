@@ -60,6 +60,22 @@ def test_ensure_thumbnail_skips_huge_png(tmp_path: Path, monkeypatch: pytest.Mon
     assert not dest.is_file()
 
 
+def test_ensure_thumbnail_drafts_huge_jpeg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import travelcore.media.thumbnails as thumbs
+
+    monkeypatch.setattr(thumbs, "_MAX_THUMB_SOURCE_PIXELS", 1_000_000)
+    source = write_plain_jpeg(tmp_path / "phone.jpg", size=(1600, 1200))
+    original_mtime = source.stat().st_mtime
+    dest = tmp_path / "out.jpg"
+    written = thumbs.ensure_thumbnail(source, dest, size=32)
+    assert written == dest
+    assert dest.is_file()
+    with Image.open(dest) as image:
+        assert image.size == (32, 32)
+        assert image.format == "JPEG"
+    assert source.stat().st_mtime == original_mtime
+
+
 def test_corrupt_jpeg_returns_none(tmp_path: Path) -> None:
     source = tmp_path / "broken.jpg"
     source.write_bytes(b"not-a-jpeg")

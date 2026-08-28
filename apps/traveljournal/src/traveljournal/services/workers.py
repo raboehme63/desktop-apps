@@ -17,6 +17,7 @@ from travelcore.media.indexer import FileIndexer, IndexProgress, IndexResult
 from travelcore.media.thumbnails import generate_project_thumbnails
 from travelcore.parallel import WorkerPool
 from travelcore.project_settings import DEFAULT_STAY_LINK_COLOR, load_project_settings
+from travelcore.timeline.sections import park_media
 
 if TYPE_CHECKING:
     from traveljournal.services.workspace import Workspace
@@ -30,10 +31,19 @@ class IndexSignals(QObject):
 
 
 class IndexRunnable(QRunnable):
-    def __init__(self, open_project: OpenProject, source_root: Path) -> None:
+    def __init__(
+        self,
+        open_project: OpenProject,
+        source_root: Path,
+        *,
+        remove_missing: bool = False,
+        park_new_media: bool = False,
+    ) -> None:
         super().__init__()
         self.open_project = open_project
         self.source_root = source_root
+        self.remove_missing = remove_missing
+        self.park_new_media = park_new_media
         self.signals = IndexSignals()
         self.setAutoDelete(True)
 
@@ -62,6 +72,7 @@ class IndexRunnable(QRunnable):
                         progress=on_progress,
                         project_dir=self.open_project.directory,
                         generate_thumbnails=False,
+                        remove_missing=self.remove_missing,
                         checkpoint=checkpoint,
                     )
                 on_progress(
@@ -84,6 +95,9 @@ class IndexRunnable(QRunnable):
                         self.open_project.directory,
                         pool=pool,
                     )
+                if self.park_new_media and result.new_media_ids:
+                    with session_scope(self.open_project.session_factory) as session:
+                        park_media(session, result.new_media_ids)
             self.signals.finished.emit(result)
         except Exception as exc:  # noqa: BLE001 - surface any import failure to the UI
             self.signals.failed.emit(str(exc))

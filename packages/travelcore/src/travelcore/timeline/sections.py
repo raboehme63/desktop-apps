@@ -76,6 +76,22 @@ def day_bounds(key: date | None) -> tuple[datetime | None, datetime | None]:
     return start, start
 
 
+def span_for_manual_dates(kind: str, start: date, end: date | None = None) -> tuple[datetime, datetime]:
+    """Build ``started_at`` / ``ended_at`` from the create/edit date fields."""
+
+    if kind == KIND_DAY:
+        started, ended = day_bounds(start)
+        if started is None or ended is None:
+            raise ProjectError("Bitte ein Datum wählen.")
+        return started, ended
+    finish = end if end is not None else start
+    if finish < start:
+        raise ProjectError("Das Endedatum darf nicht vor dem Startdatum liegen.")
+    started = datetime.combine(start, time.min, tzinfo=UTC)
+    ended = datetime.combine(finish, time.min, tzinfo=UTC)
+    return started, ended
+
+
 def span_is_single_calendar_day(started_at: datetime | None, ended_at: datetime | None) -> bool:
     start = calendar_key(started_at)
     end = calendar_key(ended_at if ended_at is not None else started_at)
@@ -114,6 +130,22 @@ def format_section_span(started_at: datetime | None, ended_at: datetime | None) 
     if start_day == end_day:
         return f"am {start_day.strftime('%d.%m.%Y')}"
     return f"von {start_day.strftime('%d.%m.%Y')} bis {end_day.strftime('%d.%m.%Y')}"
+
+
+def format_scroll_date(started_at: datetime | None, ended_at: datetime | None) -> str:
+    """Compact date for the timeline scrollbar handle."""
+
+    start = calendar_key(started_at)
+    end = calendar_key(ended_at if ended_at is not None else started_at)
+    if start is None:
+        return "Ohne Datum"
+    if end is None or end == start:
+        return start.strftime("%d.%m.%Y")
+    if start.year == end.year and start.month == end.month:
+        return f"{start.strftime('%d.')}–{end.strftime('%d.%m.%Y')}"
+    if start.year == end.year:
+        return f"{start.strftime('%d.%m.')}–{end.strftime('%d.%m.%Y')}"
+    return f"{start.strftime('%d.%m.%Y')}–{end.strftime('%d.%m.%Y')}"
 
 
 def format_section_duration(started_at: datetime | None, ended_at: datetime | None) -> str | None:
@@ -169,14 +201,31 @@ def create_section(
     leonardo_urls: list[str] | None = None,
     cover_source_file_id: int | None = None,
     origin: str = ORIGIN_MANUAL,
+    started_at: datetime | None = None,
+    ended_at: datetime | None = None,
 ) -> TripSection:
-    """Create a section from selected files. Tag span is one calendar day; others follow objects."""
+    """Create a section from selected files, or an empty dated section."""
 
     if kind not in SECTION_KINDS:
         raise ProjectError("Unbekannter Abschnittstyp.")
     ids = list(dict.fromkeys(source_file_ids))
     if not ids:
-        raise ProjectError("Bitte zuerst Objekte auswählen.")
+        return _create_empty_section(
+            session,
+            trip_id,
+            kind=kind,
+            mode=mode,
+            title=title,
+            notes=notes,
+            location_name=location_name,
+            location_from=location_from,
+            location_to=location_to,
+            youtube_urls=youtube_urls,
+            leonardo_urls=leonardo_urls,
+            origin=origin,
+            started_at=started_at,
+            ended_at=ended_at,
+        )
     rows = list(session.scalars(select(SourceFile).where(SourceFile.id.in_(ids))))
     by_id = {row.id: row for row in rows}
     missing = [item for item in ids if item not in by_id]
@@ -217,6 +266,54 @@ def create_section(
     session.flush()
     _add_members(session, section, ordered, clocks)
     drop_empty_auto_day_sections(session, trip_id)
+    return section
+
+
+def _create_empty_section(
+    session: Session,
+    trip_id: int,
+    *,
+    kind: str,
+    mode: str | None,
+    title: str | None,
+    notes: str | None,
+    location_name: str | None,
+    location_from: str | None,
+    location_to: str | None,
+    youtube_urls: list[str] | None,
+    leonardo_urls: list[str] | None,
+    origin: str,
+    started_at: datetime | None,
+    ended_at: datetime | None,
+) -> TripSection:
+    """Manual section without members. Date comes from the user, not from files."""
+
+    if started_at is None:
+        raise ProjectError("Bitte zuerst Objekte auswählen oder ein Datum wählen.")
+    if kind == KIND_DAY:
+        span_start, span_end = day_bounds(calendar_key(started_at))
+    else:
+        span_start = aware(started_at)
+        span_end = aware(ended_at) or span_start
+    section = TripSection(
+        trip_id=trip_id,
+        kind=kind,
+        mode=serialize_modes(parse_modes(mode)) if kind == KIND_MOVEMENT else None,
+        title=(title or "").strip() or None,
+        notes=notes,
+        started_at=span_start,
+        ended_at=span_end,
+        location_name=(location_name or "").strip() or None if kind == KIND_STAY else None,
+        location_from=(location_from or "").strip() or None if kind == KIND_MOVEMENT else None,
+        location_to=(location_to or "").strip() or None if kind == KIND_MOVEMENT else None,
+        youtube_urls=serialize_youtube_urls(list(youtube_urls or [])),
+        leonardo_urls=serialize_leonardo_urls(list(leonardo_urls or [])),
+        cover_source_file_id=None,
+        sort_index=0,
+        origin=origin,
+    )
+    session.add(section)
+    session.flush()
     return section
 
 
@@ -275,6 +372,40 @@ def update_section_kind(
     _refresh_section_span(session, section)
 
 
+def set_section_span(
+    session: Session,
+    section_id: int,
+    started_at: datetime,
+    ended_at: datetime | None = None,
+) -> None:
+    """Set the journal span of a section. Tag stays one calendar day; members snap to it."""
+
+    section = session.get(TripSection, section_id)
+    if section is None:
+        raise ProjectError("Reiseabschnitt nicht gefunden.")
+    start_key = calendar_key(started_at)
+    end_key = calendar_key(ended_at if ended_at is not None else started_at)
+    if start_key is None:
+        raise ProjectError("Bitte ein Datum wählen.")
+    if section.kind == KIND_DAY:
+        section.started_at, section.ended_at = day_bounds(start_key)
+        members = _member_rows(session, section.id)
+        files = [source for source, _member in members]
+        for source, member in members:
+            member.journal_at = snap_clock_to_date(member.journal_at, start_key)
+            lat, lon = snapshot_tag_position(source, files, section.cover_source_file_id)
+            member.journal_latitude = lat
+            member.journal_longitude = lon
+        section.origin = ORIGIN_MANUAL
+        session.flush()
+        return
+    started, ended = span_for_manual_dates(section.kind, start_key, end_key)
+    section.started_at = started
+    section.ended_at = ended
+    section.origin = ORIGIN_MANUAL
+    session.flush()
+
+
 def save_section_text(session: Session, section_id: int, *, title: str, notes: str) -> None:
     section = session.get(TripSection, section_id)
     if section is None:
@@ -324,6 +455,35 @@ def dissolve_section(session: Session, section_id: int) -> None:
     session.flush()
     rehome_files_to_day_sections(session, trip_id, files, clocks=clocks)
     drop_empty_auto_day_sections(session, trip_id)
+
+
+def delete_section(session: Session, section_id: int) -> None:
+    """Drop a section and park every member in the media pool. Originals stay untouched."""
+
+    section = session.get(TripSection, section_id)
+    if section is None:
+        return
+    ids = [source.id for source, _member in _member_rows(session, section_id) if source.id is not None]
+    if ids:
+        park_media(session, ids)
+    leftover = session.get(TripSection, section_id)
+    if leftover is None:
+        return
+    session.delete(leftover)
+    session.flush()
+
+
+def set_section_pin(session: Session, section_id: int, latitude: float, longitude: float) -> None:
+    """Assign a map coordinate to a section. Does not write originals."""
+
+    section = session.get(TripSection, section_id)
+    if section is None:
+        raise ProjectError("Reiseabschnitt nicht gefunden.")
+    if not -90.0 <= float(latitude) <= 90.0 or not -180.0 <= float(longitude) <= 180.0:
+        raise ProjectError("Ungültige Kartenposition.")
+    section.pin_latitude = float(latitude)
+    section.pin_longitude = float(longitude)
+    section.origin = ORIGIN_MANUAL
 
 
 def move_members(

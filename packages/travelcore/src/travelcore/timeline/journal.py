@@ -80,6 +80,14 @@ def original_position(source: SourceFile) -> tuple[float, float] | None:
     return (float(source.gps_latitude), float(source.gps_longitude))
 
 
+def section_pin(section: TripSection) -> tuple[float, float] | None:
+    """User-placed map position of a section, independent of member GPS."""
+
+    if section.pin_latitude is None or section.pin_longitude is None:
+        return None
+    return (float(section.pin_latitude), float(section.pin_longitude))
+
+
 def files_cover_anchor(
     files: Iterable[SourceFile],
     cover_id: int | None,
@@ -159,6 +167,9 @@ def stay_live_anchor(
     section: TripSection,
     files: Iterable[SourceFile],
 ) -> tuple[float, float] | None:
+    pin = section_pin(section)
+    if pin is not None:
+        return pin
     place = _stay_place(session, section)
     if place is not None and place.latitude is not None and place.longitude is not None:
         return (float(place.latitude), float(place.longitude))
@@ -237,6 +248,9 @@ def section_map_anchor(
 
     ignored = ignore_source_ids or set()
     usable = [row for row in files if row.id not in ignored]
+    pin = section_pin(section)
+    if pin is not None:
+        return pin
     cover_id = section.cover_source_file_id
     if cover_id in ignored:
         cover_id = None
@@ -269,6 +283,9 @@ def display_position(
     original = original_position(source)
     if original is not None:
         return original, False
+    pin = section_pin(section)
+    if pin is not None:
+        return pin, True
     rows = list(files)
     if section.kind == KIND_STAY:
         anchor = stay_live_anchor(session, section, rows)

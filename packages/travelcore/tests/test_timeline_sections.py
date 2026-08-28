@@ -1,6 +1,7 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
+import pytest
 from gpx_fixtures import write_gpx
 from jpeg_fixtures import write_jpeg_with_exif
 from sqlalchemy import select
@@ -17,8 +18,10 @@ from travelcore.timeline import (
     PendingSectionSpec,
     apply_pending_sections,
     create_section,
+    delete_section,
     dissolve_section,
     expand_range_selection,
+    format_scroll_date,
     format_section_duration,
     format_section_span,
     format_section_when,
@@ -30,7 +33,9 @@ from travelcore.timeline import (
     serialize_modes,
     set_entry_cover,
     set_journal_at,
+    set_section_span,
     sort_members_by_journal,
+    span_for_manual_dates,
     sync_timeline,
     update_section_kind,
 )
@@ -65,6 +70,19 @@ def test_format_section_span_uses_object_dates() -> None:
     assert format_section_span(start, same_day) == "am 14.05.2025"
     assert format_section_span(start, later) == "von 14.05.2025 bis 16.05.2025"
     assert format_section_span(None, None) == "ohne Zeit"
+
+
+def test_format_scroll_date_is_compact() -> None:
+    start = datetime(2025, 5, 14, 8, 0, tzinfo=UTC)
+    same_day = datetime(2025, 5, 14, 18, 30, tzinfo=UTC)
+    later_same_month = datetime(2025, 5, 16, 9, 0, tzinfo=UTC)
+    later_month = datetime(2025, 8, 10, 9, 0, tzinfo=UTC)
+    later_year = datetime(2026, 1, 2, 9, 0, tzinfo=UTC)
+    assert format_scroll_date(start, same_day) == "14.05.2025"
+    assert format_scroll_date(start, later_same_month) == "14.–16.05.2025"
+    assert format_scroll_date(start, later_month) == "14.05.–10.08.2025"
+    assert format_scroll_date(start, later_year) == "14.05.2025–02.01.2026"
+    assert format_scroll_date(None, None) == "Ohne Datum"
 
 
 def test_format_section_duration_and_when() -> None:
@@ -159,6 +177,215 @@ def test_dissolve_section_returns_files_to_day_sections(open_project: OpenProjec
     assert day.kind == KIND_DAY
     assert {photo.filename for photo in day.items} == {"morgen.jpg", "abend.jpg"}
     assert {member.source_file_id for member in members} == {item.source_file_id for item in day.items}
+
+
+def test_create_empty_section_uses_manual_date(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "morgen.jpg",
+        datetime_original="2025:05:14 09:00:00",
+        offset_original="+02:00",
+    )
+    first = _index_and_sync(open_project, source)
+    stamp = datetime(2025, 8, 20, 12, 0, tzinfo=UTC)
+    with open_project.session_factory() as session:
+        section = create_section(
+            session,
+            first.trip_id,
+            [],
+            kind=KIND_STAY,
+            title="Leer",
+            started_at=stamp,
+        )
+        session.commit()
+        assert section.started_at == stamp
+        assert section.ended_at == stamp
+        members = list(session.scalars(select(SectionMember).where(SectionMember.section_id == section.id)))
+        assert members == []
+
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        snapshot = load_timeline(session, project)
+    assert snapshot is not None
+    titles = [entry.section.title for entry in snapshot.entries if entry.section is not None]
+    assert "Leer" in titles
+
+
+def test_span_for_manual_dates_tag_and_range() -> None:
+    started, ended = span_for_manual_dates(KIND_DAY, date(2025, 8, 20))
+    assert started == datetime(2025, 8, 20, tzinfo=UTC)
+    assert ended == started
+    started, ended = span_for_manual_dates(KIND_STAY, date(2025, 8, 1), date(2025, 8, 10))
+    assert started == datetime(2025, 8, 1, tzinfo=UTC)
+    assert ended == datetime(2025, 8, 10, tzinfo=UTC)
+    with pytest.raises(ProjectError, match="Endedatum"):
+        span_for_manual_dates(KIND_MOVEMENT, date(2025, 8, 10), date(2025, 8, 1))
+
+
+def test_create_empty_stay_keeps_von_bis_span(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "morgen.jpg",
+        datetime_original="2025:05:14 09:00:00",
+        offset_original="+02:00",
+    )
+    first = _index_and_sync(open_project, source)
+    started, ended = span_for_manual_dates(KIND_STAY, date(2025, 8, 1), date(2025, 8, 10))
+    with open_project.session_factory() as session:
+        section = create_section(
+            session,
+            first.trip_id,
+            [],
+            kind=KIND_STAY,
+            title="Urlaub",
+            started_at=started,
+            ended_at=ended,
+        )
+        session.commit()
+        assert section.started_at == started
+        assert section.ended_at == ended
+        assert format_section_span(section.started_at, section.ended_at) == "von 01.08.2025 bis 10.08.2025"
+
+
+def test_empty_stays_sort_by_span_not_creation(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "anker.jpg",
+        datetime_original="2025:05:14 09:00:00",
+        offset_original="+02:00",
+    )
+    first = _index_and_sync(open_project, source)
+    later, later_end = span_for_manual_dates(KIND_STAY, date(2025, 8, 20), date(2025, 8, 22))
+    earlier, earlier_end = span_for_manual_dates(KIND_STAY, date(2025, 8, 1), date(2025, 8, 3))
+    with open_project.session_factory() as session:
+        later_section = create_section(
+            session,
+            first.trip_id,
+            [],
+            kind=KIND_STAY,
+            title="Spaeter",
+            started_at=later,
+            ended_at=later_end,
+        )
+        earlier_section = create_section(
+            session,
+            first.trip_id,
+            [],
+            kind=KIND_STAY,
+            title="Frueher",
+            started_at=earlier,
+            ended_at=earlier_end,
+        )
+        session.commit()
+        later_id = later_section.id
+        earlier_id = earlier_section.id
+
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        snapshot = load_timeline(session, project)
+    titles = [
+        entry.section.title
+        for entry in snapshot.entries
+        if entry.section is not None and entry.section.title in {"Frueher", "Spaeter"}
+    ]
+    assert titles == ["Frueher", "Spaeter"]
+
+    moved, moved_end = span_for_manual_dates(KIND_STAY, date(2025, 8, 25), date(2025, 8, 27))
+    with open_project.session_factory() as session:
+        set_section_span(session, earlier_id, moved, moved_end)
+        session.commit()
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        snapshot = load_timeline(session, project)
+    titles = [
+        entry.section.title
+        for entry in snapshot.entries
+        if entry.section is not None and entry.section.title in {"Frueher", "Spaeter"}
+    ]
+    assert titles == ["Spaeter", "Frueher"]
+    assert later_id != earlier_id
+
+
+def test_set_section_span_snaps_tag_members(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "morgen.jpg",
+        datetime_original="2025:05:14 09:00:00",
+        offset_original="+02:00",
+    )
+    first = _index_and_sync(open_project, source)
+    day = next(entry.section for entry in first.entries if entry.section is not None)
+    assert day is not None
+    assert day.kind == KIND_DAY
+    member_id = day.items[0].source_file_id
+    target, _ended = span_for_manual_dates(KIND_DAY, date(2025, 8, 20))
+    with open_project.session_factory() as session:
+        set_section_span(session, day.id, target)
+        session.commit()
+        member = session.scalar(select(SectionMember).where(SectionMember.source_file_id == member_id))
+        source_row = session.get(SourceFile, member_id)
+        assert member is not None
+        assert member.journal_at is not None
+        assert source_row is not None
+        captured = aware(source_row.captured_at)
+        journal = aware(member.journal_at)
+        assert journal is not None and captured is not None
+        assert journal.date() == date(2025, 8, 20)
+        assert (journal.hour, journal.minute, journal.second) == (
+            captured.hour,
+            captured.minute,
+            captured.second,
+        )
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        snapshot = load_timeline(session, project)
+    moved = next(
+        entry.section
+        for entry in snapshot.entries
+        if entry.section is not None and entry.section.id == day.id
+    )
+    assert moved is not None
+    assert moved.started_at is not None
+    assert moved.started_at.date() == date(2025, 8, 20)
+
+
+def test_delete_section_parks_members_in_pool(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "morgen.jpg",
+        datetime_original="2025:05:14 09:00:00",
+        offset_original="+02:00",
+    )
+    write_jpeg_with_exif(
+        source / "abend.jpg",
+        datetime_original="2025:05:14 18:00:00",
+        offset_original="+02:00",
+    )
+    first = _index_and_sync(open_project, source)
+    ids = [photo.source_file_id for photo in first.days[0].photos]
+    with open_project.session_factory() as session:
+        section = create_section(session, first.trip_id, ids, kind=KIND_STAY, title="Berlin")
+        session.commit()
+        section_id = section.id
+    with open_project.session_factory() as session:
+        delete_section(session, section_id)
+        session.commit()
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        snapshot = load_timeline(session, project)
+        parked = list(session.scalars(select(SourceFile).where(SourceFile.parked.is_(True))))
+        leftover = list(session.scalars(select(SectionMember)))
+    assert snapshot is not None
+    assert all(entry.section is None or entry.section.id != section_id for entry in snapshot.entries)
+    assert {row.filename for row in parked} == {"morgen.jpg", "abend.jpg"}
+    assert leftover == []
 
 
 def test_day_section_sits_between_stays(open_project: OpenProject, tmp_path: Path) -> None:
@@ -415,6 +642,84 @@ def test_apply_pending_sections_is_preview_only() -> None:
     assert pending.cover_source_file_id == 1
     assert remaining.kind == KIND_DAY
     assert [photo.filename for photo in remaining.items] == ["abend.jpg"]
+
+
+def test_apply_pending_empty_section_keeps_manual_date() -> None:
+    from travelcore.timeline.types import TimelinePhoto, TimelineSection, TimelineSnapshot
+
+    morning = datetime(2025, 5, 14, 9, 0, tzinfo=UTC)
+    first = TimelinePhoto(
+        source_file_id=1,
+        filename="morgen.jpg",
+        path="morgen.jpg",
+        thumbnail_path=Path("."),
+        captured_at=morning,
+        used_in_journal=False,
+        is_cover=False,
+        is_favorite=False,
+        gps_latitude=None,
+        gps_longitude=None,
+    )
+    day_section = TimelineSection(
+        id=10,
+        kind=KIND_DAY,
+        mode=None,
+        title="14.05.2025",
+        notes=None,
+        started_at=morning,
+        ended_at=morning,
+        location_name=None,
+        location_from=None,
+        location_to=None,
+        origin="auto",
+        items=(first,),
+    )
+    snapshot = TimelineSnapshot(
+        trip_id=1, title="Reise", origin="auto", days=(), sections=(day_section,), entries=()
+    )
+    stamp = datetime(2025, 8, 20, 12, 0, tzinfo=UTC)
+    shown = apply_pending_sections(
+        snapshot,
+        [
+            PendingSectionSpec(
+                local_id=-2,
+                source_file_ids=(),
+                kind=KIND_STAY,
+                title="Leer",
+                started_at=stamp,
+                ended_at=stamp,
+            )
+        ],
+    )
+    pending = next(section for section in shown.sections if section.id == -2)
+    assert pending.title == "Leer"
+    assert pending.items == ()
+    assert pending.started_at == stamp
+    assert snapshot.sections[0].items == (first,)
+
+
+def test_apply_pending_empty_stay_keeps_range() -> None:
+    from travelcore.timeline.types import TimelineSnapshot
+
+    snapshot = TimelineSnapshot(trip_id=1, title="Reise", origin="auto", days=(), sections=(), entries=())
+    started, ended = span_for_manual_dates(KIND_STAY, date(2025, 8, 1), date(2025, 8, 10))
+    shown = apply_pending_sections(
+        snapshot,
+        [
+            PendingSectionSpec(
+                local_id=-3,
+                source_file_ids=(),
+                kind=KIND_STAY,
+                title="Urlaub",
+                started_at=started,
+                ended_at=ended,
+            )
+        ],
+    )
+    pending = next(section for section in shown.sections if section.id == -3)
+    assert pending.started_at == started
+    assert pending.ended_at == ended
+    assert shown.entries[0].section is pending
 
 
 def test_set_entry_cover_on_day_and_section(open_project: OpenProject, tmp_path: Path) -> None:

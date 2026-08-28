@@ -26,6 +26,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QSplitter,
@@ -305,6 +306,7 @@ class MediaInspectorWindow(QWidget):
 
     rating_changed = Signal(object)
     rotation_changed = Signal(object)
+    park_changed = Signal(object)
 
     def __init__(
         self,
@@ -386,6 +388,10 @@ class MediaInspectorWindow(QWidget):
             button.clicked.connect(lambda _checked, value=status: self._choose_rating(value))
             self._rating_buttons[status] = button
             self._rating_row.addWidget(button)
+        self._pool_button = QPushButton("In den Pool", self)
+        self._pool_button.setObjectName("ratingChip")
+        self._pool_button.clicked.connect(self._toggle_pool)
+        self._rating_row.addWidget(self._pool_button)
         self._rating_row.addStretch(1)
         self._size_grip = _CornerGrip(self)
         self._rating_row.addWidget(
@@ -407,11 +413,11 @@ class MediaInspectorWindow(QWidget):
             return
         self._image.reset_view()
 
-    def step(self, delta: int) -> None:
+    def step(self, delta: int, *, keep_view: bool = False) -> None:
         if len(self._items) < 2 or delta == 0:
             return
         self._index = (self._index + delta) % len(self._items)
-        if self._thumbnail_first:
+        if self._thumbnail_first and not keep_view:
             self._showing_original = False
         self._show_current()
 
@@ -493,8 +499,14 @@ class MediaInspectorWindow(QWidget):
         favorite = next_status == SORT_FAVORITE
         updated = replace(current_item, sort_status=next_status, is_favorite=favorite)
         self._items[self._index] = updated
-        self._show_current()
         self.rating_changed.emit(updated)
+        self._advance_after_rating()
+
+    def _advance_after_rating(self) -> None:
+        if self._index + 1 < len(self._items):
+            self.step(1, keep_view=True)
+            return
+        self._show_current()
 
     def _rotate(self, delta: int) -> None:
         current_item = self.item()
@@ -512,6 +524,23 @@ class MediaInspectorWindow(QWidget):
         self._items[self._index] = updated
         self._show_current()
         self.rotation_changed.emit(updated)
+
+    def _toggle_pool(self) -> None:
+        if self.workspace is None:
+            return
+        current_item = self.item()
+        try:
+            if current_item.parked:
+                self.workspace.unpark_media([current_item.source_file_id])
+            else:
+                self.workspace.park_media([current_item.source_file_id])
+        except ProjectError as exc:
+            QMessageBox.warning(self, "Medien", str(exc))
+            return
+        updated = replace(current_item, parked=not current_item.parked)
+        self._items[self._index] = updated
+        self._sync_pool_button()
+        self.park_changed.emit(updated)
 
     def _show_current(self) -> None:
         item = self.item()
@@ -540,6 +569,7 @@ class MediaInspectorWindow(QWidget):
             button.setVisible(can_rate)
             button.setEnabled(can_rate and self.workspace is not None)
         self._sync_rating_buttons()
+        self._sync_pool_button()
 
     def _sync_rating_buttons(self) -> None:
         current_item = self.item()
@@ -548,6 +578,18 @@ class MediaInspectorWindow(QWidget):
             button.blockSignals(True)
             button.setChecked(current == status)
             button.blockSignals(False)
+
+    def _sync_pool_button(self) -> None:
+        has_workspace = self.workspace is not None
+        self._pool_button.setVisible(has_workspace)
+        self._pool_button.setEnabled(has_workspace)
+        parked = self.item().parked
+        self._pool_button.setText("Zurückholen" if parked else "In den Pool")
+        self._pool_button.setToolTip(
+            "Medium wieder der Timeline und der Galerie zuordnen"
+            if parked
+            else "Medium aus dem Tagebuch nehmen und in den Medienpool legen"
+        )
 
 
 def size_keeping_photo_aspect(

@@ -26,6 +26,7 @@ from travelcore.maps import (
 from travelcore.media.gallery import GalleryItem, list_gallery_items
 from travelcore.media.indexer import count_by_kind
 from travelcore.media.orientation import can_rotate_media
+from travelcore.media.purge import SourceSyncPlan, plan_source_sync
 from travelcore.media.thumbnails import cached_thumbnail_path, ensure_thumbnail, generate_project_thumbnails
 from travelcore.media.types import GPS_EXTENSIONS
 from travelcore.project_settings import (
@@ -167,6 +168,13 @@ class Workspace:
             for row in rows:
                 session.expunge(row)
             return rows
+
+    def plan_source_sync(self, source_root: Path) -> SourceSyncPlan:
+        """Count new and missing files in the source tree versus the index."""
+
+        opened = self._require_open()
+        with opened.session_factory() as session:
+            return plan_source_sync(session, opened.project_id, source_root)
 
     def gps_track_urls(self) -> dict[int, str]:
         if self.current is None:
@@ -401,6 +409,8 @@ class Workspace:
         youtube_urls: list[str] | None = None,
         leonardo_urls: list[str] | None = None,
         cover_source_file_id: int | None = None,
+        started_at: datetime | None = None,
+        ended_at: datetime | None = None,
     ) -> None:
         opened = self._require_open()
         with opened.session_factory() as session:
@@ -423,6 +433,8 @@ class Workspace:
                 youtube_urls=youtube_urls,
                 leonardo_urls=leonardo_urls,
                 cover_source_file_id=cover_source_file_id,
+                started_at=started_at,
+                ended_at=ended_at,
             )
             session.commit()
 
@@ -433,6 +445,26 @@ class Workspace:
 
     def dissolve_section(self, section_id: int) -> None:
         self._mutate(lambda session: timeline_sections.dissolve_section(session, section_id))
+
+    def delete_section(self, section_id: int) -> None:
+        self._mutate(lambda session: timeline_sections.delete_section(session, section_id))
+
+    def set_section_pin(self, section_id: int, latitude: float, longitude: float) -> None:
+        self._mutate(
+            lambda session: timeline_sections.set_section_pin(session, section_id, latitude, longitude)
+        )
+
+    def set_section_span(
+        self,
+        section_id: int,
+        started_at: datetime,
+        ended_at: datetime | None = None,
+    ) -> None:
+        self._mutate(
+            lambda session: timeline_sections.set_section_span(
+                session, section_id, started_at, ended_at=ended_at
+            )
+        )
 
     def park_media(self, source_file_ids: list[int]) -> None:
         self._mutate(lambda session: timeline_sections.park_media(session, source_file_ids))

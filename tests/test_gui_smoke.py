@@ -32,6 +32,7 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     assert window.import_view._stat_labels["matched"].text() == "0"
     assert window.import_view._stat_labels["unlocated"].text() == "0"
     assert window.import_view._preview_image is not None
+    assert window.import_view._sync_button.text() == "Synchronisieren"
     assert "Mouseover" in window.import_view._preview_meta.text()
     assert window.project_view.name_label.text() == "–"
     assert not window.project_view.name_edit.isEnabled()
@@ -158,6 +159,53 @@ def test_format_import_status() -> None:
     assert format_import_status(2, 4, "", r"C:\fotos\flug.igc") == "flug.igc · 2 von 4 (50 %)"
 
 
+def test_source_sync_dialog_defaults_to_timeline() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QLabel
+
+    from travelcore.media.purge import SourceSyncPlan
+    from traveljournal.views.import_view import SourceSyncDialog
+
+    app = QApplication.instance() or QApplication([])
+    plan = SourceSyncPlan(
+        new_count=2,
+        missing_count=1,
+        present_count=4,
+        new_names=("neu.jpg", "spur.gpx"),
+        missing_names=("alt.jpg",),
+    )
+    dialog = SourceSyncDialog(plan)
+    labels = [widget.text() for widget in dialog.findChildren(QLabel)]
+    assert any("2 neue Dateien" in text for text in labels)
+    assert any("nicht mehr im Ordner" in text for text in labels)
+    assert dialog._timeline.isChecked()
+    assert not dialog.park_new_media()
+    dialog._pool.click()
+    assert dialog.park_new_media()
+    _ = app
+
+
+def test_source_sync_dialog_hides_destination_without_new_files() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.purge import SourceSyncPlan
+    from traveljournal.views.import_view import SourceSyncDialog
+
+    app = QApplication.instance() or QApplication([])
+    plan = SourceSyncPlan(
+        new_count=0,
+        missing_count=2,
+        present_count=1,
+        new_names=(),
+        missing_names=("a.jpg", "b.jpg"),
+    )
+    dialog = SourceSyncDialog(plan)
+    assert dialog._pool.isHidden()
+    assert not dialog.park_new_media()
+    _ = app
+
+
 def test_progress_bar_format_uses_qt_percent_placeholder() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from traveljournal.views.import_view import progress_bar_format
@@ -231,6 +279,105 @@ def test_youtube_links_dialog_add_and_delete() -> None:
     dialog._url_edit.setText("https://www.youtube.com/watch?v=xyzxyzxyzxy")
     dialog._add_current()
     assert dialog.urls() == ["https://www.youtube.com/watch?v=xyzxyzxyzxy"]
+    _ = app
+
+
+def test_empty_section_dialog_shows_am_or_von_bis() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import date
+
+    from PySide6.QtCore import QDate
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.timeline.sections import KIND_DAY, KIND_STAY
+    from traveljournal.views.timeline_view import EmptySectionDialog
+
+    app = QApplication.instance() or QApplication([])
+    dialog = EmptySectionDialog(date(2025, 8, 20))
+    assert dialog.kind.currentData() == KIND_DAY
+    assert not dialog.date_edit.isHidden()
+    assert dialog.from_edit.isHidden()
+    assert dialog.until_edit.isHidden()
+    values = dialog.values()
+    assert values["started_at"].date() == date(2025, 8, 20)
+    assert values["ended_at"] == values["started_at"]
+    dialog.kind.setCurrentIndex(1)
+    assert dialog.kind.currentData() == KIND_STAY
+    assert dialog.date_edit.isHidden()
+    assert not dialog.from_edit.isHidden()
+    assert not dialog.until_edit.isHidden()
+    dialog.from_edit.setDate(QDate(2025, 8, 1))
+    dialog.until_edit.setDate(QDate(2025, 8, 10))
+    values = dialog.values()
+    assert values["started_at"].date() == date(2025, 8, 1)
+    assert values["ended_at"].date() == date(2025, 8, 10)
+    _ = app
+
+
+def test_section_span_dialog_tag_vs_range() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, date, datetime
+
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.timeline.sections import KIND_DAY, KIND_STAY
+    from travelcore.timeline.types import TimelineEntry, TimelineSection
+    from traveljournal.views.timeline_view import EntryWidget, SectionSpanDialog
+
+    app = QApplication.instance() or QApplication([])
+    noon = datetime(2025, 5, 14, 12, 0, tzinfo=UTC)
+    tag_dialog = SectionSpanDialog(KIND_DAY, noon, noon)
+    assert tag_dialog.windowTitle() == "Datum"
+    started, ended = tag_dialog.span()
+    assert started.date() == date(2025, 5, 14)
+    assert ended == started
+    stay_dialog = SectionSpanDialog(
+        KIND_STAY,
+        datetime(2025, 8, 1, tzinfo=UTC),
+        datetime(2025, 8, 10, tzinfo=UTC),
+    )
+    assert stay_dialog.windowTitle() == "Zeitraum"
+    started, ended = stay_dialog.span()
+    assert started.date() == date(2025, 8, 1)
+    assert ended.date() == date(2025, 8, 10)
+    tag_section = TimelineSection(
+        id=3,
+        kind=KIND_DAY,
+        mode=None,
+        title="Tag",
+        notes=None,
+        started_at=noon,
+        ended_at=noon,
+        location_name=None,
+        location_from=None,
+        location_to=None,
+        origin="manual",
+    )
+    stay_section = TimelineSection(
+        id=4,
+        kind=KIND_STAY,
+        mode=None,
+        title="Aufenthalt",
+        notes=None,
+        started_at=noon,
+        ended_at=noon,
+        location_name=None,
+        location_from=None,
+        location_to=None,
+        origin="manual",
+    )
+    tag_labels = [
+        action.text()
+        for action in EntryWidget(TimelineEntry(started_at=noon, section=tag_section))._entry_menu.actions()
+    ]
+    stay_labels = [
+        action.text()
+        for action in EntryWidget(TimelineEntry(started_at=noon, section=stay_section))._entry_menu.actions()
+    ]
+    assert "Datum…" in tag_labels
+    assert "Zeitraum…" not in tag_labels
+    assert "Zeitraum…" in stay_labels
+    assert "Datum…" not in stay_labels
     _ = app
 
 
@@ -1478,10 +1625,148 @@ def test_scroll_offset_to_widget_top_uses_host_not_page_chrome() -> None:
     page.resize(480, 320)
     page.show()
     app.processEvents()
-    first_offset = scroll_offset_to_widget_top(host, first, padding=12)
-    second_offset = scroll_offset_to_widget_top(host, second, padding=12)
+    first_offset = scroll_offset_to_widget_top(host, first)
+    second_offset = scroll_offset_to_widget_top(host, second)
     assert first_offset == 0
-    assert second_offset == 400 + 16 - 12
+    assert second_offset == 400 + 16
+    _ = app
+
+
+def test_timeline_join_is_wide_downward_connector() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from traveljournal.views.timeline_view import _TIMELINE_JOIN_H, TimelineJoin
+
+    app = QApplication.instance() or QApplication([])
+    join = TimelineJoin("#2eb8a0")
+    assert join.objectName() == "timelineJoin"
+    assert join.height() == _TIMELINE_JOIN_H
+    fallback = TimelineJoin("not-a-color")
+    assert fallback._color.name().lower() == "#ffffff"
+    _ = app
+
+
+def test_span_index_at_mid_contains_then_nearest() -> None:
+    from traveljournal.views.timeline_view import span_index_at_mid
+
+    spans = [(0, 100), (116, 300), (316, 500)]
+    assert span_index_at_mid(spans, 50) == 0
+    assert span_index_at_mid(spans, 200) == 1
+    assert span_index_at_mid(spans, 105) == 0
+    assert span_index_at_mid(spans, 310) == 2
+    assert span_index_at_mid([], 0) is None
+
+
+def test_timeline_scroll_date_follows_handle(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, datetime
+
+    from PySide6.QtCore import QPoint
+    from PySide6.QtWidgets import QApplication, QFrame, QWidget
+
+    from travelcore.timeline.sections import KIND_DAY, KIND_STAY
+    from travelcore.timeline.types import TimelineEntry, TimelineSection
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.timeline_view import (
+        EntryWidget,
+        TimelineView,
+        _scrollbar_slider_rect,
+        timeline_center_date,
+    )
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    app = QApplication.instance() or QApplication([])
+    early = datetime(2025, 5, 14, tzinfo=UTC)
+    late_start = datetime(2025, 8, 1, tzinfo=UTC)
+    late_end = datetime(2025, 8, 10, tzinfo=UTC)
+    tag = EntryWidget(
+        TimelineEntry(
+            started_at=early,
+            section=TimelineSection(
+                id=1,
+                kind=KIND_DAY,
+                mode=None,
+                title="Mai",
+                notes=None,
+                started_at=early,
+                ended_at=early,
+                location_name=None,
+                location_from=None,
+                location_to=None,
+                origin="manual",
+            ),
+        )
+    )
+    stay = EntryWidget(
+        TimelineEntry(
+            started_at=late_start,
+            section=TimelineSection(
+                id=2,
+                kind=KIND_STAY,
+                mode=None,
+                title="August",
+                notes=None,
+                started_at=late_start,
+                ended_at=late_end,
+                location_name=None,
+                location_from=None,
+                location_to=None,
+                origin="manual",
+            ),
+        )
+    )
+    assert tag.scroll_date() == "14.05.2025"
+    assert stay.scroll_date() == "01.–10.08.2025"
+
+    class _Dated(QFrame):
+        def __init__(self, text: str, parent: QWidget) -> None:
+            super().__init__(parent)
+            self._text = text
+            self.setFixedHeight(1400)
+
+        def scroll_date(self) -> str:
+            return self._text
+
+    view = TimelineView(Workspace())
+    view._empty.hide()
+    view._subtitle.hide()
+    first = _Dated("14.05.2025", view._host)
+    second = _Dated("01.–10.08.2025", view._host)
+    insert_at = max(view._host_layout.count() - 1, 0)
+    view._host_layout.insertWidget(insert_at, first)
+    view._host_layout.insertWidget(insert_at + 1, second)
+    view._blocks = [first, second]  # type: ignore[list-item]
+    view.resize(720, 520)
+    view.show()
+    app.processEvents()
+    bar = view._scroll.verticalScrollBar()
+    assert bar.maximum() > 0
+    host = view._scroll.widget()
+    viewport = view._scroll.viewport()
+    assert host is not None
+    assert first.height() >= 1400
+    assert second.mapTo(host, QPoint(0, 0)).y() > first.height() // 2
+    bar.setValue(0)
+    view._sync_scroll_date(show=True)
+    app.processEvents()
+    mid_y = bar.value() + viewport.height() // 2
+    assert timeline_center_date(view._blocks, host, mid_y) == "14.05.2025"
+    assert view._scroll_date.text() == "14.05.2025"
+    assert not view._scroll_date.isHidden()
+    target = second.mapTo(host, QPoint(0, 0)).y() + 80 - viewport.height() // 2
+    bar.setValue(max(0, min(target, bar.maximum())))
+    view._sync_scroll_date(show=True)
+    app.processEvents()
+    mid_y = bar.value() + viewport.height() // 2
+    assert timeline_center_date(view._blocks, host, mid_y) == "01.–10.08.2025"
+    assert view._scroll_date.text() == "01.–10.08.2025"
+    handle = _scrollbar_slider_rect(bar)
+    center = bar.mapTo(view._scroll, handle.center())
+    assert view._scroll_date.x() >= 0
+    assert view._scroll_date.geometry().right() <= view._scroll.width()
+    assert abs(view._scroll_date.geometry().center().y() - center.y()) < 24
     _ = app
 
 
@@ -1496,7 +1781,7 @@ def test_reveal_group_puts_section_top_at_list_top() -> None:
     from traveljournal.views.timeline_view import (
         EntryWidget,
         TimelineView,
-        scroll_offset_to_widget_top,
+        scroll_delta_to_widget_top,
     )
 
     app = QApplication.instance() or QApplication([])
@@ -1534,24 +1819,28 @@ def test_reveal_group_puts_section_top_at_list_top() -> None:
     second = EntryWidget(TimelineEntry(started_at=stamp, leftover_day=day(2)), parent=view._host)
     first.setMinimumHeight(520)
     second.setMinimumHeight(520)
-    stretch = view._host_layout.takeAt(view._host_layout.count() - 1)
-    view._host_layout.addWidget(first)
-    view._host_layout.addWidget(second)
-    if stretch is not None:
-        view._host_layout.addItem(stretch)
+    insert_at = view._host_layout.indexOf(view._tail)
+    view._host_layout.insertWidget(insert_at, first)
+    view._host_layout.insertWidget(insert_at + 1, second)
     view._blocks = [first, second]
-    view._host.setMinimumHeight(1200)
     view.show()
+    view._sync_reveal_tail()
     view._host.adjustSize()
     app.processEvents()
     assert view._block_for_group_key("day:2") is second
+    viewport = view._scroll.viewport()
     view._pending_reveal = second
     view._apply_pending_reveal()
-    bar = view._scroll.verticalScrollBar()
-    expected = scroll_offset_to_widget_top(view._host, second)
-    assert bar.maximum() >= expected
-    assert bar.value() == expected
-    assert expected > 0
+    app.processEvents()
+    assert abs(scroll_delta_to_widget_top(second, viewport)) <= 1
+    first_bottom = first.mapTo(viewport, first.rect().bottomLeft()).y()
+    assert first_bottom <= 1
+    first.setMinimumHeight(900)
+    app.processEvents()
+    view._pending_reveal = second
+    view._apply_pending_reveal()
+    app.processEvents()
+    assert abs(scroll_delta_to_widget_top(second, viewport)) <= 1
     _ = app
 
 
@@ -1586,9 +1875,65 @@ def test_media_inspector_shows_original_and_ratings(tmp_path: Path) -> None:
     assert not window.extra_host.isVisible()
     assert set(window._rating_buttons) == {"favorite", "reserve", "rejected"}
     assert window._rotate_left.text() == "↺"
+    assert window._pool_button.isHidden()
     pixmap = load_media_pixmap(item)
     assert not pixmap.isNull()
     assert pixmap.width() >= 40
+    _ = app
+
+
+def test_media_inspector_parks_and_unparks_from_pool_button(tmp_path: Path) -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from jpeg_fixtures import write_plain_jpeg
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.widgets.media_inspector import MediaInspectorWindow
+
+    class StubWorkspace:
+        def __init__(self) -> None:
+            self.parked_ids: list[int] = []
+            self.unparked_ids: list[int] = []
+
+        def park_media(self, source_file_ids: list[int]) -> None:
+            self.parked_ids = list(source_file_ids)
+
+        def unpark_media(self, source_file_ids: list[int]) -> None:
+            self.unparked_ids = list(source_file_ids)
+
+    app = QApplication.instance() or QApplication([])
+    jpeg = write_plain_jpeg(tmp_path / "foto.jpg", size=(40, 30))
+    item = GalleryItem(
+        source_file_id=7,
+        path=str(jpeg),
+        filename="foto.jpg",
+        extension=".jpg",
+        captured_at=None,
+        timezone_unknown=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        camera=None,
+        is_favorite=False,
+        used_in_journal=False,
+        thumbnail_path=Path("."),
+        sort_status=None,
+    )
+    workspace = StubWorkspace()
+    seen: list[bool] = []
+    window = MediaInspectorWindow(item, workspace=workspace)
+    window.park_changed.connect(lambda updated: seen.append(updated.parked))
+    assert not window._pool_button.isHidden()
+    assert window._pool_button.text() == "In den Pool"
+    window._toggle_pool()
+    assert workspace.parked_ids == [7]
+    assert window.item().parked is True
+    assert window._pool_button.text() == "Zurückholen"
+    assert seen == [True]
+    window._toggle_pool()
+    assert workspace.unparked_ids == [7]
+    assert window.item().parked is False
+    assert window._pool_button.text() == "In den Pool"
+    assert seen == [True, False]
     _ = app
 
 
@@ -1675,6 +2020,64 @@ def test_media_inspector_browses_section_sequence(tmp_path: Path) -> None:
     assert window.item().filename == "zwei.jpg"
     window._image.side_clicked.emit(-1)
     assert window.item().filename == "eins.jpg"
+    _ = app
+
+
+def test_media_inspector_rating_advances_to_next_photo(tmp_path: Path) -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from jpeg_fixtures import write_plain_jpeg
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.widgets.media_inspector import MediaInspectorWindow
+
+    class StubWorkspace:
+        def __init__(self) -> None:
+            self.statuses: dict[int, str | None] = {}
+
+        def set_sort_status(self, source_file_id: int, status: str | None) -> None:
+            self.statuses[source_file_id] = status
+
+    app = QApplication.instance() or QApplication([])
+    first_path = write_plain_jpeg(tmp_path / "eins.jpg", size=(40, 30))
+    second_path = write_plain_jpeg(tmp_path / "zwei.jpg", size=(40, 30))
+    third_path = write_plain_jpeg(tmp_path / "drei.jpg", size=(40, 30))
+
+    def make_item(source_file_id: int, path: Path, filename: str) -> GalleryItem:
+        return GalleryItem(
+            source_file_id=source_file_id,
+            path=str(path),
+            filename=filename,
+            extension=".jpg",
+            captured_at=None,
+            timezone_unknown=False,
+            gps_latitude=None,
+            gps_longitude=None,
+            camera=None,
+            is_favorite=False,
+            used_in_journal=False,
+            thumbnail_path=Path("."),
+            sort_status=None,
+        )
+
+    first = make_item(1, first_path, "eins.jpg")
+    second = make_item(2, second_path, "zwei.jpg")
+    third = make_item(3, third_path, "drei.jpg")
+    workspace = StubWorkspace()
+    rated: list[str] = []
+    window = MediaInspectorWindow(first, items=[first, second, third], workspace=workspace)
+    window.rating_changed.connect(lambda item: rated.append(item.filename))
+    window._choose_rating("favorite")
+    assert workspace.statuses[1] == "favorite"
+    assert rated == ["eins.jpg"]
+    assert window.item().filename == "zwei.jpg"
+    window._choose_rating("reserve")
+    assert workspace.statuses[2] == "reserve"
+    assert window.item().filename == "drei.jpg"
+    window._choose_rating("rejected")
+    assert workspace.statuses[3] == "rejected"
+    assert window.item().filename == "drei.jpg"
+    assert window.item().sort_status == "rejected"
     _ = app
 
 
@@ -1832,6 +2235,8 @@ def test_parse_map_bridge_url_reads_group_key() -> None:
         parse_map_expand_console,
         parse_map_media_console,
         parse_map_media_url,
+        parse_map_place_cancel_console,
+        parse_map_place_console,
     )
 
     assert parse_map_bridge_url("traveljournal://expand?key=section%3A12") == "section:12"
@@ -1843,6 +2248,12 @@ def test_parse_map_bridge_url_reads_group_key() -> None:
     assert parse_map_media_url("https://traveljournal.local/media?id=9") == 9
     assert parse_map_media_console("traveljournal:media:9") == 9
     assert parse_map_media_console("traveljournal:expand:day:4") is None
+    assert parse_map_place_console("traveljournal:place:46.5:11.3") == (46.5, 11.3)
+    assert parse_map_place_console("traveljournal:place:-33.9:-18.4") == (-33.9, -18.4)
+    assert parse_map_place_console("leaflet ready") is None
+    assert parse_map_place_cancel_console("traveljournal:place-cancel") is True
+    assert parse_map_place_cancel_console("traveljournal:place:46.5:11.3") is False
+    assert "traveljournalSetPlaceMode" in MAP_PAGE_SETUP_JS
     assert "pointerup" in MAP_PAGE_SETUP_JS
     assert "zoom: {animate: false}" in MAP_PAGE_SETUP_JS
 
@@ -2052,6 +2463,14 @@ def test_map_timeline_strip_centers_first_card() -> None:
                 longitude=13.0,
                 card_kind=KIND_DAY,
             ),
+            MapTimelineCard(
+                group_key="section:9",
+                title="Ohne Ort",
+                time_label="am 09.05.2025",
+                latitude=None,
+                longitude=None,
+                card_kind=KIND_STAY,
+            ),
         )
     )
     strip.show()
@@ -2061,7 +2480,9 @@ def test_map_timeline_strip_centers_first_card() -> None:
     assert strip._widgets[0].property("focused") is True
     assert strip._widgets[1].property("focused") is False
     titles = [widget.card.title for widget in strip._widgets]
-    assert titles == ["Eins", "Zwei", "Drei"]
+    assert titles == ["Eins", "Zwei", "Drei", "Ohne Ort"]
+    assert strip._widgets[3].card.needs_pin is True
+    assert strip._widgets[0].card.needs_pin is False
     assert strip.show_reserve() is False
     assert strip._widgets[0].card.visible_counts(show_reserve=False) == (2, 1, 2, 3)
     strip.set_show_reserve(True)
@@ -2085,7 +2506,7 @@ def test_map_timeline_strip_centers_first_card() -> None:
     assert strip._widgets[0].width() == idle_w
     assert strip._widgets[0].height() == idle_h
     lines = [child for child in strip._inner.children() if child.objectName() == "mapTimelineLine"]
-    assert len(lines) == 2
+    assert len(lines) == 3
     again = len(focused)
     strip.center_on("section:2")
     app.processEvents()

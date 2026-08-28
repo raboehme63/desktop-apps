@@ -240,9 +240,14 @@ QFrame#mapTimelineLine {
     min-height: 2px;
 }
 
+QWidget#timelineJoin {
+    background-color: #12151c;
+    border: none;
+}
+
 QFrame#card {
-    background-color: #1a2030;
-    border: 1px solid #2a3144;
+    background-color: #3a4860;
+    border: 1px solid #8fa0bb;
     border-radius: 12px;
 }
 
@@ -377,6 +382,15 @@ QGroupBox::title {
     left: 12px;
     padding: 0 6px;
     color: #f4f7fb;
+}
+
+QLabel#timelineScrollDate {
+    background-color: #2eb8a0;
+    color: #06231e;
+    border-radius: 8px;
+    padding: 4px 10px;
+    font-weight: 600;
+    font-size: 12px;
 }
 
 QScrollArea {

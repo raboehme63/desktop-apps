@@ -165,6 +165,7 @@ class MainWindow(QMainWindow):
 
     def _after_import(self) -> None:
         self.timeline_view.rebuild()
+        self.photos_view.refresh()
         self.map_view.prepare_in_background()
 
     def _on_index_progress(self, current: int, total: int, message: str) -> None:
@@ -223,6 +224,7 @@ class MainWindow(QMainWindow):
         self.map_view.prepare_in_background(force=True)
 
     def _open_timeline_entry(self, group_key: str) -> None:
+        self.timeline_view.begin_reveal()
         self._show_page("timeline")
         self.timeline_view.reveal_group(group_key)
 

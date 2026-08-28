@@ -46,6 +46,7 @@ from travelcore.timeline import (
     create_section,
     move_members,
     set_photo_sort_status,
+    set_section_pin,
     sync_timeline,
 )
 from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelinePhoto, TimelineSection
@@ -990,6 +991,49 @@ def test_build_map_timeline_cards_from_section(open_project: OpenProject, tmp_pa
     assert card.igc_count == 0
     assert card.youtube_count == 1
     assert card.visible_counts(show_reserve=False) == (2, 0, 0, 1)
+
+
+def test_unplaced_section_gets_pin_cover(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "ohne.jpg",
+        datetime_original="2025:05:14 09:00:00",
+        offset_original="+02:00",
+    )
+    thumbs = open_project.directory / "thumbnails"
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        FileIndexer().index(session, project, source, project_dir=open_project.directory)
+        snapshot = sync_timeline(session, project, thumbs_dir=thumbs)
+        stamp = datetime(2025, 8, 20, 12, 0, tzinfo=UTC)
+        section = create_section(
+            session,
+            snapshot.trip_id,
+            [],
+            kind=KIND_STAY,
+            title="Ohne Ort",
+            started_at=stamp,
+        )
+        session.commit()
+        cards = {card.title: card for card in build_map_timeline(session, open_project.project_id, thumbs)}
+        overview = build_map_overview(session, open_project.project_id, thumbs)
+        assert "Ohne Ort" in cards
+        assert cards["Ohne Ort"].needs_pin
+        assert cards["Ohne Ort"].latitude is None
+        assert all(marker.group_key != cards["Ohne Ort"].group_key for marker in overview.markers)
+        assert not overview.empty
+        set_section_pin(session, section.id, 46.5, 11.3)
+        session.commit()
+        placed = {card.title: card for card in build_map_timeline(session, open_project.project_id, thumbs)}
+        after = build_map_overview(session, open_project.project_id, thumbs)
+    assert placed["Ohne Ort"].needs_pin is False
+    assert placed["Ohne Ort"].latitude == 46.5
+    assert placed["Ohne Ort"].longitude == 11.3
+    cover = next(item for item in after.markers if item.group_key == placed["Ohne Ort"].group_key)
+    assert cover.latitude == 46.5
+    assert cover.longitude == 11.3
 
 
 def _stay_entry(section_id: int, latitude: float | None, longitude: float = 11.0) -> TimelineEntry:

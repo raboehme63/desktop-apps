@@ -23,12 +23,13 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QScrollArea,
     QSizePolicy,
     QWidget,
 )
 
-from travelcore.maps.groups import MapTimelineCard
+from travelcore.maps.groups import MapTimelineCard, parse_group_key
 from travelcore.timeline.sections import KIND_DAY, KIND_MOVEMENT
 
 CARD_WIDTH = 248
@@ -106,6 +107,7 @@ class _LineWidget(QWidget):
 class _CardWidget(QFrame):
     clicked = Signal(str)
     open_requested = Signal(str)
+    place_requested = Signal(str)
 
     def __init__(self, card: MapTimelineCard, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -212,12 +214,21 @@ class _CardWidget(QFrame):
         if self.card.card_kind == KIND_DAY:
             _paint_calendar_badge(painter, rect)
         painter.setClipping(False)
-        border = QColor("#2eb8a0") if self._focused else QColor("#f4f7fb")
-        painter.setPen(QPen(border, 2.0 if self._focused else 1.4))
+        if self.card.needs_pin:
+            border = QColor("#e23d3d")
+            width = 2.6 if self._focused else 2.0
+        else:
+            border = QColor("#2eb8a0") if self._focused else QColor("#f4f7fb")
+            width = 2.0 if self._focused else 1.4
+        painter.setPen(QPen(border, width))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(clip)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.RightButton:
+            self._show_card_menu(event.globalPosition().toPoint())
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.LeftButton:
             self._press = event.globalPosition().toPoint()
             self._dragged = False
@@ -260,6 +271,16 @@ class _CardWidget(QFrame):
             return
         super().mouseDoubleClickEvent(event)
 
+    def _show_card_menu(self, global_pos: QPoint) -> None:
+        kind, raw = parse_group_key(self.card.group_key)
+        if kind != "section" or not isinstance(raw, int) or raw <= 0:
+            return
+        menu = QMenu(self)
+        action = menu.addAction("Platzieren")
+        chosen = menu.exec(global_pos)
+        if chosen is action:
+            self.place_requested.emit(self.card.group_key)
+
     def _include_reserve(self) -> bool:
         strip = self._strip()
         return strip is not None and strip.show_reserve()
@@ -276,6 +297,7 @@ class _CardWidget(QFrame):
 class MapTimelineStrip(QScrollArea):
     focus_changed = Signal(str)
     open_in_timeline = Signal(str)
+    place_requested = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -365,6 +387,7 @@ class MapTimelineStrip(QScrollArea):
             widget = _CardWidget(card, self._inner)
             widget.clicked.connect(self.center_on)
             widget.open_requested.connect(self.open_in_timeline.emit)
+            widget.place_requested.connect(self.place_requested.emit)
             self._widgets.append(widget)
             self._row.addWidget(widget, 0, Qt.AlignmentFlag.AlignVCenter)
         self._row.addWidget(self._right_pad)

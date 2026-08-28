@@ -681,6 +681,8 @@ def _section_views(
                 youtube_urls=parse_youtube_urls(section.youtube_urls),
                 leonardo_urls=parse_leonardo_urls(section.leonardo_urls),
                 cover_source_file_id=section.cover_source_file_id,
+                pin_latitude=section.pin_latitude,
+                pin_longitude=section.pin_longitude,
                 items=tuple(items),
             )
         )
@@ -717,9 +719,19 @@ def apply_pending_sections(
         trimmed.append(replace(section, items=items))
     for spec in pending:
         items = tuple(photos[item_id] for item_id in spec.source_file_ids if item_id in photos)
-        if not items:
+        if items:
+            times = [
+                item.journal_at or item.captured_at
+                for item in items
+                if item.journal_at or item.captured_at
+            ]
+            started_at = min(times) if times else spec.started_at
+            ended_at = max(times) if times else spec.ended_at
+        elif spec.started_at is None:
             continue
-        times = [item.journal_at or item.captured_at for item in items if item.journal_at or item.captured_at]
+        else:
+            started_at = spec.started_at
+            ended_at = spec.ended_at or spec.started_at
         extra.append(
             TimelineSection(
                 id=spec.local_id,
@@ -727,8 +739,8 @@ def apply_pending_sections(
                 mode=spec.mode,
                 title=spec.title,
                 notes=spec.notes,
-                started_at=min(times) if times else None,
-                ended_at=max(times) if times else None,
+                started_at=started_at,
+                ended_at=ended_at,
                 location_name=spec.location_name,
                 location_from=spec.location_from,
                 location_to=spec.location_to,

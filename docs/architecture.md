@@ -53,6 +53,12 @@ bietet synchrone Funktionen plus optionale Progress-Callbacks. CPU-Arbeit
 SQLite schreibt seriell. ExifTool nutzt Stay-Open oder eine Argfile-Liste,
 nicht einen Prozess pro Datei.
 
+**Synchronisieren** (`remove_missing` im Indexer, `travelcore.media.purge`) löscht
+Indexzeilen für Dateien, die nicht mehr im Quellbaum liegen, inklusive
+`section_members`, Cover-FKs, GPS-Tracks/Punkte, `file_errors` und Thumbnail-Cache.
+Neue Medien können vor `sync_timeline` geparkt werden (Pool) oder wie nach der
+Analyse Auto-Tagen zugeordnet werden. „Dateien analysieren“ bleibt additiv.
+
 ## Projektordner
 
 Ein Reiseprojekt ist ein Verzeichnis, keine einzelne Datei:
@@ -97,7 +103,10 @@ Nach dem Import ruft die App `sync_timeline` auf. Die Bibliothek:
 6. löscht leere Auto-Tage und leere Auto-Tag-Abschnitte ohne Text
 
 Die Timeline-UI zeigt **Tage**, **Transfers** und **Aufenthalte** als
-`trip_sections` mit `section_members`. Beim Index-Abgleich werden unzugeordnete,
+`trip_sections` mit `section_members`. Beim Verschieben des vertikalen
+Schiebers erscheint links am Griff das Datum des Abschnitts in der
+Bildmitte (`format_scroll_date`). Zwischen den Karten liegt ein
+`TimelineJoin` (senkrechte Linie mit Pfeil, `map_link_color`). Beim Index-Abgleich werden unzugeordnete,
 nicht geparkte Medien dem Auto-Tag ihres Aufnahmedatums zugeordnet. Geparkte
 Medien liegen im Medienpool: in der Timeline und auf der Medienseite eine
 einblendbare rechte Spalte über die volle Höhe (Pfeil rechts außen wie die
@@ -117,7 +126,12 @@ Jede Mitgliedschaft
 trägt eine **Journal-Zeit** (`section_members.journal_at`, initial die Aufnahmezeit
 inkl. Zeitzonenname). Die Timeline sortiert und gruppiert nach dieser Uhr;
 `captured_at` bleibt das Original. Verschieben setzt nur `journal_at`. Ein Tag
-folgt magnetisch dem Kalendertag der Journal-Zeit. Auflösen eines Aufenthalts
+folgt magnetisch dem Kalendertag der Journal-Zeit. Leere manuelle Abschnitte
+speichern `started_at`/`ended_at` aus den Datumsfeldern (`span_for_manual_dates`:
+Tag ein Kalendertag, Aufenthalt/Transfer von–bis). `set_section_span` ändert die
+Spanne später; bei Tags rasten die Mitglieder auf den neuen Kalendertag ein.
+Die Kartenreihenfolge folgt `_entry_sort_key` (leere Karten über
+`section.started_at`). Auflösen eines Aufenthalts
 oder Transfers erzeugt Tage nach Journal-Zeit. **Originalzeit** kopiert
 `captured_at` zurück. Medien ohne GPS erben eine Anzeigeposition: Aufenthalt
 live vom Ort/Cover, Tag als Snapshot vom Cover-Pin, Transfer entlang des Tracks
@@ -157,7 +171,9 @@ Medienseite gelten in der Timeline; Änderungen aktualisieren Timeline, Karte
 und Galerie.
 
 Der Medieninspektor blättert in der Sequenz des Tags/Abschnitts bzw. des
-Medienpools (oder der Medienseite), zoomt mit dem Mausrad, dreht die Anzeige in 90°-Schritten und
+Medienpools (oder der Medienseite); ein Bewertungs-Chip speichert und zeigt das nächste Foto
+(das letzte bleibt). Er zoomt mit dem Mausrad, dreht die Anzeige in 90°-Schritten,
+legt das aktuelle Medium mit **In den Pool** / **Zurückholen** in den Medienpool bzw. holt es zurück und
 ändert Originale nicht. Reiter Alle/Favoriten/Reserve/Aussortiert (Timeline-Abschnitte,
 Medien-Galerie und Pool) wechseln nur per Klick, nicht durch Mausrad. Pool ist
 kein Filterregister, sondern ein Mediencontainer: auf der Timeline und der
@@ -173,9 +189,10 @@ Im Register Alle blendet die Checkbox **Aussortierte anzeigen** sie ein (Standar
 `build_map_scene` (delegiert an `build_map_overview`) und `build_map_timeline`
 in `travelcore.maps.groups` bauen die Übersicht: ein Titelbild je gespeichertem
 Tag, Transfer oder Aufenthalt
-(`cover_source_file_id`, sonst das erste Foto mit Kartenposition, sonst der erste GPS-Track). Position ist
+(`cover_source_file_id`, sonst das erste Foto mit Kartenposition, sonst der erste GPS-Track, sonst der Abschnitts-Pin). Position ist
 die Journal-Anzeigeposition des Covers (`display_latitude`, sonst Original-GPS), sonst der Schwerpunkt der
-Mitglieder mit Anzeigeposition. Detailmarker und -reihenfolge folgen `section_members` und `journal_at`. Unsaved
+Mitglieder mit Anzeigeposition, sonst `pin_latitude`/`pin_longitude`. Detailmarker und -reihenfolge folgen `section_members` und `journal_at`. Abschnitte ohne Koordinate bleiben in der
+Leiste mit rotem Rand; Rechtsklick **Platzieren** setzt den Pin per Kartenklick. Unsaved
 Pending-Abschnitte erscheinen nicht auf der Karte. Zwischen **Tag- und Aufenthaltskreisen**
 in Timeline-Reihenfolge liegen `StayLink`-Polylinien mit Richtungsmarker (gleiche
 Positionen wie die runden Cover). Transfer-Kreise sind keine Endpunkte. Bei
@@ -189,7 +206,7 @@ WebView, nicht als Overlay über Chromium — sonst verschluckt die Karte Klicks
 Klick auf eine Leistenkarte ruft `traveljournalFocusCover` auf: Schwenken bei
 **unverändertem Zoom**. Oben auf den Leistenkarten stehen Zähler für Fotos, GPX-Tracks, IGC-Flüge und YouTube-Links; Reserve-Medien zählen nur, wenn **Reserve-Elemente anzeigen** im Zahnrad aktiv ist. Rechts neben der Karte stehen der Tagebucheintrag der
 fokussierten Karte (nach Bearbeitung Speichern, Abbrechen oder Verwerfen; beim Kartenwechsel als Dialog). YouTube-Vorschaubilder liegen unten rechts auf der Karte übereinander. Doppelklick auf eine Leistenkarte öffnet denselben Eintrag
-in der Timeline. Klick auf einen Kreis (`group_key`) öffnet die
+in der Timeline mit der Karten-Oberkante bündig unter der Werkzeugleiste (nicht zentriert). Klick auf einen Kreis (`group_key`) öffnet die
 Detailansicht (`traveljournalShowDetail`): Fotos, Videos, GPX-Linien,
 IGC-Flugtracks ab Zoom 10 (Start/Landung immer sichtbar) und Orte.
 `resolve_map_group` liest nur den angeklickten Eintrag, nicht die ganze
@@ -221,8 +238,9 @@ Bereits in Phase 1 angelegt, schrittweise gefüllt:
   GPX-SourceFile mit Mittelwert der ersten Punkte und Startzeit (`gpx_track`);
   IGC mit Pilot (`igc_track`) und optionalem DHV-Leonardo-Link
 - Thumbnails in `travelcore.media.thumbnails` – JPEG-Cache unter `thumbnails/`,
-  HEIC über Windows-Shell/WIC oder eingebettetes JPEG, Originale nur gelesen;
+  große JPEGs per `Image.draft` statt Skip, HEIC über Windows-Shell/WIC oder eingebettetes JPEG, Originale nur gelesen;
   Track-Thumbs über `maps.static` (rote Spur, OSM-Kacheln in `cache/map_tiles`)
+- Quellabgleich in `travelcore.media.purge` – fehlende Originale aus Index und Tagebuch entfernen; neue IDs für Pool vs. Timeline
 - Anzeigedrehung in `travelcore.media.orientation` – nach EXIF-Transpose,
   Cachepfad enthält `_r90` bei nicht-null `rotation_degrees`
 - `VideoMetadataProvider` – ffprobe-Adapter (noch nicht aktiv)

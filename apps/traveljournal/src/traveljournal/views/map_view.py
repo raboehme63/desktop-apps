@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import replace
 from pathlib import Path
 from time import monotonic
 from urllib.parse import parse_qs, unquote, urlparse
 
-from PySide6.QtCore import QFile, QIODevice, QObject, Qt, QThreadPool, QTimer, QUrl, Signal, Slot
-from PySide6.QtGui import QDesktopServices, QHideEvent, QResizeEvent, QShowEvent
+from PySide6.QtCore import QEvent, QFile, QIODevice, QObject, Qt, QThreadPool, QTimer, QUrl, Signal, Slot
+from PySide6.QtGui import QDesktopServices, QHideEvent, QKeyEvent, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from travelcore.exceptions import ProjectError
 from travelcore.maps import MapRenderResult
 from travelcore.maps.groups import parse_group_key
 from travelcore.media.gallery import SORT_FAVORITE, SORT_STATUSES, GalleryItem
@@ -48,7 +50,10 @@ except ImportError:  # pragma: no cover - optional Qt WebEngine
 _EXPAND_CONSOLE_PREFIX = "traveljournal:expand:"
 _MEDIA_CONSOLE_PREFIX = "traveljournal:media:"
 _SORT_CONSOLE_PREFIX = "traveljournal:sort:"
+_PLACE_CONSOLE_PREFIX = "traveljournal:place:"
+_PLACE_CANCEL_PREFIX = "traveljournal:place-cancel"
 _SORT_STATUSES = frozenset({"favorite", "reserve", "rejected"})
+_PLACE_COORDS = re.compile(r"(-?\d+(?:\.\d+)?):(-?\d+(?:\.\d+)?)")
 
 
 def parse_map_expand_console(message: str) -> str | None:
@@ -60,6 +65,24 @@ def parse_map_expand_console(message: str) -> str | None:
         return None
     key = text[idx + len(_EXPAND_CONSOLE_PREFIX) :].strip()
     return key or None
+
+
+def parse_map_place_console(message: str) -> tuple[float, float] | None:
+    """Return lat/lng from a ``traveljournal:place:lat:lng`` console line."""
+
+    text = message.strip()
+    idx = text.find(_PLACE_CONSOLE_PREFIX)
+    if idx < 0:
+        return None
+    rest = text[idx + len(_PLACE_CONSOLE_PREFIX) :].strip()
+    match = _PLACE_COORDS.fullmatch(rest)
+    if match is None:
+        return None
+    return float(match.group(1)), float(match.group(2))
+
+
+def parse_map_place_cancel_console(message: str) -> bool:
+    return _PLACE_CANCEL_PREFIX in message.strip()
 
 
 def parse_map_media_console(message: str) -> int | None:
@@ -206,10 +229,13 @@ MAP_PAGE_SETUP_JS = """
     var icon = target.closest('.tj-cover-icon');
     return icon ? icon.querySelector('[data-group-key]') : null;
   }
-  if (!window._tjPointerBound) {
+    if (!window._tjPointerBound) {
     window._tjPointerBound = true;
     var press = null;
     document.addEventListener('pointerdown', function(event) {
+      if (window._tjPlaceMode) {
+        return;
+      }
       if (event.button !== 0) {
         return;
       }
@@ -284,6 +310,66 @@ MAP_PAGE_SETUP_JS = """
     }
   }
   retryWrap();
+  window.traveljournalSetPlaceMode = function(on) {
+    window._tjPlaceMode = !!on;
+    var map = findMap();
+    var root = map && map.getContainer ? map.getContainer() : document.querySelector('.leaflet-container');
+    if (root) {
+      if (on) {
+        root.classList.add('tj-place-mode');
+        root.style.cursor = 'crosshair';
+      } else {
+        root.classList.remove('tj-place-mode');
+        root.style.cursor = '';
+      }
+    }
+    if (!document.getElementById('tj-place-cursor-style')) {
+      var style = document.createElement('style');
+      style.id = 'tj-place-cursor-style';
+      style.textContent = (
+        '.leaflet-container.tj-place-mode, .leaflet-container.tj-place-mode *'
+        + ' { cursor: crosshair !important; }'
+      );
+      document.head.appendChild(style);
+    }
+  };
+  function bindPlace() {
+    var map = findMap();
+    if (!map || map._tjPlaceBound) {
+      return !!map;
+    }
+    map._tjPlaceBound = true;
+    map.on('click', function(event) {
+      if (!window._tjPlaceMode || !event || !event.latlng) {
+        return;
+      }
+      var lat = event.latlng.lat;
+      var lng = event.latlng.lng;
+      if (window.tjBridge && window.tjBridge.place) {
+        window.tjBridge.place(lat, lng);
+      }
+      console.warn('traveljournal:place:' + lat + ':' + lng);
+    });
+    return true;
+  }
+  document.addEventListener('keydown', function(event) {
+    if (event.key !== 'Escape' || !window._tjPlaceMode) {
+      return;
+    }
+    if (window.tjBridge && window.tjBridge.cancelPlace) {
+      window.tjBridge.cancelPlace();
+    }
+    console.warn('traveljournal:place-cancel');
+  }, true);
+  var placeTries = 0;
+  function retryPlace() {
+    if (bindPlace() || placeTries >= 40) {
+      return;
+    }
+    placeTries += 1;
+    setTimeout(retryPlace, 200);
+  }
+  retryPlace();
   window.traveljournalInvalidateSize = function() {
     var map = findMap();
     if (!map) {
@@ -361,6 +447,8 @@ class MapJsBridge(QObject):
     section_closed = Signal()
     reserve_changed = Signal(bool)
     map_settings_changed = Signal(bool, bool)
+    place_requested = Signal(float, float)
+    place_cancelled = Signal()
 
     @Slot(str)
     def expand(self, group_key: str) -> None:
@@ -388,6 +476,14 @@ class MapJsBridge(QObject):
     @Slot(bool, bool)
     def saveMapSettings(self, photo_cones: bool, show_reserve: bool) -> None:
         self.map_settings_changed.emit(bool(photo_cones), bool(show_reserve))
+
+    @Slot(float, float)
+    def place(self, lat: float, lng: float) -> None:
+        self.place_requested.emit(float(lat), float(lng))
+
+    @Slot()
+    def cancelPlace(self) -> None:
+        self.place_cancelled.emit()
 
 
 def _map_flags_bootstrap_js(workspace: Workspace) -> str:
@@ -429,6 +525,8 @@ if QWebEnginePage is not None:
         expand_requested = Signal(str)
         media_requested = Signal(int)
         sort_status_requested = Signal(int, str)
+        place_requested = Signal(float, float)
+        place_cancelled = Signal()
 
         def acceptNavigationRequest(self, url, nav_type, is_main_frame):  # type: ignore[no-untyped-def]
             key = parse_map_bridge_url(url.toString())
@@ -451,6 +549,13 @@ if QWebEnginePage is not None:
             return super().acceptNavigationRequest(url, nav_type, is_main_frame)
 
         def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):  # type: ignore[no-untyped-def]
+            if parse_map_place_cancel_console(message):
+                self.place_cancelled.emit()
+                return
+            placed = parse_map_place_console(message)
+            if placed is not None:
+                self.place_requested.emit(placed[0], placed[1])
+                return
             key = parse_map_expand_console(message)
             if key is not None:
                 self.expand_requested.emit(key)
@@ -500,6 +605,7 @@ class MapView(QWidget):
         self._detail_group_key = ""
         self._pending_focus = ""
         self._requested_focus = ""
+        self._placing_key = ""
         self._notes_group_key = ""
         self._notes_title = ""
         self._notes_baseline = ""
@@ -517,7 +623,8 @@ class MapView(QWidget):
         title.setObjectName("pageTitle")
         self._subtitle = QLabel(
             "Titelbilder der Tage, Transfers und Aufenthalte. "
-            "Einfachklick in der Leiste zentriert, Doppelklick öffnet den Eintrag in der Timeline."
+            "Einfachklick in der Leiste zentriert, Doppelklick öffnet den Eintrag in der Timeline. "
+            "Abschnitte ohne Position haben einen roten Rand; Rechtsklick → Platzieren."
         )
         self._subtitle.setObjectName("pageSubtitle")
         self._subtitle.setWordWrap(True)
@@ -595,6 +702,7 @@ class MapView(QWidget):
         self._timeline = MapTimelineStrip()
         self._timeline.focus_changed.connect(self._on_timeline_focus)
         self._timeline.open_in_timeline.connect(self.open_in_timeline.emit)
+        self._timeline.place_requested.connect(self._start_place_mode)
         self._web_host = QWidget()
         self._web_layout = QVBoxLayout(self._web_host)
         self._web_layout.setContentsMargins(0, 0, 0, 0)
@@ -648,6 +756,7 @@ class MapView(QWidget):
         self._detail_group_key = ""
         self._pending_focus = ""
         self._requested_focus = ""
+        self._placing_key = ""
         self._clear_entry_panel()
         self._timeline.set_cards(())
         self._timeline.setVisible(False)
@@ -780,6 +889,8 @@ class MapView(QWidget):
             page.expand_requested.connect(self._on_expand_group)
             page.media_requested.connect(self._on_open_media)
             page.sort_status_requested.connect(self._on_sort_status)
+            page.place_requested.connect(self._on_map_place)
+            page.place_cancelled.connect(self._cancel_place_mode)
             self._web.setPage(page)
             if QWebChannel is not None:
                 self._bridge = MapJsBridge(page)
@@ -789,11 +900,14 @@ class MapView(QWidget):
                 self._bridge.section_closed.connect(self._on_section_closed)
                 self._bridge.reserve_changed.connect(self._timeline.set_show_reserve)
                 self._bridge.map_settings_changed.connect(self._on_map_settings_changed)
+                self._bridge.place_requested.connect(self._on_map_place)
+                self._bridge.place_cancelled.connect(self._cancel_place_mode)
                 channel = QWebChannel(page)
                 channel.registerObject("tjBridge", self._bridge)
                 page.setWebChannel(channel)
                 self._channel = channel
             self._web.loadFinished.connect(self._on_web_loaded)
+        self._web.installEventFilter(self)
         settings = self._web.settings()
         if QWebEngineSettings is not None:
             settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
@@ -847,6 +961,8 @@ class MapView(QWidget):
         if script:
             self._web.page().runJavaScript(script)
         self._web.page().runJavaScript(MAP_PAGE_SETUP_JS)
+        if self._placing_key:
+            self._run_js("if (window.traveljournalSetPlaceMode) traveljournalSetPlaceMode(true);")
 
     def _reload_timeline(self, *, arm_focus: bool) -> None:
         self._map_focus_armed = False
@@ -943,6 +1059,57 @@ class MapView(QWidget):
     def _on_map_settings_changed(self, photo_cones: bool, show_reserve: bool) -> None:
         self.workspace.set_map_display_flags(photo_cones=photo_cones, show_reserve=show_reserve)
         self._timeline.set_show_reserve(show_reserve)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
+        if (
+            self._placing_key
+            and event.type() == QEvent.Type.KeyPress
+            and isinstance(event, QKeyEvent)
+            and event.key() == Qt.Key.Key_Escape
+        ):
+            self._cancel_place_mode()
+            return True
+        return super().eventFilter(watched, event)
+
+    def _start_place_mode(self, group_key: str) -> None:
+        kind, raw = parse_group_key(group_key)
+        if kind != "section" or not isinstance(raw, int) or raw <= 0:
+            return
+        self._placing_key = group_key
+        if self._web is not None:
+            self._web.setCursor(Qt.CursorShape.CrossCursor)
+        self._run_js("if (window.traveljournalSetPlaceMode) traveljournalSetPlaceMode(true);")
+        self.status_message.emit("Klick auf die Karte setzt den Ort. Esc bricht ab.")
+
+    def _cancel_place_mode(self) -> None:
+        was_placing = bool(self._placing_key)
+        self._placing_key = ""
+        self._run_js("if (window.traveljournalSetPlaceMode) traveljournalSetPlaceMode(false);")
+        if self._web is not None:
+            self._web.unsetCursor()
+        if was_placing:
+            self.status_message.emit("Platzieren abgebrochen.")
+
+    def _on_map_place(self, latitude: float, longitude: float) -> None:
+        key = self._placing_key
+        if not key:
+            return
+        kind, raw = parse_group_key(key)
+        if kind != "section" or not isinstance(raw, int) or raw <= 0:
+            self._cancel_place_mode()
+            return
+        try:
+            self.workspace.set_section_pin(raw, latitude, longitude)
+        except ProjectError as exc:
+            QMessageBox.warning(self, "Karte", str(exc))
+            return
+        self._placing_key = ""
+        self._run_js("if (window.traveljournalSetPlaceMode) traveljournalSetPlaceMode(false);")
+        if self._web is not None:
+            self._web.unsetCursor()
+        self._requested_focus = key
+        self.refresh(force=True)
+        self.status_message.emit("Ort dem Abschnitt zugeordnet.")
 
     def _on_timeline_focus(self, group_key: str) -> None:
         previous = self._notes_group_key
@@ -1157,6 +1324,7 @@ class MapView(QWidget):
             parent=host,
         )
         window.rating_changed.connect(self._on_inspector_rating)
+        window.park_changed.connect(self._on_inspector_park)
         window.show()
         window.raise_()
         window.activateWindow()
@@ -1196,6 +1364,13 @@ class MapView(QWidget):
         status = json.dumps(item.sort_status or "")
         source_id = int(item.source_file_id)
         self._run_js(f"if (window.traveljournalApplySort) traveljournalApplySort({source_id}, {status});")
+
+    def _on_inspector_park(self, item: object) -> None:
+        if not isinstance(item, GalleryItem):
+            return
+        self.refresh(force=True)
+        self.rating_changed.emit(item)
+        self.status_message.emit("Medium im Pool." if item.parked else "Medium zurückgeholt.")
 
     def _rated_detail_item(self, source_file_id: int, status: str | None) -> GalleryItem | None:
         current = next((item for item in self._detail_items if item.source_file_id == source_file_id), None)
