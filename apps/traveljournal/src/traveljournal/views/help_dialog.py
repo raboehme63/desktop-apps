@@ -45,9 +45,11 @@ class HelpDialog(QDialog):
         title = QLabel("Verkehrsmittelsymbole")
         title.setObjectName("pageTitle")
         intro = QLabel(
-            "Auf der Karte sitzt das Symbol auf der Verbindungslinie eines Transfers: "
+            "Auf der Karte sitzt das Symbol auf der Verbindungslinie: "
             "weißes Piktogramm auf schwarzem Kreis, die Spitze zeigt in Fahrtrichtung. "
-            "Sie wählen es in der Timeline an der Verbindungslinie. "
+            "Am Transfer wählen Sie es je Zeile, an Tag und Aufenthalt unter "
+            "„Verbindung zum nächsten Abschnitt“, wenn der nächste Eintrag kein Transfer ist "
+            "(oder „Keine Linie“, dann entfällt die Verbindung). "
             "Gepunktete Systemlücken zwischen Spur, Gelenk und Cover haben kein Symbol."
         )
         intro.setObjectName("pageSubtitle")

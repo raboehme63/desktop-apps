@@ -50,6 +50,7 @@ from travelcore.timeline.texts import (
     date_from_text_filename,
     read_imported_text,
 )
+from travelcore.timeline.outbound import outbound_from_section
 from travelcore.timeline.transfer_links import load_transfer_links_for_sections
 from travelcore.timeline.types import (
     PendingSectionSpec,
@@ -687,6 +688,7 @@ def _section_views(
                 pin_longitude=section.pin_longitude,
                 items=tuple(items),
                 links=links_by_section.get(section.id, ()),
+                outbound=outbound_from_section(section),
             )
         )
     return views
@@ -753,6 +755,7 @@ def apply_pending_sections(
                 cover_source_file_id=spec.cover_source_file_id,
                 items=items,
                 links=spec.links,
+                outbound=spec.outbound,
             )
         )
     sections = tuple(trimmed) + tuple(extra)

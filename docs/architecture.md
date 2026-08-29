@@ -221,7 +221,11 @@ Pending-Abschnitte erscheinen nicht auf der Karte. Zwischen **Tag- und Aufenthal
 in Timeline-Reihenfolge liegen `StayLink`-Polylinien. Transfer-Kreise sind keine
 Endpunkte. Der erste Transfer in der Lücke besitzt eine geordnete Liste
 `transfer_links` (Linie, Track, Bogenlinie, Route als Platzhalter; Symbol;
-optional GPX-Member). Ohne Zeilen bleibt die bisherige Gerade mit Pfeil. Mehrere
+optional GPX-Member). Fehlt der Transfer, gilt die eine Ausgangslinie des linken
+Tag- oder Aufenthalts (`outbound_*` an `trip_sections`: gerade/Bogen, solid/gestrichelt,
+Symbol, oder `none`). Alle `NULL` = Gerade mit Richtungspfeil. `none` = keine Linie.
+Track und Route gibt es dort nicht.
+Ohne Zeilen bleibt die bisherige Gerade mit Pfeil. Mehrere
 Zeilen werden in Timeline-Reihenfolge gezeichnet; Lücken zwischen Linienenden
 oder Linie und Cover füllt eine gepunktete Gerade. Das Symbol ersetzt den
 Richtungsmarker der jeweiligen Nutzerkante. Ein Transfer-Kreis (kein Linienende)
@@ -350,6 +354,9 @@ SQLAlchemy 2, Alembic, eine SQLite-Datei je Projekt. Migrationen:
 - `012_drop_overnight_stays` – Übernachtungen entfernt
 - `013_day_sections_parked` – Tag als Abschnitt, `source_files.parked`
 - `014_section_member_journal` – Journal-Zeit und geerbte Position an `section_members`
+- `015_section_pin` – manuelle Kreisposition
+- `016_transfer_links` – Transfer-Verbindungslinien
+- `017_section_outbound` – Ausgangslinie an Tag/Aufenthalt
 
 ## Windows-Paketierung
 

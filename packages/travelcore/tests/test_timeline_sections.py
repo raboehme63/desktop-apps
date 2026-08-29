@@ -66,6 +66,22 @@ def test_parse_and_serialize_transfer_modes() -> None:
     assert serialize_modes(["bus", "unknown"]) == "bus"
 
 
+def test_normalize_outbound_treats_straight_solid_as_empty() -> None:
+    from travelcore.timeline.outbound import normalize_outbound, outbound_from_columns
+
+    assert normalize_outbound("line", "solid", None) == (None, None, None)
+    assert normalize_outbound("none", "dashed", "car") == ("none", None, None)
+    assert outbound_from_columns(None, None, None) is None
+    hidden = outbound_from_columns("none", None, None)
+    assert hidden is not None
+    assert hidden.geometry == "none"
+    link = outbound_from_columns("arc", "dashed", "car")
+    assert link is not None
+    assert link.geometry == "arc"
+    assert link.dash == "dashed"
+    assert link.symbol == "car"
+
+
 def test_format_section_span_uses_object_dates() -> None:
     start = datetime(2025, 5, 14, 8, 0, tzinfo=UTC)
     same_day = datetime(2025, 5, 14, 18, 30, tzinfo=UTC)
@@ -594,6 +610,92 @@ def test_update_section_kind_switches_stay_and_transfer(open_project: OpenProjec
     assert back is not None
     assert back.kind == KIND_STAY
     assert back.mode is None
+
+
+def test_kind_change_copies_outbound_to_transfer_and_back(
+    open_project: OpenProject, tmp_path: Path
+) -> None:
+    from travelcore.timeline.outbound import save_outbound_link
+    from travelcore.timeline.transfer_links import load_transfer_links
+    from travelcore.timeline.types import TimelineLink
+
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "ort.jpg",
+        datetime_original="2025:05:19 10:00:00",
+        offset_original="+02:00",
+    )
+    first = _index_and_sync(open_project, source)
+    ids = [photo.source_file_id for photo in first.days[0].photos]
+    with open_project.session_factory() as session:
+        section = create_section(session, first.trip_id, ids, kind=KIND_STAY, title="Bozen")
+        session.commit()
+        section_id = section.id
+        save_outbound_link(
+            session,
+            section_id,
+            TimelineLink(id=0, sort_index=0, geometry="arc", dash="dashed", symbol="car"),
+        )
+        session.commit()
+        update_section_kind(session, section_id, KIND_MOVEMENT)
+        session.commit()
+        links = load_transfer_links(session, section_id)
+        assert [(item.geometry, item.dash, item.symbol) for item in links] == [
+            ("arc", "dashed", "car")
+        ]
+        row = session.get(type(section), section_id)
+        assert row is not None
+        assert row.outbound_geometry is None
+        update_section_kind(session, section_id, KIND_STAY)
+        session.commit()
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        loaded = load_timeline(session, project)
+    assert loaded is not None
+    stay = loaded.entries[0].section
+    assert stay is not None
+    assert stay.kind == KIND_STAY
+    assert stay.outbound is not None
+    assert stay.outbound.geometry == "arc"
+    assert stay.outbound.dash == "dashed"
+    assert stay.outbound.symbol == "car"
+
+
+def test_kind_change_hidden_outbound_does_not_seed_transfer(
+    open_project: OpenProject, tmp_path: Path
+) -> None:
+    from travelcore.timeline.outbound import save_outbound_link
+    from travelcore.timeline.transfer_links import load_transfer_links
+    from travelcore.timeline.types import TimelineLink
+
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "ort.jpg",
+        datetime_original="2025:05:19 10:00:00",
+        offset_original="+02:00",
+    )
+    first = _index_and_sync(open_project, source)
+    stamp = datetime(2025, 8, 20, 12, 0, tzinfo=UTC)
+    with open_project.session_factory() as session:
+        section = create_section(
+            session, first.trip_id, [], kind=KIND_STAY, title="Leer", started_at=stamp
+        )
+        session.commit()
+        section_id = section.id
+        save_outbound_link(
+            session,
+            section_id,
+            TimelineLink(id=0, sort_index=0, geometry="none"),
+        )
+        session.commit()
+        update_section_kind(session, section_id, KIND_MOVEMENT)
+        session.commit()
+        assert load_transfer_links(session, section_id) == ()
+        row = session.get(type(section), section_id)
+        assert row is not None
+        assert row.outbound_geometry is None
 
 
 def test_apply_pending_sections_is_preview_only() -> None:

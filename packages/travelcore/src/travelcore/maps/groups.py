@@ -49,8 +49,9 @@ from travelcore.timeline.sections import (
     day_section_for_date,
     format_section_span,
 )
+from travelcore.timeline.outbound import outbound_is_hidden
 from travelcore.timeline.transfer_links import OVERVIEW_TRACK_POINTS
-from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelinePhoto, TimelineSection
+from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelineLink, TimelinePhoto, TimelineSection
 
 
 @dataclass(frozen=True, slots=True)
@@ -453,18 +454,23 @@ def stay_links_from_entries(
         transfer = next((item for item in between if item.card_kind == KIND_MOVEMENT), None)
         via_transfer = transfer is not None
         transfer_links = transfer.section.links if transfer is not None and transfer.section else ()
+        outbound = _outbound_for_gap(entries[left], via_transfer=via_transfer)
+        left_outbound = entries[left].section.outbound if entries[left].section else None
+        if not via_transfer and outbound_is_hidden(left_outbound):
+            continue
+        owned = transfer_links if via_transfer else outbound
         transfer_key = (
             f"section:{transfer.section.id}" if transfer is not None and transfer.section else ""
         )
         hubs = _transfer_hubs(between, days)
         start_pt = (start.latitude, start.longitude)
         end_pt = (end.latitude, end.longitude)
-        segments = build_stay_segments(start_pt, end_pt, transfer_links, tracks)
+        segments = build_stay_segments(start_pt, end_pt, owned, tracks)
         first_user = next((item for item in segments if item.role == STAY_LINK_ROLE_USER), None)
         if first_user is not None:
             style = first_user.style
-        elif transfer_links:
-            style = style_for_geometry(transfer_links[0].geometry)
+        elif owned:
+            style = style_for_geometry(owned[0].geometry)
         else:
             style = stay_link_style(via_transfer=via_transfer)
         links.append(
@@ -481,6 +487,15 @@ def stay_links_from_entries(
             )
         )
     return links
+
+
+def _outbound_for_gap(entry: TimelineEntry, *, via_transfer: bool) -> tuple[TimelineLink, ...]:
+    if via_transfer or entry.section is None or entry.section.kind == KIND_MOVEMENT:
+        return ()
+    link = entry.section.outbound
+    if link is None:
+        return ()
+    return (link,)
 
 
 def stay_link_style(*, via_transfer: bool) -> str:

@@ -67,6 +67,7 @@ from travelcore.timeline.sections import (
     unpark_media,
     update_section_kind,
 )
+from travelcore.timeline.outbound import save_outbound_link
 from travelcore.timeline.transfer_links import (
     LINK_GEOMETRY_ARC,
     LINK_GEOMETRY_LINE,
@@ -136,6 +137,7 @@ __all__ = [
     "save_section_leonardo_urls",
     "save_section_text",
     "save_section_youtube_urls",
+    "save_outbound_link",
     "save_transfer_links",
     "clear_transfer_track_refs",
     "serialize_leonardo_urls",

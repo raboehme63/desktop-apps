@@ -378,11 +378,14 @@ def update_section_kind(
         )
     members = _member_rows(session, section.id)
     files = [source for source, _member in members]
+    previous = section.kind
     section.kind = kind
     section.origin = ORIGIN_MANUAL
     if kind == KIND_DAY:
         from travelcore.timeline.transfer_links import delete_transfer_links
 
+        if previous == KIND_MOVEMENT:
+            _adopt_first_link_as_outbound(session, section)
         delete_transfer_links(session, section.id)
         key = calendar_key(section.started_at) or (
             calendar_key(members[0][1].journal_at) if members else None
@@ -399,6 +402,9 @@ def update_section_kind(
             member.journal_longitude = lon
         return
     if kind == KIND_MOVEMENT:
+        if previous != KIND_MOVEMENT:
+            _seed_links_from_outbound(session, section)
+            _clear_outbound(section)
         section.mode = serialize_modes(parse_modes(mode)) if mode else section.mode
         section.location_name = None
         for _source, member in members:
@@ -409,6 +415,8 @@ def update_section_kind(
         return
     from travelcore.timeline.transfer_links import delete_transfer_links
 
+    if previous == KIND_MOVEMENT:
+        _adopt_first_link_as_outbound(session, section)
     delete_transfer_links(session, section.id)
     section.mode = None
     section.location_from = None
@@ -999,6 +1007,35 @@ def _seed_links_from_mode(session: Session, section: TripSection) -> None:
     if not seeded:
         return
     save_transfer_links(session, section.id, list(seeded))
+
+
+def _clear_outbound(section: TripSection) -> None:
+    from travelcore.timeline.outbound import apply_outbound_columns
+
+    apply_outbound_columns(section, None)
+
+
+def _seed_links_from_outbound(session: Session, section: TripSection) -> None:
+    from travelcore.timeline.outbound import OUTBOUND_GEOMETRIES, outbound_from_section
+    from travelcore.timeline.transfer_links import load_transfer_links, save_transfer_links
+
+    if load_transfer_links(session, section.id):
+        return
+    link = outbound_from_section(section)
+    if link is None or link.geometry not in OUTBOUND_GEOMETRIES:
+        return
+    save_transfer_links(session, section.id, [link])
+
+
+def _adopt_first_link_as_outbound(session: Session, section: TripSection) -> None:
+    from travelcore.timeline.outbound import OUTBOUND_GEOMETRIES, apply_outbound_columns
+    from travelcore.timeline.transfer_links import load_transfer_links
+
+    for item in load_transfer_links(session, section.id):
+        if item.geometry in OUTBOUND_GEOMETRIES:
+            apply_outbound_columns(section, item)
+            return
+    apply_outbound_columns(section, None)
 
 
 def expand_range_selection(

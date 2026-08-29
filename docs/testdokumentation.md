@@ -323,6 +323,11 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_park_media_clears_track_choice` | `test_transfer_links.py` | Spurwahl wird geleert, Geometrie bleibt Track |
 | `test_gap_filler_between_cover_and_track` | `test_transfer_links.py` | gepunktete Stummel Cover↔Spur |
 | `test_stay_links_use_first_transfer_segments` | `test_transfer_links.py` | erster Transfer liefert Segmente |
+| `test_stay_links_use_left_outbound_when_next_is_not_transfer` | `test_maps.py` | Tag/Aufenthalt-Ausgangslinie ohne Transfer dazwischen |
+| `test_stay_links_omit_when_left_outbound_is_hidden` | `test_maps.py` | Keine Linie: keine StayLink-Kante |
+| `test_normalize_outbound_treats_straight_solid_as_empty` | `test_timeline_sections.py` | Standard = keine gespeicherten outbound-Felder; `none` bleibt `none` |
+| `test_kind_change_copies_outbound_to_transfer_and_back` | `test_timeline_sections.py` | Typwechsel übernimmt Linie/Bogen |
+| `test_kind_change_hidden_outbound_does_not_seed_transfer` | `test_timeline_sections.py` | Keine Linie wird nicht zur Transfer-Liste |
 | `test_stay_links_skip_stays_without_gps` | `test_maps.py` | Aufenthalt ohne GPS ist kein Linienende |
 | `test_stay_link_hidden_when_covers_overlap` | `test_maps.py` | Linie unsichtbar, wenn Kreise sich überdecken |
 | `test_transport_symbols_cover_movement_modes` | `test_symbols.py` | Katalog-Keys = `MOVEMENT_MODES` |
@@ -739,7 +744,9 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Leiste nach links/rechts ziehen oder Mausrad | Karten verschieben sich horizontal; Klick trifft die Karte, nicht die OSM-Kacheln |
 | Hineinzoomen, dann eine Leistenkarte anklicken | die Karte schwenkt auf diesen Eintrag, **Zoom bleibt** |
 | Zwei nahe Tag-/Aufenthaltskreise, weit herausgezoomt | Verbindungslinie unsichtbar, sobald sich die Kreise überdecken |
-| Zwei entfernte Tag- oder Aufenthaltskreise mit Transfer dazwischen | Linie mit Verkehrssymbol in Timeline-Richtung; dünne Linie vom Transfer-Kreis zum Symbol; in der Detailansicht keine Linie |
+| Zwei entfernte Tag- oder Aufenthaltskreise, Ausgangslinie Bogen gestrichelt mit Auto | Bogenlinie gestrichelt mit Autosymbol, kein Transfer-Stiel |
+| Zwei entfernte Tag- oder Aufenthaltskreise, Ausgangslinie **Keine Linie** | keine Verbindung zwischen den Kreisen |
+| Zwei entfernte Tag- oder Aufenthaltskreise mit Transfer dazwischen | Linie des Transfers (nicht die Ausgangslinie des linken Tags); dünne Linie vom Transfer-Kreis zum Symbol; in der Detailansicht keine Linie |
 | Doppelklick in die freie (nicht belegte) Kartenfläche | Übersicht: alle Kreise im Ausschnitt |
 | Klick auf einen Kreis | Detailansicht: Fotos, Videos und Tracks dieses Eintrags, Ausschnitt angepasst; **Reiseabschnitt schließen** rechts neben dem Zoom-Plus stellt Zoom und Ausschnitt der Übersicht wieder her |
 | Klick auf das Verkehrssymbol eines Transfers | dieselbe Detailansicht wie Klick auf den Transfer-Kreis |
@@ -777,6 +784,8 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | ⋯ **Datum…** (Tag) bzw. **Zeitraum…** (Aufenthalt/Transfer) | Dialog übernimmt die bisherigen Daten; nach OK rutscht die Karte an die neue Stelle; bei ungespeichertem Abschnitt **Speichern** nötig |
 | ⋯ **Löschen** an einem gespeicherten Abschnitt | Abschnitt weg; Medien im Pool; Pool-Spalte öffnet sich |
 | Transfer mit mehreren Verkehrsmitteln, **Speichern**, ⊟ auflösen | Dateien wieder auf Tagen |
+| Tag oder Aufenthalt, nächster Eintrag kein Transfer: **Verbindung zum nächsten Abschnitt** | Gerade/Bogenlinie, durchgezogen/gestrichelt, ein Verkehrsmittel; leer = Richtungspfeil auf der Geraden; **Keine Linie** zeichnet nichts zum Folgekreis; Track und Route fehlen |
+| Letzter Eintrag oder nächster Eintrag ist Transfer | keine Ausgangslinie-Zeile; gespeicherte Werte bleiben |
 | YouTube im ⋯-Menü, Dialog-OK | **Speichern** wird aktiv; ohne Speichern die Timeline verlassen: Dialog Verwerfen/Abbrechen; nach Verwerfen YouTube nicht in der DB |
 | Nur Titel oder Tagebuchtext ändern und die Timeline verlassen | keine Rückfrage; die Edits bleiben in der Timeline, bis **Speichern**; Schließen des Fensters verwirft sie |
 | **Timeline aktualisieren** bei geändertem Titel/Text | Texte werden mitgeschrieben; **Speichern** bleibt aktiv, wenn Abschnitte oder YouTube noch ungespeichert sind |

@@ -52,7 +52,7 @@ from travelcore.timeline import (
     set_section_pin,
     sync_timeline,
 )
-from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelinePhoto, TimelineSection
+from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelineLink, TimelinePhoto, TimelineSection
 
 
 def test_downsample_keeps_endpoints() -> None:
@@ -1265,6 +1265,49 @@ def test_stay_links_skip_transfer_as_endpoint() -> None:
     assert links[0].hubs[0].key == "section:9"
     assert links[0].hubs[0].latitude == 46.5
     assert links[0].hubs[0].longitude == 11.5
+
+
+def test_stay_links_use_left_outbound_when_next_is_not_transfer() -> None:
+    from dataclasses import replace
+
+    base = _stay_entry(1, 46.0, 11.0)
+    assert base.section is not None
+    left = TimelineEntry(
+        started_at=base.started_at,
+        section=replace(
+            base.section,
+            outbound=TimelineLink(
+                id=0, sort_index=0, geometry="arc", dash="dashed", symbol="car"
+            ),
+        ),
+    )
+    links = stay_links_from_entries([left, _stay_entry(2, 47.0, 12.0)])
+    assert len(links) == 1
+    users = [item for item in links[0].segments if item.role == "user"]
+    assert users[0].style == "curve"
+    assert users[0].dash == "dashed"
+    assert users[0].symbol == "car"
+    ignored = stay_links_from_entries([left, _movement_entry(9), _stay_entry(2, 47.0, 12.0)])
+    assert ignored[0].via_transfer is True
+    assert all(item.symbol != "car" for item in ignored[0].segments)
+
+
+def test_stay_links_omit_when_left_outbound_is_hidden() -> None:
+    from dataclasses import replace
+
+    base = _stay_entry(1, 46.0, 11.0)
+    assert base.section is not None
+    left = TimelineEntry(
+        started_at=base.started_at,
+        section=replace(
+            base.section,
+            outbound=TimelineLink(id=0, sort_index=0, geometry="none"),
+        ),
+    )
+    assert stay_links_from_entries([left, _stay_entry(2, 47.0, 12.0)]) == []
+    via_transfer = stay_links_from_entries([left, _movement_entry(9), _stay_entry(2, 47.0, 12.0)])
+    assert len(via_transfer) == 1
+    assert via_transfer[0].via_transfer is True
 
 
 def test_stay_links_mark_transfer_between_stays() -> None:

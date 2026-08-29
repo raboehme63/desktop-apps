@@ -78,7 +78,7 @@ from travelcore.timeline.sections import (
     span_for_manual_dates,
 )
 from travelcore.timeline.symbols import TRANSPORT_SYMBOLS
-from travelcore.timeline.transfer_links import LINK_GEOMETRY_LINE, links_from_modes
+from travelcore.timeline.transfer_links import LINK_GEOMETRY_ARC, LINK_GEOMETRY_LINE, links_from_modes
 from travelcore.timeline.types import (
     PendingSectionSpec,
     TimelineEntry,
@@ -111,7 +111,7 @@ from traveljournal.widgets.media_tabs import (
 )
 from traveljournal.widgets.pool_pane import PoolCollapse, PoolPane
 from traveljournal.widgets.scroll_date import scrollbar_slider_rect as _scrollbar_slider_rect
-from traveljournal.widgets.transfer_links import TransferLinkStrip
+from traveljournal.widgets.transfer_links import OutboundLinkRow, TransferLinkStrip
 
 _REVEAL_TOP_PAD = 0
 _REVEAL_RETRY_MS = (0, 32, 80, 160, 320)
@@ -224,6 +224,12 @@ class SectionKindCombo(QComboBox):
         if container is not None:
             extra = max(4, container.height() - view.height())
             container.setFixedHeight(height + extra)
+
+
+def _shows_outbound(entry: TimelineEntry, following: TimelineEntry | None) -> bool:
+    if following is None or entry.section is None or entry.card_kind == KIND_MOVEMENT:
+        return False
+    return following.card_kind != KIND_MOVEMENT
 
 
 def _copy_pending_spec(spec: PendingSectionSpec) -> PendingSectionSpec:
@@ -587,11 +593,13 @@ class TimelineView(QWidget):
                     override = self._pending_youtube.get(("section", entry.section.id))
                 elif entry.leftover_day is not None:
                     override = self._pending_youtube.get(("day", entry.leftover_day.id))
+                following = entries[index + 1] if index + 1 < len(entries) else None
                 block = EntryWidget(
                     entry,
                     workspace=self.workspace,
                     show_as_leftover=has_sections,
                     youtube_override=override,
+                    show_outbound=_shows_outbound(entry, following),
                     media_tab=self._media_tabs.currentIndex(),
                     parent=self._host,
                 )
@@ -1151,18 +1159,45 @@ class TimelineView(QWidget):
                         spec.location_name,
                         spec.location_from,
                         spec.location_to,
+                        spec.links,
+                        spec.outbound,
                     )
                     spec.kind = kind
                     if kind != KIND_MOVEMENT:
                         spec.mode = None
                         spec.location_from = None
                         spec.location_to = None
+                        if spec.outbound is None:
+                            spec.outbound = next(
+                                (
+                                    item
+                                    for item in spec.links
+                                    if item.geometry in {LINK_GEOMETRY_LINE, LINK_GEOMETRY_ARC}
+                                ),
+                                None,
+                            )
+                        spec.links = ()
                     else:
                         spec.location_name = None
+                        if (
+                            not spec.links
+                            and spec.outbound is not None
+                            and spec.outbound.geometry in {LINK_GEOMETRY_LINE, LINK_GEOMETRY_ARC}
+                        ):
+                            spec.links = (spec.outbound,)
+                        spec.outbound = None
                     self._record_pending_kind(
                         spec,
                         previous,
-                        (spec.kind, spec.mode, spec.location_name, spec.location_from, spec.location_to),
+                        (
+                            spec.kind,
+                            spec.mode,
+                            spec.location_name,
+                            spec.location_from,
+                            spec.location_to,
+                            spec.links,
+                            spec.outbound,
+                        ),
                     )
                     break
             self._apply_pending_view()
@@ -1455,7 +1490,7 @@ class TimelineView(QWidget):
         self.workspace.history.push("Abschnittstyp", undo, redo)
 
     def _set_pending_kind_fields(self, local_id: int, fields: tuple[object, ...]) -> None:
-        kind, mode, location_name, location_from, location_to = fields
+        kind, mode, location_name, location_from, location_to, links, outbound = fields
         for spec in self._pending:
             if spec.local_id != local_id:
                 continue
@@ -1464,6 +1499,8 @@ class TimelineView(QWidget):
             spec.location_name = location_name if isinstance(location_name, str) else None
             spec.location_from = location_from if isinstance(location_from, str) else None
             spec.location_to = location_to if isinstance(location_to, str) else None
+            spec.links = links if isinstance(links, tuple) else ()
+            spec.outbound = outbound if isinstance(outbound, TimelineLink) or outbound is None else None
             return
 
     def _record_pending_span(
@@ -1504,6 +1541,7 @@ class TimelineView(QWidget):
             spec.leonardo_urls = tuple(block.leonardo_urls())
             spec.cover_source_file_id = block.cover_source_file_id()
             spec.links = tuple(block.transfer_links())
+            spec.outbound = block.outbound_link()
 
     def _stash_pending_youtube(self) -> None:
         for block in self._blocks:
@@ -1597,11 +1635,12 @@ class TimelineView(QWidget):
         self.workspace.history.push("Abschnitt einfügen", undo, redo)
 
     def _save_pending_links(self, section_id: int, spec: PendingSectionSpec) -> None:
-        if spec.kind != KIND_MOVEMENT:
+        if spec.kind == KIND_MOVEMENT:
+            links = list(spec.links) or list(links_from_modes(spec.mode))
+            if links:
+                self.workspace.save_transfer_links(section_id, links)
             return
-        links = list(spec.links) or list(links_from_modes(spec.mode))
-        if links:
-            self.workspace.save_transfer_links(section_id, links)
+        self.workspace.save_outbound_link(section_id, spec.outbound)
 
     def _commit_if_dirty(self) -> bool:
         if self._loading:
@@ -1622,6 +1661,8 @@ class TimelineView(QWidget):
                     self.workspace.save_section_text(entity_id, title=title, notes=notes)
                     if block.entry_kind() == KIND_MOVEMENT:
                         self.workspace.save_transfer_links(entity_id, block.transfer_links())
+                    else:
+                        self.workspace.save_outbound_link(entity_id, block.outbound_link())
                 else:
                     self.workspace.save_day_text(entity_id, title=title, notes=notes)
                 block.mark_clean()
@@ -1667,6 +1708,7 @@ class EntryWidget(QFrame):
         workspace: Workspace | None = None,
         show_as_leftover: bool = False,
         youtube_override: list[str] | None = None,
+        show_outbound: bool = False,
         media_tab: int = 0,
         parent: QWidget | None = None,
     ) -> None:
@@ -1727,9 +1769,11 @@ class EntryWidget(QFrame):
         self._loaded_title = title
         self._loaded_notes = notes
         self._link_strip: TransferLinkStrip | None = None
+        self._outbound_row: OutboundLinkRow | None = None
         self._loaded_links: tuple[TimelineLink, ...] = (
             section.links if section is not None and section.kind == KIND_MOVEMENT else ()
         )
+        self._loaded_outbound = section.outbound if section is not None else None
         self._entry_kind = entry.card_kind
 
         layout = QVBoxLayout(self)
@@ -1816,6 +1860,11 @@ class EntryWidget(QFrame):
             self._link_strip.set_links(section.links)
             self._link_strip.links_changed.connect(self.content_changed.emit)
             meta.addWidget(self._link_strip)
+        elif show_outbound and section is not None and section.kind != KIND_MOVEMENT:
+            self._outbound_row = OutboundLinkRow(self)
+            self._outbound_row.set_link(section.outbound)
+            self._outbound_row.changed.connect(self.content_changed.emit)
+            meta.addWidget(self._outbound_row)
         title_label = QLabel("Titel", self)
         title_label.setObjectName("fieldCaption")
         meta.addWidget(title_label)
@@ -2027,17 +2076,24 @@ class EntryWidget(QFrame):
             self.title_edit.text() != self._loaded_title
             or self.notes_edit.toPlainText() != self._loaded_notes
             or self.transfer_links() != list(self._loaded_links)
+            or self.outbound_link() != self._loaded_outbound
         )
 
     def mark_clean(self) -> None:
         self._loaded_title = self.title_edit.text()
         self._loaded_notes = self.notes_edit.toPlainText()
         self._loaded_links = tuple(self.transfer_links())
+        self._loaded_outbound = self.outbound_link()
 
     def transfer_links(self) -> list[TimelineLink]:
         if self._link_strip is None:
             return []
         return _compact_links(self._link_strip.links())
+
+    def outbound_link(self) -> TimelineLink | None:
+        if self._outbound_row is None:
+            return self._loaded_outbound
+        return self._outbound_row.to_link()
 
     def youtube_key(self) -> tuple[str, int]:
         return self._kind, self._entity_id

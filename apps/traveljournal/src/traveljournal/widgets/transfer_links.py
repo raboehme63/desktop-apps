@@ -18,7 +18,9 @@ from PySide6.QtWidgets import (
 )
 
 from travelcore.timeline.symbols import TRANSPORT_SYMBOLS
+from travelcore.timeline.outbound import LINK_GEOMETRY_NONE, normalize_outbound
 from travelcore.timeline.transfer_links import (
+    LINK_DASH_DASHED,
     LINK_DASH_SOLID,
     LINK_GEOMETRY_ARC,
     LINK_GEOMETRY_LINE,
@@ -341,3 +343,79 @@ def _parse_coord(raw: str, limit: float) -> float | None:
     if abs(value) > limit:
         return None
     return value
+
+
+class OutboundLinkRow(QWidget):
+    """One optional line from a Tag/Stay to the next non-Transfer section."""
+
+    changed = Signal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("outboundLinkRow")
+        self._loading = True
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        caption = QLabel("Verbindung zum nächsten Abschnitt", self)
+        caption.setObjectName("fieldCaption")
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        self.geometry = QComboBox(self)
+        self.geometry.addItem("Gerade", LINK_GEOMETRY_LINE)
+        self.geometry.addItem("Bogenlinie", LINK_GEOMETRY_ARC)
+        self.geometry.addItem("Keine Linie", LINK_GEOMETRY_NONE)
+        self.dash = QComboBox(self)
+        self.dash.addItem("durchgezogen", LINK_DASH_SOLID)
+        self.dash.addItem("gestrichelt", LINK_DASH_DASHED)
+        self.symbol = QComboBox(self)
+        self.symbol.addItem("Pfeil", "")
+        for value, label in _SYMBOL_LABELS[1:]:
+            self.symbol.addItem(label, value)
+        row.addWidget(self.geometry, 0)
+        row.addWidget(self.dash, 0)
+        row.addWidget(self.symbol, 1)
+        layout.addWidget(caption)
+        layout.addLayout(row)
+        self.geometry.currentIndexChanged.connect(self._on_geometry)
+        self.dash.currentIndexChanged.connect(self._emit)
+        self.symbol.currentIndexChanged.connect(self._emit)
+        self._sync_extras()
+        self._loading = False
+
+    def set_link(self, link: TimelineLink | None) -> None:
+        self._loading = True
+        geometry = LINK_GEOMETRY_LINE if link is None else link.geometry
+        dash = LINK_DASH_SOLID if link is None else link.dash
+        symbol = "" if link is None else (link.symbol or "")
+        if geometry not in {LINK_GEOMETRY_LINE, LINK_GEOMETRY_ARC, LINK_GEOMETRY_NONE}:
+            geometry = LINK_GEOMETRY_LINE
+        self.geometry.setCurrentIndex(max(0, self.geometry.findData(geometry)))
+        self.dash.setCurrentIndex(max(0, self.dash.findData(dash or LINK_DASH_SOLID)))
+        self.symbol.setCurrentIndex(max(0, self.symbol.findData(symbol)))
+        self._sync_extras()
+        self._loading = False
+
+    def to_link(self) -> TimelineLink | None:
+        geo, dsh, sym = normalize_outbound(
+            str(self.geometry.currentData() or LINK_GEOMETRY_LINE),
+            str(self.dash.currentData() or LINK_DASH_SOLID),
+            str(self.symbol.currentData() or "") or None,
+        )
+        if geo is None:
+            return None
+        return TimelineLink(id=0, sort_index=0, geometry=geo, dash=dsh or LINK_DASH_SOLID, symbol=sym)
+
+    def _on_geometry(self) -> None:
+        self._sync_extras()
+        self._emit()
+
+    def _sync_extras(self) -> None:
+        enabled = self.geometry.currentData() != LINK_GEOMETRY_NONE
+        self.dash.setEnabled(enabled)
+        self.symbol.setEnabled(enabled)
+
+    def _emit(self) -> None:
+        if not self._loading:
+            self.changed.emit()

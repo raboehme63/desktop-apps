@@ -227,6 +227,9 @@ class TripSection(Base):
     youtube_urls: Mapped[str | None] = mapped_column(Text, nullable=True)
     leonardo_urls: Mapped[str | None] = mapped_column(Text, nullable=True)
     cover_source_file_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    outbound_geometry: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    outbound_dash: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    outbound_symbol: Mapped[str | None] = mapped_column(String(16), nullable=True)
     sort_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     origin: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")
 

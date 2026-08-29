@@ -51,6 +51,9 @@ class SectionSnapshot:
     youtube_urls: str | None
     leonardo_urls: str | None
     cover_source_file_id: int | None
+    outbound_geometry: str | None
+    outbound_dash: str | None
+    outbound_symbol: str | None
     sort_index: int
     origin: str
 
@@ -273,6 +276,9 @@ def _section_snapshot(section: TripSection) -> SectionSnapshot:
         youtube_urls=section.youtube_urls,
         leonardo_urls=section.leonardo_urls,
         cover_source_file_id=section.cover_source_file_id,
+        outbound_geometry=section.outbound_geometry,
+        outbound_dash=section.outbound_dash,
+        outbound_symbol=section.outbound_symbol,
         sort_index=section.sort_index,
         origin=section.origin,
     )
@@ -298,6 +304,9 @@ def _upsert_section(session: Session, snapshot: SectionSnapshot) -> TripSection:
     section.youtube_urls = snapshot.youtube_urls
     section.leonardo_urls = snapshot.leonardo_urls
     section.cover_source_file_id = snapshot.cover_source_file_id
+    section.outbound_geometry = snapshot.outbound_geometry
+    section.outbound_dash = snapshot.outbound_dash
+    section.outbound_symbol = snapshot.outbound_symbol
     section.sort_index = snapshot.sort_index
     section.origin = snapshot.origin
     return section

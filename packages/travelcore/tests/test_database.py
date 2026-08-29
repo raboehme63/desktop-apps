@@ -66,6 +66,9 @@ def test_schema_contains_core_tables(tmp_path: Path) -> None:
     assert "sort_status" in photo_columns
     assert "cover_source_file_id" in day_columns
     assert "cover_source_file_id" in section_columns
+    assert "outbound_geometry" in section_columns
+    assert "outbound_dash" in section_columns
+    assert "outbound_symbol" in section_columns
 
 
 def test_folder_name_from_project_name_strips_invalid_chars() -> None:

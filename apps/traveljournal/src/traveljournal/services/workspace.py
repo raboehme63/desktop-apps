@@ -394,6 +394,11 @@ class Workspace:
 
         self._mutate(lambda session: save_transfer_links(session, section_id, links))
 
+    def save_outbound_link(self, section_id: int, link) -> None:
+        from travelcore.timeline.outbound import save_outbound_link
+
+        self._mutate(lambda session: save_outbound_link(session, section_id, link))
+
     def save_section_text(self, section_id: int, *, title: str, notes: str) -> None:
         self._save_entry_text("section", section_id, title=title, notes=notes)
 

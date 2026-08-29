@@ -84,6 +84,7 @@ class TimelineSection:
     pin_longitude: float | None = None
     items: tuple[TimelinePhoto, ...] = ()
     links: tuple[TimelineLink, ...] = ()
+    outbound: TimelineLink | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,3 +155,4 @@ class PendingSectionSpec:
     started_at: datetime | None = None
     ended_at: datetime | None = None
     links: tuple[TimelineLink, ...] = ()
+    outbound: TimelineLink | None = None
