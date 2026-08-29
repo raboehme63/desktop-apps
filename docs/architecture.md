@@ -79,7 +79,7 @@ nicht kopiert, sofern der Benutzer das nicht ausdrücklich wünscht.
 `settings.toml` hält Projekteinstellungen: Quellwurzel, Standard-Exportformat,
 GPS-Zeitfenster, Standardzeitzone, Kartenanbieter (`leaflet` / `offline`),
 Farbe der Verbindungslinien auf der Karte (`map_link_color`, Standard `#ffffff`),
-Kartenzahnrad (`map_show_photo_cones`, `map_show_reserve`).
+Kartenzahnrad (`map_show_photo_cones`, `map_show_reserve`, `map_show_sat_labels`, `map_show_sat_streets`).
 Ändert sich die Quellwurzel, werden Index-Pfade umgeschrieben, die
 Originaldateien nicht.
 
@@ -104,9 +104,9 @@ Nach dem Import ruft die App `sync_timeline` auf. Die Bibliothek:
 
 Die Timeline-UI zeigt **Tage**, **Transfers** und **Aufenthalte** als
 `trip_sections` mit `section_members`. Der Kartenkopf ist kompakt: Titelbild
-in Thumbnail-Größe (`168` px), rechts Typ und Datum in einer Zeile
-(`format_card_dates`: `12.12.2026` bzw. `11.11.2026 - 21.11.2026`),
-darunter Titel und Tagebucheintrag. Feldtitel sitzen auf der Kartenfarbe;
+in Thumbnail-Größe (`168` px), rechts zuerst der Titel, darunter Typ und Datum
+in einer Zeile (`format_card_dates`: `12.12.2026` bzw. `11.11.2026 - 21.11.2026`),
+danach Verbindungslinien (Transfer) bzw. Ausgangslinie (Tag/Aufenthalt), darunter der Tagebucheintrag. Feldtitel sitzen auf der Kartenfarbe;
 dunkle Flächen sind die editierbaren Felder. Beim Verschieben des vertikalen
 Schiebers erscheint links am Griff das Datum des Abschnitts in der
 Bildmitte (`format_scroll_date`). Am Schieber des Medienpools erscheint dasselbe Chip
@@ -220,8 +220,8 @@ Leiste mit rotem Rand. Rechtsklick **Platzieren** / **Verschieben** (Fadenkreuz,
 Pending-Abschnitte erscheinen nicht auf der Karte. Zwischen **Tag- und Aufenthaltskreisen**
 in Timeline-Reihenfolge liegen `StayLink`-Polylinien. Transfer-Kreise sind keine
 Endpunkte. Der erste Transfer in der Lücke besitzt eine geordnete Liste
-`transfer_links` (Linie, Track, Bogenlinie, Route als Platzhalter; Symbol;
-optional GPX-Member). Fehlt der Transfer, gilt die eine Ausgangslinie des linken
+`transfer_links` (Linie, Track, Bogenlinie, Route als Platzhalter; solid/gestrichelt;
+Symbol; optional GPX-Member). Fehlt der Transfer, gilt die eine Ausgangslinie des linken
 Tag- oder Aufenthalts (`outbound_*` an `trip_sections`: gerade/Bogen, solid/gestrichelt,
 Symbol, oder `none`). Alle `NULL` = Gerade mit Richtungspfeil. `none` = keine Linie.
 Track und Route gibt es dort nicht.
@@ -266,12 +266,14 @@ Klick in die Karte stellt den Stapel wieder her. Orte bleiben ungestapelt.
 Online-Kacheln kommen von `tile.openstreetmap.de` (deutsche Namen, sonst
 lateinische Umschrift statt Landesschrift). Ein Layer-Symbol oben rechts öffnet
 Straßenkarte (OSM), Topo (OpenTopoMap) und Satellit (Esri World Imagery); die Wahl
-bleibt in `localStorage`. Ein Zahnrad unter den Zoom-Buttons schaltet Fotokegel
-(ab Zoom 17, aus `heading_degrees` und 35-mm-Brennweite; am Stapel und nach der
-Auswahl am Ursprung, nicht im Fächer) und Reserve-Medien; beide Schalter
-stehen in `settings.toml`. Das Datums-Label am Foto sitzt bündig unter dem
+bleibt in `localStorage`. Über dem Satelliten kann das Zahnrad **Ortsnamen auf Satellit**
+(Carto Voyager Labels, OSM-Namen, in Europa meist Latein) und **Straßen auf Satellit**
+(Esri World Transportation) legen; beide Standard aus. Ein Zahnrad unter den Zoom-Buttons
+schaltet Fotokegel (ab Zoom 17, aus `heading_degrees` und 35-mm-Brennweite; am Stapel und
+nach der Auswahl am Ursprung, nicht im Fächer), Reserve-Medien und die Satelliten-Overlays;
+die Schalter stehen in `settings.toml`. Das Datums-Label am Foto sitzt bündig unter dem
 Vorschaubild. Aussortierte Medien kommen nicht auf die Karte. `map_provider=offline` setzt
-`tiles=None` (keine OSM-, OpenTopoMap- oder Satellitenkacheln, kein Umschalter). Fehlt Qt WebEngine, bleibt der Pfad sichtbar.
+`tiles=None` (keine OSM-, OpenTopoMap-, Satelliten- oder Carto-Kacheln, kein Umschalter). Fehlt Qt WebEngine, bleibt der Pfad sichtbar.
 
 ## Verkehrsmittelsymbole
 
@@ -282,11 +284,15 @@ Katalog. Eingebettete Pfade, keine Laufzeit-Downloads. Nach einer Änderung
 `MAP_CACHE_VERSION` in `travelcore.maps.cache` hochzählen. Lizenzen und URLs
 stehen auch in `packaging/NOTICE.txt`.
 
+Auf der Karte folgt die Nase der Linie zum Folgekreis. Ab 90° Abweichung
+von rechts spiegelt ein inneres `scaleX(-1)` zuerst, die äußere Drehung
+nimmt nur die restliche Steigung — Räder und Kiel bleiben unten.
+
 | Key | Label | Quelle |
 | --- | --- | --- |
 | `car` | Auto | Phosphor Bold `car-profile` (MIT), Seitenansicht nach rechts |
-| `campervan` | Camper Van | [SVG Repo 480849/delivery-car](https://www.svgrepo.com/svg/480849/delivery-car) |
-| `camper` | Camper | [SVG Repo 480908/camper-2](https://www.svgrepo.com/svg/480908/camper-2) |
+| `campervan` | Camper Van | [SVG Repo 480849/delivery-car](https://www.svgrepo.com/svg/480849/delivery-car), im Katalog gespiegelt (Nase nach rechts) |
+| `camper` | Camper | [SVG Repo 480908/camper-2](https://www.svgrepo.com/svg/480908/camper-2), im Katalog gespiegelt (Nase nach rechts) |
 | `climb` | Klettern | [SVG Repo 307723/climb-person-people-climber](https://www.svgrepo.com/svg/307723/climb-person-people-climber) |
 | `plane` | Flugzeug | Phosphor Bold `airplane`, im Katalog 90° gedreht (Nase nach rechts) |
 | `bus` | Bus | [SVG Repo 455207/bus-vehicle](https://www.svgrepo.com/svg/455207/bus-vehicle) |
@@ -304,9 +310,10 @@ Neues Verkehrsmittel:
    `packaging/NOTICE.txt` schreiben.
 2. Key (höchstens 16 Zeichen) in `MOVEMENT_MODES` **vor** `other` eintragen.
 3. `TransportSymbol` in `symbols.py` anlegen. Ziel-viewBox 256; Farbe über
-   `::FILL::` / `::COLOR::`. Seitenansicht: `_fit(native, …)`. Kontur:
-   `_stroke`. Frontansicht Phosphor: `_path(..., from_up=True)`, damit die
-   Nase nach rechts zeigt. Kein verschachteltes `<svg>` (Qt SVG Tiny).
+   `::FILL::` / `::COLOR::`. Seitenansicht: `_fit(native, …)`; Quelle nach
+   links: `_fit(..., flip_x=True)`. Kontur: `_stroke`. Frontansicht Phosphor:
+   `_path(..., from_up=True)`, damit die Nase nach rechts zeigt. Kein
+   verschachteltes `<svg>` (Qt SVG Tiny).
 4. `MAP_CACHE_VERSION` erhöhen. Hilfe und Tests folgen dem Katalog.
 
 ## Austauschbare Schnittstellen
@@ -327,7 +334,7 @@ Bereits in Phase 1 angelegt, schrittweise gefüllt:
   Cachepfad enthält `_r90` bei nicht-null `rotation_degrees`
 - `VideoMetadataProvider` – ffprobe-Adapter (noch nicht aktiv)
 - `Exporter` – HTML, PDF, LaTeX, CEWE (Implementierung ab Phase 8)
-- `MapBackend` – Folium/Leaflet, Übersicht als Titelbild-Kreise je Tag/Transfer/Aufenthalt, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad für Fotokegel und Reserve (in `settings.toml`; Fotokegel am Stapel und nach der Auswahl, nicht im Fächer; überlappende Marker ab Zoom 17 per Klick zum Fächer, Klick in die Karte stellt den Stapel wieder her),
+- `MapBackend` – Folium/Leaflet, Übersicht als Titelbild-Kreise je Tag/Transfer/Aufenthalt, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad für Fotokegel, Reserve, Satelliten-Ortsnamen und Satelliten-Straßen (in `settings.toml`; Fotokegel am Stapel und nach der Auswahl, nicht im Fächer; überlappende Marker ab Zoom 17 per Klick zum Fächer, Klick in die Karte stellt den Stapel wieder her),
   Verbindungslinien zwischen Tag- und Aufenthaltskreisen (Richtungsmarker, Zoom-Überdeckung, Transfer-Kreis per dünner Linie am Symbol),
   Qt-Leiste unter der Karte (Tag mit Kalender, Transfer als liegendes Sechseck), Tagebucheintrag rechts, YouTube-Thumbs unten rechts auf der Karte, Detail mit GPX-Polylinien, IGC-Flugtracks ab Zoom 10
   (Start/Landung immer sichtbar), Foto-Popup und Inspektor, Orte

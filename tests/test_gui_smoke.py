@@ -733,7 +733,28 @@ def test_entry_widget_header_is_compact() -> None:
     widget.show()
     widget.resize(720, 420)
     app.processEvents()
+    assert widget.title_edit.y() < widget._kind_combo.y()
     assert abs(widget._date_label.y() - widget._kind_combo.y()) <= 8
+    transfer = TimelineSection(
+        id=5,
+        kind="movement",
+        mode=None,
+        title="Fahrt",
+        notes=None,
+        started_at=start,
+        ended_at=end,
+        location_name=None,
+        location_from=None,
+        location_to=None,
+        origin="manual",
+    )
+    move = EntryWidget(TimelineEntry(started_at=start, section=transfer))
+    move.show()
+    move.resize(720, 420)
+    app.processEvents()
+    assert move.title_edit.y() < move._kind_combo.y()
+    assert move._link_strip is not None
+    assert move._kind_combo.y() < move._link_strip.y()
     labels = [child.text() for child in widget.findChildren(QLabel)]
     assert "Titel" in labels
     assert all("mitmarkiert" not in text for text in labels)
@@ -3230,4 +3251,25 @@ def test_map_timeline_strip_centers_first_card() -> None:
         )
     )
     assert opened == ["section:1"]
+    _ = app
+
+
+def test_transfer_link_row_keeps_dashed() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.timeline.transfer_links import LINK_DASH_DASHED, LINK_GEOMETRY_LINE
+    from travelcore.timeline.types import TimelineLink
+    from traveljournal.widgets.transfer_links import TransferLinkRow
+
+    app = QApplication.instance() or QApplication([])
+    row = TransferLinkRow(
+        TimelineLink(id=3, sort_index=0, geometry=LINK_GEOMETRY_LINE, dash=LINK_DASH_DASHED),
+        [],
+    )
+    assert row.dash.currentData() == LINK_DASH_DASHED
+    assert row.to_link(0).dash == LINK_DASH_DASHED
+    car = row.symbol.findData("car")
+    assert car >= 0
+    assert not row.symbol.itemIcon(car).isNull()
     _ = app

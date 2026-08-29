@@ -289,7 +289,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_downsample_keeps_endpoints` | `test_maps.py` | Trackpunkte werden ausgedünnt, Start/Ende bleiben |
 | `test_map_scene_has_track_and_photo` | `test_maps.py` | Übersicht ein Cover, Detail: Polylinie + Fotomarker |
 | `test_map_scene_includes_place` | `test_maps.py` | Ort im Detail des Tags |
-| `test_folium_overview_cover_uses_expand_url` | `test_maps.py` | rundes Cover, Expand-Bridge, Zoom-Halt, Popup-Skript, Aufenthaltslinien, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad |
+| `test_folium_overview_cover_uses_expand_url` | `test_maps.py` | rundes Cover, Expand-Bridge, Zoom-Halt, Popup-Skript, Aufenthaltslinien, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad, Symbol-Spiegelung in eigenem Wrapper |
 | `test_overview_offline_omits_satellite` | `test_maps.py` | ohne Kacheln kein Layer-Umschalter, Zahnrad bleibt |
 | `test_timeline_js_cards_uses_relative_cover` | `test_maps.py` | Timeline-Karten relative Cover-Pfade |
 | `test_leaflet_payload_includes_source_file_id` | `test_maps.py` | Detail-Payload: `source_file_id` an Marker und Track, Thumbnail-Popup, Blickrichtung |
@@ -323,7 +323,8 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_park_media_clears_track_choice` | `test_transfer_links.py` | Spurwahl wird geleert, Geometrie bleibt Track |
 | `test_gap_filler_between_cover_and_track` | `test_transfer_links.py` | gepunktete Stummel Cover↔Spur |
 | `test_stay_links_use_first_transfer_segments` | `test_transfer_links.py` | erster Transfer liefert Segmente |
-| `test_stay_links_use_left_outbound_when_next_is_not_transfer` | `test_maps.py` | Tag/Aufenthalt-Ausgangslinie ohne Transfer dazwischen |
+| `test_transfer_link_row_keeps_dashed` | `tests/test_gui_smoke.py` | Transfer-Zeile behält gestrichelt; Verkehrsmittel mit Symbol vor dem Namen |
+| `test_stay_links_use_left_outbound_when_next_is_not_transfer` | `test_maps.py` | Tag/Aufenthalt-Ausgangslinie ohne Transfer dazwischen; Punkte vom linken zum rechten Cover |
 | `test_stay_links_omit_when_left_outbound_is_hidden` | `test_maps.py` | Keine Linie: keine StayLink-Kante |
 | `test_normalize_outbound_treats_straight_solid_as_empty` | `test_timeline_sections.py` | Standard = keine gespeicherten outbound-Felder; `none` bleibt `none` |
 | `test_kind_change_copies_outbound_to_transfer_and_back` | `test_timeline_sections.py` | Typwechsel übernimmt Linie/Bogen |
@@ -331,7 +332,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_stay_links_skip_stays_without_gps` | `test_maps.py` | Aufenthalt ohne GPS ist kein Linienende |
 | `test_stay_link_hidden_when_covers_overlap` | `test_maps.py` | Linie unsichtbar, wenn Kreise sich überdecken |
 | `test_transport_symbols_cover_movement_modes` | `test_symbols.py` | Katalog-Keys = `MOVEMENT_MODES` |
-| `test_symbol_badge_is_white_on_black` | `test_symbols.py` | Badge ohne Rotation außer Flugzeug; Quellen siehe Architektur |
+| `test_symbol_badge_is_white_on_black` | `test_symbols.py` | Badge ohne Rotation außer Flugzeug; Camper/Van im Katalog nach rechts gespiegelt |
 | `test_build_map_overview_links_consecutive_stays` | `test_maps.py` | Übersicht verbindet zwei Aufenthalte über einen Transfer |
 | `test_parse_map_bridge_url_reads_group_key` | `tests/test_gui_smoke.py` | Expand-URL, Konsolen-Bridge, Platzieren-Konsole, Zoom/Ausschnitt nach Platzieren |
 | `test_map_view_refresh_uses_disk_cache_without_rebuild` | `tests/test_gui_smoke.py` | MapView zeigt Cache; Leiste unter dem WebView |
@@ -460,7 +461,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_entry_widget_track_can_be_cover` | `tests/test_gui_smoke.py` | T-Chip auf Track |
 | `test_entry_widget_shows_cover_in_heading` | `tests/test_gui_smoke.py` | Titelbild 168 px im Kartenkopf |
 | `test_entry_widget_falls_back_to_first_photo` | `tests/test_gui_smoke.py` | ohne T-Chip erstes Foto im Kartenkopf |
-| `test_entry_widget_header_is_compact` | `tests/test_gui_smoke.py` | Typ und Datum in einer Zeile; Feldtitel ohne Eingabe-Hintergrund |
+| `test_entry_widget_header_is_compact` | `tests/test_gui_smoke.py` | Titel oben, darunter Typ/Datum, danach Verbindungslinien |
 | `test_entry_widget_section_has_to_map_button` | `tests/test_gui_smoke.py` | Zur Karte an Abschnitt und Tag |
 | `test_entry_widget_thumbnail_opens_section_detail_on_map` | `tests/test_gui_smoke.py` | Rechtsklick Thumbnail → Zur Karte… öffnet Abschnittsdetail |
 | `test_map_view_focus_group_media_keeps_pending_until_shown` | `tests/test_gui_smoke.py` | Foto-Fokus merkt Abschnitt und Medium bis die Karte sichtbar ist |
@@ -564,7 +565,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 - Sortierstatus Favorit/Reserve/Aussortiert inkl. Fallback auf Favoriten-Flag
 - Import bricht bei einer defekten Datei (JPEG oder GPX) nicht ab
 - Projekt anlegen, Schema (Abschnitte, Mitglieder, Journal-Zeit, Pool `parked`, URLs, Cover, Drehung), Wiederöffnen, `settings.toml` und Pfad-Rebase
-- Karte: Titelbild-Kreise je Tag/Transfer/Aufenthalt (Cover-Fallback Foto/Track/YouTube), Verbindungslinien zwischen Tag- und Aufenthaltskreisen, Transfer-Kreis per dünner Linie am Verkehrssymbol, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad (Fotokegel, Reserve), Leiste darunter mit **+**, Tagebuchtext rechts, YouTube-Thumbs unten rechts auf der Karte, Detail mit Tracklinie und Fotomarkern (Stapel naher Fotos bis Zoom 16), Foto-Popup, offline ohne OSM
+- Karte: Titelbild-Kreise je Tag/Transfer/Aufenthalt (Cover-Fallback Foto/Track/YouTube), Verbindungslinien zwischen Tag- und Aufenthaltskreisen, Transfer-Kreis per dünner Linie am Verkehrssymbol, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad (Fotokegel, Reserve, Ortsnamen und Straßen auf Satellit), Leiste darunter mit **+**, Tagebuchtext rechts, YouTube-Thumbs unten rechts auf der Karte, Detail mit Tracklinie und Fotomarkern (Stapel naher Fotos bis Zoom 16), Foto-Popup, offline ohne OSM
 - Timeline: Tage als Abschnitte mit Mitgliedern, Medienpool, Journal-Zeit, Drag & Drop Karte↔Karte und Pool inkl. Auto-Scroll, manuelle Texte bleiben, Ortsvorschläge, `used_in_journal`; Speichern-Button nur bei Abschnitten, Texten, Reisetitel, YouTube; Rückgängig/Wiederherstellen (Snapshots in `travelcore`, Stack im Workspace)
 - Reiseabschnitte, Pending-Vorschau, Eintrags-Titelbild (Foto und Track, YouTube-Fallback)
 - YouTube- und DHV-Leonardo-URL-Normalisierung
@@ -681,7 +682,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Schritt | Erwartung |
 | --- | --- |
 | Vorher/Nachher Hash oder mtime einer Quell-HEIC | unverändert |
-| Kein Netzmonitor nötig; es dürfen keine Upload-Versuche sichtbar sein | erfüllt im Standardbetrieb (OSM-, optionale OpenTopoMap- und Esri-Kacheln sind Abrufe, kein Upload) |
+| Kein Netzmonitor nötig; es dürfen keine Upload-Versuche sichtbar sein | erfüllt im Standardbetrieb (OSM-, optionale OpenTopoMap-, Esri- und Carto-Kacheln sind Abrufe, kein Upload) |
 
 ### MT-08 Projekteinstellungen
 
@@ -725,9 +726,11 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | --- | --- |
 | Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | ein runder Kreis je Tag, Transfer oder Aufenthalt; zwischen **Tag- und Aufenthaltskreisen** in Timeline-Reihenfolge eine Verbindungslinie mit Richtungsmarker; Transfer-Kreis mit dünner Linie am Verkehrssymbol; Layer-Symbol oben rechts mit Straßenkarte / Topo / Satellit; Zahnrad unter den Zoom-Buttons; ohne gesetztes Titelbild das erste Foto, sonst das erste Track-Thumbnail, sonst das erste YouTube-Vorschaubild; darunter die Timeline-Leiste mit denselben Einträgen und **+** zwischen den Karten; **Übersicht aller Kreise** im Ausschnitt |
 | **+** zwischen zwei Leistenkarten | Dialog **Neuer Reiseabschnitt** mit Datum der Lücke; nach OK erscheint der Abschnitt in der Timeline (**Speichern**) |
-| Layer-Symbol: **Straßenkarte**, **Topo**, **Satellit** | wechselt OSM, OpenTopoMap und Esri World Imagery; Kreise und Linien bleiben; Quellenangabe je Anbieter; `offline` ohne Symbol |
+| Layer-Symbol: **Straßenkarte**, **Topo**, **Satellit** | wechselt OSM, OpenTopoMap und Esri World Imagery; Kreise und Linien bleiben; Quellenangabe je Anbieter; mit Ortsnamen-Option zusätzlich CARTO; `offline` ohne Symbol |
 | Zahnrad: **Fotokegel anzeigen** | ab Zoom 17 ein Kegel an Fotos mit Blickrichtung und Brennweite (am Stapel und am Ursprung nach der Auswahl); im Fächer keine Kegel; bleibt nach Projekt-Neuöffnen |
 | Zahnrad: **Reserve-Elemente anzeigen** aus | Reserve-Medien unsichtbar; Aussortierte nie auf der Karte; bleibt nach Projekt-Neuöffnen |
+| Zahnrad: **Ortsnamen auf Satellit**, Layer **Satellit** | Ortsnamen über dem Luftbild (Carto/OSM, in Europa meist Latein); auf Straßenkarte/Topo ohne Extra-Overlay; bleibt nach Projekt-Neuöffnen; Standard aus |
+| Zahnrad: **Straßen auf Satellit**, Layer **Satellit** | Straßennetz über dem Luftbild (Esri World Transportation); unabhängig von Ortsnamen; Standard aus |
 | Nach Änderungen in der Timeline Seite **Karte** öffnen | Karte erscheint ohne extra **Karte aktualisieren**, Übersicht aller Kreise |
 | **Karte aktualisieren** | Karte lädt neu und zeigt wieder die Übersicht aller Kreise |
 | Leiste: Tag-Karte | Kalendersymbol oben rechts |
@@ -765,7 +768,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Nach Import Seite **Timeline** öffnen bzw. **Timeline aktualisieren** | ein Tag je Aufnahmedatum, Karten von früh nach spät; Kartenkopf: Titelbild, Typ, Datum (`14.05.2025` bzw. `01.08.2025 - 10.08.2025`), Titel; darunter Tagebucheintrag; zwischen den Karten Abstand und schlanke Linie mit **+** in einem Ring; Fotos auf der Karte nach Journal-Zeit; Auto-Ereignis mit Medienzähler |
+| Nach Import Seite **Timeline** öffnen bzw. **Timeline aktualisieren** | ein Tag je Aufnahmedatum, Karten von früh nach spät; Kartenkopf: Titelbild, rechts Titel, darunter Typ/Datum (`14.05.2025` bzw. `01.08.2025 - 10.08.2025`), danach Verbindungslinien; darunter Tagebucheintrag; zwischen den Karten Abstand und schlanke Linie mit **+** in einem Ring; Fotos auf der Karte nach Journal-Zeit; Auto-Ereignis mit Medienzähler |
 | **+** auf der Linie zwischen zwei Karten | Dialog **Neuer Reiseabschnitt**; Tag **Am** = erster offener Tag der Lücke; Aufenthalt/Transfer **Von**/**Bis** = offene Tage; ohne Lücke das Datum der vorherigen Karte |
 | Vertikalen Schieber ziehen | links am Griff das Datum des Abschnitts in der Bildmitte (`14.05.2025` bzw. `01.–10.08.2025`) |
 | Pool-Schieber ziehen | links am Griff das Aufnahmedatum des Mediums in der Bildmitte |
@@ -783,8 +786,9 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Timeline ohne Auswahl, **Neuen Reiseabschnitt erstellen**, Tag **Am** bzw. Aufenthalt/Transfer **Von Datum** / **Bis Datum** | leerer Abschnitt erscheint an der passenden Timeline-Stelle; **Speichern** aktiv |
 | ⋯ **Datum…** (Tag) bzw. **Zeitraum…** (Aufenthalt/Transfer) | Dialog übernimmt die bisherigen Daten; nach OK rutscht die Karte an die neue Stelle; bei ungespeichertem Abschnitt **Speichern** nötig |
 | ⋯ **Löschen** an einem gespeicherten Abschnitt | Abschnitt weg; Medien im Pool; Pool-Spalte öffnet sich |
+| Transfer-Verbindungslinie: **durchgezogen** / **gestrichelt** | nach Speichern auf der Karte dieselbe Strichart |
 | Transfer mit mehreren Verkehrsmitteln, **Speichern**, ⊟ auflösen | Dateien wieder auf Tagen |
-| Tag oder Aufenthalt, nächster Eintrag kein Transfer: **Verbindung zum nächsten Abschnitt** | Gerade/Bogenlinie, durchgezogen/gestrichelt, ein Verkehrsmittel; leer = Richtungspfeil auf der Geraden; **Keine Linie** zeichnet nichts zum Folgekreis; Track und Route fehlen |
+| Tag oder Aufenthalt, nächster Eintrag kein Transfer: **Verbindung zum nächsten Abschnitt** | Gerade/Bogenlinie, durchgezogen/gestrichelt, ein Verkehrsmittel (Symbol vor dem Namen); leer = Richtungspfeil auf der Geraden; **Keine Linie** zeichnet nichts zum Folgekreis; Track und Route fehlen; Symbolspitze zur nächsten Tag-/Aufenthaltsposition |
 | Letzter Eintrag oder nächster Eintrag ist Transfer | keine Ausgangslinie-Zeile; gespeicherte Werte bleiben |
 | YouTube im ⋯-Menü, Dialog-OK | **Speichern** wird aktiv; ohne Speichern die Timeline verlassen: Dialog Verwerfen/Abbrechen; nach Verwerfen YouTube nicht in der DB |
 | Nur Titel oder Tagebuchtext ändern und die Timeline verlassen | keine Rückfrage; die Edits bleiben in der Timeline, bis **Speichern**; Schließen des Fensters verwirft sie |

@@ -37,7 +37,9 @@ def _path(d: str, *, from_up: bool = False) -> str:
     return body
 
 
-def _fit(native: int, inner: str) -> str:
+def _fit(native: int, inner: str, *, flip_x: bool = False) -> str:
+    if flip_x:
+        inner = f'<g transform="matrix(-1 0 0 1 {native} 0)">{inner}</g>'
     return f'<g transform="scale({ICON_VIEWBOX / native})">{inner}</g>'
 
 
@@ -96,6 +98,7 @@ TRANSPORT_SYMBOLS: tuple[TransportSymbol, ...] = (
                 f'204.428z" {_FILL}/>'
                 "</g>"
             ),
+            flip_x=True,
         ),
     ),
     TransportSymbol(
@@ -134,6 +137,7 @@ TRANSPORT_SYMBOLS: tuple[TransportSymbol, ...] = (
                 f'7.317,7.324V234.363z" {_FILL}/>'
                 "</g>"
             ),
+            flip_x=True,
         ),
     ),
     TransportSymbol(

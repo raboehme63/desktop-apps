@@ -31,6 +31,9 @@ def test_symbol_badge_is_white_on_black() -> None:
     assert "rotate(" not in symbol_inner_svg("boat", "#ffffff")
     assert "rotate(" not in symbol_inner_svg("campervan", "#ffffff")
     assert "rotate(" not in symbol_inner_svg("camper", "#ffffff")
+    assert "matrix(-1 0 0 1 512 0)" in symbol_inner_svg("campervan", "#ffffff")
+    assert "matrix(-1 0 0 1 512 0)" in symbol_inner_svg("camper", "#ffffff")
+    assert "matrix(-1 0 0 1" not in symbol_inner_svg("car", "#ffffff")
     assert "rotate(" not in symbol_inner_svg("climb", "#ffffff")
     assert symbol_label("plane") == "Flugzeug"
     assert symbol_label("campervan") == "Camper Van"

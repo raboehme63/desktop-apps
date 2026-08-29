@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QByteArray, Qt
-from PySide6.QtGui import QPainter, QPixmap
-from PySide6.QtSvg import QSvgRenderer
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -16,18 +14,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from travelcore.timeline.symbols import TRANSPORT_SYMBOLS, symbol_badge_svg
-
-
-def _badge_pixmap(key: str, size: int = 48) -> QPixmap:
-    renderer = QSvgRenderer(QByteArray(symbol_badge_svg(key, size=size).encode("utf-8")))
-    pixmap = QPixmap(size, size)
-    pixmap.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    renderer.render(painter)
-    painter.end()
-    return pixmap
+from travelcore.timeline.symbols import TRANSPORT_SYMBOLS
+from traveljournal.widgets.transport_icons import transport_badge_pixmap
 
 
 class HelpDialog(QDialog):
@@ -87,7 +75,7 @@ class HelpDialog(QDialog):
         layout.setSpacing(14)
         icon = QLabel(frame)
         icon.setFixedSize(48, 48)
-        icon.setPixmap(_badge_pixmap(key, 48))
+        icon.setPixmap(transport_badge_pixmap(key, 48))
         icon.setObjectName("helpSymbolIcon")
         texts = QWidget(frame)
         text_layout = QVBoxLayout(texts)

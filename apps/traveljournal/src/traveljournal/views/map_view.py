@@ -516,7 +516,7 @@ class MapJsBridge(QObject):
     sort_status_requested = Signal(int, str)
     section_closed = Signal()
     reserve_changed = Signal(bool)
-    map_settings_changed = Signal(bool, bool)
+    map_settings_changed = Signal(bool, bool, bool, bool)
     place_requested = Signal(float, float)
     place_cancelled = Signal()
 
@@ -543,9 +543,13 @@ class MapJsBridge(QObject):
     def setShowReserve(self, show: bool) -> None:
         self.reserve_changed.emit(bool(show))
 
-    @Slot(bool, bool)
-    def saveMapSettings(self, photo_cones: bool, show_reserve: bool) -> None:
-        self.map_settings_changed.emit(bool(photo_cones), bool(show_reserve))
+    @Slot(bool, bool, bool, bool)
+    def saveMapSettings(
+        self, photo_cones: bool, show_reserve: bool, sat_labels: bool, sat_streets: bool
+    ) -> None:
+        self.map_settings_changed.emit(
+            bool(photo_cones), bool(show_reserve), bool(sat_labels), bool(sat_streets)
+        )
 
     @Slot(float, float)
     def place(self, lat: float, lng: float) -> None:
@@ -561,10 +565,13 @@ def _map_flags_bootstrap_js(workspace: Workspace) -> str:
         return ""
     cones = "true" if workspace.map_show_photo_cones() else "false"
     reserve = "true" if workspace.map_show_reserve() else "false"
+    sat_labels = "true" if workspace.map_show_sat_labels() else "false"
+    sat_streets = "true" if workspace.map_show_sat_streets() else "false"
     return (
-        f"window.traveljournalMapFlags={{cones:{cones},reserve:{reserve}}};"
+        f"window.traveljournalMapFlags={{cones:{cones},reserve:{reserve},"
+        f"satLabels:{sat_labels},satStreets:{sat_streets}}};"
         f"if(window.traveljournalApplyStoredMapFlags){{"
-        f"window.traveljournalApplyStoredMapFlags({cones},{reserve});}}"
+        f"window.traveljournalApplyStoredMapFlags({cones},{reserve},{sat_labels},{sat_streets});}}"
     )
 
 
@@ -1222,8 +1229,15 @@ class MapView(QWidget):
             return
         self._web.page().runJavaScript(script)
 
-    def _on_map_settings_changed(self, photo_cones: bool, show_reserve: bool) -> None:
-        self.workspace.set_map_display_flags(photo_cones=photo_cones, show_reserve=show_reserve)
+    def _on_map_settings_changed(
+        self, photo_cones: bool, show_reserve: bool, sat_labels: bool, sat_streets: bool
+    ) -> None:
+        self.workspace.set_map_display_flags(
+            photo_cones=photo_cones,
+            show_reserve=show_reserve,
+            sat_labels=sat_labels,
+            sat_streets=sat_streets,
+        )
         self._timeline.set_show_reserve(show_reserve)
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802

@@ -83,12 +83,20 @@ def test_map_display_flags_persist_in_project(tmp_path: Path) -> None:
     workspace.current = opened
     assert workspace.map_show_photo_cones() is False
     assert workspace.map_show_reserve() is False
-    workspace.set_map_display_flags(photo_cones=True, show_reserve=True)
+    assert workspace.map_show_sat_labels() is False
+    assert workspace.map_show_sat_streets() is False
+    workspace.set_map_display_flags(
+        photo_cones=True, show_reserve=True, sat_labels=True, sat_streets=True
+    )
     assert workspace.map_show_photo_cones() is True
     assert workspace.map_show_reserve() is True
+    assert workspace.map_show_sat_labels() is True
+    assert workspace.map_show_sat_streets() is True
     loaded = load_project_settings(opened.directory)
     assert loaded.placeholders.map_show_photo_cones is True
     assert loaded.placeholders.map_show_reserve is True
+    assert loaded.placeholders.map_show_sat_labels is True
+    assert loaded.placeholders.map_show_sat_streets is True
 
 
 def test_sidebar_collapsed_persists(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001

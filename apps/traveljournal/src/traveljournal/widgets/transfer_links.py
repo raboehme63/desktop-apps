@@ -17,8 +17,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from travelcore.timeline.symbols import TRANSPORT_SYMBOLS
 from travelcore.timeline.outbound import LINK_GEOMETRY_NONE, normalize_outbound
+from travelcore.timeline.symbols import TRANSPORT_SYMBOLS
 from travelcore.timeline.transfer_links import (
     LINK_DASH_DASHED,
     LINK_DASH_SOLID,
@@ -26,8 +26,10 @@ from travelcore.timeline.transfer_links import (
     LINK_GEOMETRY_LINE,
     LINK_GEOMETRY_ROUTE,
     LINK_GEOMETRY_TRACK,
+    parse_dash,
 )
 from travelcore.timeline.types import TimelineLink
+from traveljournal.widgets.transport_icons import fill_transport_combo, transport_badge_icon
 
 _GEOMETRY_LABELS = (
     (LINK_GEOMETRY_LINE, "Linie"),
@@ -204,9 +206,11 @@ class TransferLinkRow(QWidget):
         for value, label in _GEOMETRY_LABELS:
             self.geometry.addItem(label, value)
         self._disable_route()
+        self.dash = QComboBox(self)
+        self.dash.addItem("durchgezogen", LINK_DASH_SOLID)
+        self.dash.addItem("gestrichelt", LINK_DASH_DASHED)
         self.symbol = QComboBox(self)
-        for value, label in _SYMBOL_LABELS:
-            self.symbol.addItem(label, value)
+        fill_transport_combo(self.symbol, _SYMBOL_LABELS)
         self.track = QComboBox(self)
         self.track.setMinimumWidth(140)
         remove = QToolButton(self)
@@ -215,6 +219,7 @@ class TransferLinkRow(QWidget):
         remove.clicked.connect(self.remove_requested.emit)
         top.addWidget(handle, 0)
         top.addWidget(self.geometry, 0)
+        top.addWidget(self.dash, 0)
         top.addWidget(self.symbol, 0)
         top.addWidget(self.track, 1)
         top.addWidget(remove, 0)
@@ -234,6 +239,7 @@ class TransferLinkRow(QWidget):
         self.set_tracks(tracks, set())
         self._apply_link(link)
         self.geometry.currentIndexChanged.connect(self._on_geometry)
+        self.dash.currentIndexChanged.connect(self._emit)
         self.symbol.currentIndexChanged.connect(self._emit)
         self.track.currentIndexChanged.connect(self._emit)
         self.end_lat.editingFinished.connect(self._emit)
@@ -254,6 +260,7 @@ class TransferLinkRow(QWidget):
     def _apply_link(self, link: TimelineLink) -> None:
         geometry = link.geometry if link.geometry != LINK_GEOMETRY_ROUTE else LINK_GEOMETRY_LINE
         self.geometry.setCurrentIndex(max(0, self.geometry.findData(geometry)))
+        self.dash.setCurrentIndex(max(0, self.dash.findData(parse_dash(link.dash))))
         self.symbol.setCurrentIndex(max(0, self.symbol.findData(link.symbol or "")))
         if link.track_source_file_id is not None:
             self.track.setCurrentIndex(max(0, self.track.findData(link.track_source_file_id)))
@@ -265,6 +272,7 @@ class TransferLinkRow(QWidget):
     def reset_empty(self) -> None:
         self._loading = True
         self.geometry.setCurrentIndex(self.geometry.findData(LINK_GEOMETRY_LINE))
+        self.dash.setCurrentIndex(self.dash.findData(LINK_DASH_SOLID))
         self.symbol.setCurrentIndex(0)
         self.track.setCurrentIndex(0)
         self.end_lat.clear()
@@ -315,7 +323,7 @@ class TransferLinkRow(QWidget):
             id=self._link_id,
             sort_index=sort_index,
             geometry=geometry,
-            dash=LINK_DASH_SOLID,
+            dash=parse_dash(str(self.dash.currentData() or LINK_DASH_SOLID)),
             symbol=symbol,
             end_latitude=lat,
             end_longitude=lon,
@@ -370,9 +378,8 @@ class OutboundLinkRow(QWidget):
         self.dash.addItem("durchgezogen", LINK_DASH_SOLID)
         self.dash.addItem("gestrichelt", LINK_DASH_DASHED)
         self.symbol = QComboBox(self)
-        self.symbol.addItem("Pfeil", "")
-        for value, label in _SYMBOL_LABELS[1:]:
-            self.symbol.addItem(label, value)
+        self.symbol.addItem(transport_badge_icon("other"), "Pfeil", "")
+        fill_transport_combo(self.symbol, _SYMBOL_LABELS[1:])
         row.addWidget(self.geometry, 0)
         row.addWidget(self.dash, 0)
         row.addWidget(self.symbol, 1)

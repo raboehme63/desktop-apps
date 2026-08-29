@@ -242,9 +242,12 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
     assert "tj-stay-dir" in text
     assert 'polygon points="5,4 17,9 5,14"' in text
     assert "tj-stay-dir-rot" in text
-    assert "function staySymbolTransform(angle)" in text
+    assert "function staySymbolHeading(angle)" in text
+    assert "function staySymbolMarkup(angle, svg)" in text
+    assert "tj-stay-arrow-flip" in text
     assert "scaleX(-1)" in text
     assert "angle > 90 || angle < -90" in text
+    assert "!link.via_transfer" in text
     assert "function drawStayStem" in text
     assert "tj-stay-stem" in text
     assert "color: '#ffffff'" in text or 'color: "#ffffff"' in text
@@ -277,8 +280,15 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
     assert "tj-settings" in text
     assert "Fotokegel anzeigen" in text
     assert "Reserve-Elemente anzeigen" in text
+    assert "Ortsnamen auf Satellit" in text
+    assert "Straßen auf Satellit" in text
+    assert "voyager_only_labels" in text
+    assert "World_Transportation" in text
     assert "traveljournal-photo-cones" in text
     assert "traveljournal-show-reserve" in text
+    assert "traveljournal-sat-labels" in text
+    assert "traveljournal-sat-streets" in text
+    assert "traveljournalApplySatOverlays" in text
     assert "saveMapSettings" in text
     assert "traveljournalApplyStoredMapFlags" in text
     assert "traveljournalMapFlags" in text
@@ -321,8 +331,12 @@ def test_overview_offline_omits_satellite(tmp_path: Path) -> None:
     assert "World_Imagery" not in text
     assert "arcgisonline" not in text.lower()
     assert "opentopomap" not in text.lower()
+    assert "voyager_only_labels" not in text
+    assert "World_Transportation" not in text
     assert "traveljournalSetBasemap" not in text
     assert "Fotokegel anzeigen" in text
+    assert "Ortsnamen auf Satellit" in text
+    assert "Straßen auf Satellit" in text
     assert "Karteneinstellungen" in text
 
 
@@ -529,6 +543,8 @@ def test_folium_backend_writes_html(tmp_path: Path) -> None:
     assert "Topo" in text
     assert "Straßenkarte" in text
     assert "opentopomap" in text
+    assert "voyager_only_labels" in text
+    assert "World_Transportation" in text
     assert "tj-basemap-menu" in text
     assert "traveljournalSetBasemap" in text
     assert "Karteneinstellungen" in text
@@ -1287,6 +1303,8 @@ def test_stay_links_use_left_outbound_when_next_is_not_transfer() -> None:
     assert users[0].style == "curve"
     assert users[0].dash == "dashed"
     assert users[0].symbol == "car"
+    assert users[0].points[0] == (46.0, 11.0)
+    assert users[0].points[-1] == (47.0, 12.0)
     ignored = stay_links_from_entries([left, _movement_entry(9), _stay_entry(2, 47.0, 12.0)])
     assert ignored[0].via_transfer is True
     assert all(item.symbol != "car" for item in ignored[0].segments)

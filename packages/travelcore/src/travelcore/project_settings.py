@@ -104,6 +104,8 @@ class PlaceholderSettings(BaseModel):
     map_link_color: str = "#ffffff"
     map_show_photo_cones: bool = False
     map_show_reserve: bool = False
+    map_show_sat_labels: bool = False
+    map_show_sat_streets: bool = False
     journal_language: str = "de"
 
     @field_validator("map_link_color", mode="before")
@@ -111,7 +113,13 @@ class PlaceholderSettings(BaseModel):
     def _link_color(cls, value: object) -> str:
         return normalize_stay_link_color(value)
 
-    @field_validator("map_show_photo_cones", "map_show_reserve", mode="before")
+    @field_validator(
+        "map_show_photo_cones",
+        "map_show_reserve",
+        "map_show_sat_labels",
+        "map_show_sat_streets",
+        mode="before",
+    )
     @classmethod
     def _map_flags(cls, value: object) -> bool:
         return _as_bool(value)

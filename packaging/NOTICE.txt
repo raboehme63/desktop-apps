@@ -24,6 +24,15 @@ https://www.svgrepo.com/svg/480908/camper-2
 https://www.svgrepo.com/svg/307723/climb-person-people-climber
 Phosphor: https://github.com/phosphor-icons/core
 
+Optionale Kartenkacheln (Netzwerk, nicht im Paket)
+-------------------------------------------------
+- OpenStreetMap / openstreetmap.de (Straßenkarte)
+- OpenTopoMap (Topo)
+- Esri World Imagery (Satellit)
+- Esri World Transportation (optionale Straßen auf dem Satelliten)
+- CARTO Voyager Labels (optionale Ortsnamen auf dem Satelliten)
+  https://carto.com/attributions
+
 Optional, nicht Bestandteil dieses Pakets
 -----------------------------------------
 - ExifTool (Metadaten für HEIC/RAW), wenn im PATH oder an den üblichen

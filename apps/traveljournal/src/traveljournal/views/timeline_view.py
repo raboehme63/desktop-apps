@@ -6,7 +6,7 @@ from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from PySide6.QtCore import QDate, QDateTime, QEvent, QObject, QPoint, Qt, QTime, QTimer, Signal
+from PySide6.QtCore import QDate, QDateTime, QEvent, QObject, QPoint, QSize, Qt, QTime, QTimer, Signal
 from PySide6.QtGui import (
     QCursor,
     QDragEnterEvent,
@@ -112,6 +112,7 @@ from traveljournal.widgets.media_tabs import (
 from traveljournal.widgets.pool_pane import PoolCollapse, PoolPane
 from traveljournal.widgets.scroll_date import scrollbar_slider_rect as _scrollbar_slider_rect
 from traveljournal.widgets.transfer_links import OutboundLinkRow, TransferLinkStrip
+from traveljournal.widgets.transport_icons import COMBO_ICON_PX, transport_badge_icon
 
 _REVEAL_TOP_PAD = 0
 _REVEAL_RETRY_MS = (0, 32, 80, 160, 320)
@@ -1813,6 +1814,13 @@ class EntryWidget(QFrame):
         meta = QVBoxLayout()
         meta.setContentsMargins(0, 0, 0, 0)
         meta.setSpacing(4)
+        title_label = QLabel("Titel", self)
+        title_label.setObjectName("fieldCaption")
+        meta.addWidget(title_label)
+        self.title_edit = QLineEdit(self)
+        self.title_edit.setText(self._loaded_title)
+        self.title_edit.setPlaceholderText(title_ph)
+        meta.addWidget(self.title_edit)
         type_row = QHBoxLayout()
         type_row.setContentsMargins(0, 0, 0, 0)
         type_row.setSpacing(8)
@@ -1865,13 +1873,6 @@ class EntryWidget(QFrame):
             self._outbound_row.set_link(section.outbound)
             self._outbound_row.changed.connect(self.content_changed.emit)
             meta.addWidget(self._outbound_row)
-        title_label = QLabel("Titel", self)
-        title_label.setObjectName("fieldCaption")
-        meta.addWidget(title_label)
-        self.title_edit = QLineEdit(self)
-        self.title_edit.setText(self._loaded_title)
-        self.title_edit.setPlaceholderText(title_ph)
-        meta.addWidget(self.title_edit)
         meta.addStretch(1)
         heading_row.addLayout(meta, 1)
         self.links_label = QLabel(self)
@@ -2655,6 +2656,8 @@ class ModePicker(QWidget):
         self._boxes: list[tuple[str, QCheckBox]] = []
         for index, (value, label) in enumerate(_MODE_LABELS):
             box = QCheckBox(label, self)
+            box.setIcon(transport_badge_icon(value))
+            box.setIconSize(QSize(COMBO_ICON_PX, COMBO_ICON_PX))
             self._boxes.append((value, box))
             layout.addWidget(box, index // 4, index % 4)
 

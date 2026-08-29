@@ -28,6 +28,8 @@ def test_new_project_writes_settings_file(tmp_path: Path) -> None:
     assert settings.placeholders.map_link_color == "#ffffff"
     assert settings.placeholders.map_show_photo_cones is False
     assert settings.placeholders.map_show_reserve is False
+    assert settings.placeholders.map_show_sat_labels is False
+    assert settings.placeholders.map_show_sat_streets is False
 
 
 def test_settings_roundtrip_preserves_values(tmp_path: Path) -> None:
@@ -43,6 +45,8 @@ def test_settings_roundtrip_preserves_values(tmp_path: Path) -> None:
     settings.placeholders.map_link_color = "#aabbcc"
     settings.placeholders.map_show_photo_cones = True
     settings.placeholders.map_show_reserve = True
+    settings.placeholders.map_show_sat_labels = True
+    settings.placeholders.map_show_sat_streets = True
     save_project_settings(directory, settings)
     loaded = load_project_settings(directory)
     assert loaded.export.default_format == "pdf"
@@ -53,6 +57,8 @@ def test_settings_roundtrip_preserves_values(tmp_path: Path) -> None:
     assert loaded.placeholders.map_link_color == "#aabbcc"
     assert loaded.placeholders.map_show_photo_cones is True
     assert loaded.placeholders.map_show_reserve is True
+    assert loaded.placeholders.map_show_sat_labels is True
+    assert loaded.placeholders.map_show_sat_streets is True
     assert loaded.paths.source_root is not None
     assert Path(loaded.paths.source_root) == tmp_path / "fotos"
 

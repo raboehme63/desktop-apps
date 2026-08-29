@@ -229,7 +229,30 @@ class Workspace:
         except ProjectError:
             return False
 
-    def set_map_display_flags(self, *, photo_cones: bool, show_reserve: bool) -> None:
+    def map_show_sat_labels(self) -> bool:
+        if self.current is None:
+            return False
+        try:
+            return load_project_settings(self.current.directory).placeholders.map_show_sat_labels
+        except ProjectError:
+            return False
+
+    def map_show_sat_streets(self) -> bool:
+        if self.current is None:
+            return False
+        try:
+            return load_project_settings(self.current.directory).placeholders.map_show_sat_streets
+        except ProjectError:
+            return False
+
+    def set_map_display_flags(
+        self,
+        *,
+        photo_cones: bool,
+        show_reserve: bool,
+        sat_labels: bool = False,
+        sat_streets: bool = False,
+    ) -> None:
         """Persist Zahnrad options in ``settings.toml`` for the open project."""
 
         if self.current is None:
@@ -240,13 +263,19 @@ class Workspace:
             return
         cones = bool(photo_cones)
         reserve = bool(show_reserve)
+        labels = bool(sat_labels)
+        streets = bool(sat_streets)
         if (
             settings.placeholders.map_show_photo_cones == cones
             and settings.placeholders.map_show_reserve == reserve
+            and settings.placeholders.map_show_sat_labels == labels
+            and settings.placeholders.map_show_sat_streets == streets
         ):
             return
         settings.placeholders.map_show_photo_cones = cones
         settings.placeholders.map_show_reserve = reserve
+        settings.placeholders.map_show_sat_labels = labels
+        settings.placeholders.map_show_sat_streets = streets
         save_project_settings(self.current.directory, settings)
 
     def map_cache_identity(self) -> dict[str, object]:

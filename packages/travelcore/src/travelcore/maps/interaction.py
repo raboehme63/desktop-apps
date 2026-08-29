@@ -39,6 +39,18 @@ ESRI_SAT_TILES = (
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
 )
 ESRI_SAT_ATTR = "Kacheln &copy; Esri &mdash; Esri, Maxar, Earthstar Geographics, GIS User Community"
+CARTO_LABEL_TILES = (
+    "https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png"
+)
+CARTO_LABEL_ATTR = (
+    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-Mitwirkende, '
+    '&copy; <a href="https://carto.com/attributions">CARTO</a>'
+)
+ESRI_STREET_TILES = (
+    "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/"
+    "World_Transportation/MapServer/tile/{z}/{y}/{x}"
+)
+ESRI_STREET_ATTR = "Kacheln &copy; Esri &mdash; Esri, HERE, Garmin"
 
 _RATE_CHIPS = (
     ("favorite", "★", "Favorit"),
@@ -157,6 +169,10 @@ def _basemap_toggle_js() -> str:
     sat_attr = json.dumps(ESRI_SAT_ATTR, ensure_ascii=True)
     topo_url = json.dumps(OPENTOPO_TILES, ensure_ascii=True)
     topo_attr = json.dumps(OPENTOPO_ATTR, ensure_ascii=True)
+    label_url = json.dumps(CARTO_LABEL_TILES, ensure_ascii=True)
+    label_attr = json.dumps(CARTO_LABEL_ATTR, ensure_ascii=True)
+    street_url = json.dumps(ESRI_STREET_TILES, ensure_ascii=True)
+    street_attr = json.dumps(ESRI_STREET_ATTR, ensure_ascii=True)
     return f"""
     function installBasemapToggle() {{
       if (window.traveljournalSetBasemap) {{
@@ -181,9 +197,48 @@ def _basemap_toggle_js() -> str:
           subdomains: 'abc'
         }});
       }}
+      if (!map.getPane('tjSatStreets')) {{
+        map.createPane('tjSatStreets');
+        map.getPane('tjSatStreets').style.zIndex = 240;
+        map.getPane('tjSatStreets').style.pointerEvents = 'none';
+      }}
+      if (!map.getPane('tjSatLabels')) {{
+        map.createPane('tjSatLabels');
+        map.getPane('tjSatLabels').style.zIndex = 250;
+        map.getPane('tjSatLabels').style.pointerEvents = 'none';
+      }}
+      var satStreetLayer = L.tileLayer({street_url}, {{
+        attribution: {street_attr},
+        maxZoom: 19,
+        pane: 'tjSatStreets'
+      }});
+      var satLabelLayer = L.tileLayer({label_url}, {{
+        attribution: {label_attr},
+        maxZoom: 20,
+        subdomains: 'abcd',
+        pane: 'tjSatLabels'
+      }});
       var choices = {{karte: osmLayer, topo: topoLayer, satellit: satLayer}};
       var labels = {{karte: 'Straßenkarte', topo: 'Topo', satellit: 'Satellit'}};
       var menuLinks = {{}};
+      var currentBasemap = 'karte';
+      function setOverlay(layer, show) {{
+        if (show) {{
+          if (!map.hasLayer(layer)) {{
+            layer.addTo(map);
+          }}
+        }} else if (map.hasLayer(layer)) {{
+          map.removeLayer(layer);
+        }}
+      }}
+      function applySatOverlays() {{
+        var flags = window.traveljournalMapFlags || {{}};
+        var onSat = currentBasemap === 'satellit';
+        setOverlay(satStreetLayer, onSat && !!flags.satStreets);
+        setOverlay(satLabelLayer, onSat && !!flags.satLabels);
+      }}
+      window.traveljournalApplySatOverlays = applySatOverlays;
+      window.traveljournalApplySatLabels = applySatOverlays;
       function applyBasemap(kind) {{
         if (!choices[kind]) {{
           kind = 'karte';
@@ -202,6 +257,8 @@ def _basemap_toggle_js() -> str:
         Object.keys(menuLinks).forEach(function(key) {{
           L.DomUtil[key === kind ? 'addClass' : 'removeClass'](menuLinks[key], 'tj-basemap-on');
         }});
+        currentBasemap = kind;
+        applySatOverlays();
         try {{
           window.localStorage.setItem('traveljournal-basemap', kind);
         }} catch (err) {{}}
@@ -260,7 +317,9 @@ def _map_settings_js() -> str:
 
     icon = json.dumps(_GEAR_ICON_SVG, ensure_ascii=True)
     return f"""
-    window.traveljournalMapFlags = window.traveljournalMapFlags || {{cones: false, reserve: false}};
+    window.traveljournalMapFlags = window.traveljournalMapFlags || {{
+      cones: false, reserve: false, satLabels: false, satStreets: false
+    }};
     function readMapFlag(key) {{
       var flags = window.traveljournalMapFlags || {{}};
       if (key === 'traveljournal-photo-cones') {{
@@ -269,20 +328,34 @@ def _map_settings_js() -> str:
       if (key === 'traveljournal-show-reserve') {{
         return !!flags.reserve;
       }}
+      if (key === 'traveljournal-sat-labels') {{
+        return !!flags.satLabels;
+      }}
+      if (key === 'traveljournal-sat-streets') {{
+        return !!flags.satStreets;
+      }}
       return false;
     }}
     function writeMapFlag(key, on) {{
-      window.traveljournalMapFlags = window.traveljournalMapFlags || {{cones: false, reserve: false}};
+      window.traveljournalMapFlags = window.traveljournalMapFlags || {{
+        cones: false, reserve: false, satLabels: false, satStreets: false
+      }};
       if (key === 'traveljournal-photo-cones') {{
         window.traveljournalMapFlags.cones = !!on;
       }} else if (key === 'traveljournal-show-reserve') {{
         window.traveljournalMapFlags.reserve = !!on;
+      }} else if (key === 'traveljournal-sat-labels') {{
+        window.traveljournalMapFlags.satLabels = !!on;
+      }} else if (key === 'traveljournal-sat-streets') {{
+        window.traveljournalMapFlags.satStreets = !!on;
       }}
     }}
     function persistMapFlags() {{
       var flags = window.traveljournalMapFlags || {{}};
       if (window.tjBridge && window.tjBridge.saveMapSettings) {{
-        window.tjBridge.saveMapSettings(!!flags.cones, !!flags.reserve);
+        window.tjBridge.saveMapSettings(
+          !!flags.cones, !!flags.reserve, !!flags.satLabels, !!flags.satStreets
+        );
       }}
     }}
     window.traveljournalShowPhotoCones = function() {{
@@ -291,15 +364,30 @@ def _map_settings_js() -> str:
     window.traveljournalShowReserve = function() {{
       return readMapFlag('traveljournal-show-reserve');
     }};
-    window.traveljournalApplyStoredMapFlags = function(cones, reserve) {{
-      window.traveljournalMapFlags = {{cones: !!cones, reserve: !!reserve}};
+    window.traveljournalApplyStoredMapFlags = function(cones, reserve, satLabels, satStreets) {{
+      window.traveljournalMapFlags = {{
+        cones: !!cones, reserve: !!reserve, satLabels: !!satLabels, satStreets: !!satStreets
+      }};
       var conesBox = document.getElementById('tj-opt-cones');
       var reserveBox = document.getElementById('tj-opt-reserve');
+      var satBox = document.getElementById('tj-opt-sat-labels');
+      var streetBox = document.getElementById('tj-opt-sat-streets');
       if (conesBox) {{
         conesBox.checked = !!cones;
       }}
       if (reserveBox) {{
         reserveBox.checked = !!reserve;
+      }}
+      if (satBox) {{
+        satBox.checked = !!satLabels;
+      }}
+      if (streetBox) {{
+        streetBox.checked = !!satStreets;
+      }}
+      if (window.traveljournalApplySatOverlays) {{
+        window.traveljournalApplySatOverlays();
+      }} else if (window.traveljournalApplySatLabels) {{
+        window.traveljournalApplySatLabels();
       }}
       if (window.traveljournalApplyMapSettings) {{
         window.traveljournalApplyMapSettings();
@@ -341,6 +429,8 @@ def _map_settings_js() -> str:
         }}
         addCheck('tj-opt-cones', 'Fotokegel anzeigen', 'traveljournal-photo-cones');
         addCheck('tj-opt-reserve', 'Reserve-Elemente anzeigen', 'traveljournal-show-reserve');
+        addCheck('tj-opt-sat-labels', 'Ortsnamen auf Satellit', 'traveljournal-sat-labels');
+        addCheck('tj-opt-sat-streets', 'Straßen auf Satellit', 'traveljournal-sat-streets');
         L.DomEvent.disableClickPropagation(box);
         L.DomEvent.on(btn, 'click', function(event) {{
           L.DomEvent.stop(event);
@@ -454,6 +544,11 @@ def _photo_cone_js() -> str:
       }});
     }}
     window.traveljournalApplyMapSettings = function() {{
+      if (window.traveljournalApplySatOverlays) {{
+        window.traveljournalApplySatOverlays();
+      }} else if (window.traveljournalApplySatLabels) {{
+        window.traveljournalApplySatLabels();
+      }}
       if (window.tjBridge && window.tjBridge.setShowReserve && window.traveljournalShowReserve) {{
         window.tjBridge.setShowReserve(!!window.traveljournalShowReserve());
       }}
@@ -1249,6 +1344,11 @@ _COVER_CSS = (
   height: 24px;
   transform-origin: 12px 12px;
 }
+.tj-stay-arrow-flip {
+  width: 24px;
+  height: 24px;
+  transform-origin: 12px 12px;
+}
 .tj-stay-arrow-rot svg {
   display: block;
   width: 24px;
@@ -1412,10 +1512,19 @@ def _overview_script(
       }};
     }}
 {symbol_js}
-    function staySymbolTransform(angle) {{
+    function staySymbolHeading(angle) {{
       var flip = angle > 90 || angle < -90;
       var rot = flip ? angle - (angle > 0 ? 180 : -180) : angle;
-      return 'rotate(' + rot + 'deg)' + (flip ? ' scaleX(-1)' : '');
+      return {{rot: rot, flip: flip}};
+    }}
+    function staySymbolMarkup(angle, svg) {{
+      var heading = staySymbolHeading(angle);
+      return '<div class="tj-stay-badge">' +
+        '<div class="tj-stay-badge-disc"></div>' +
+        '<div class="tj-stay-arrow-rot" style="transform:rotate(' +
+        heading.rot + 'deg)"><div class="tj-stay-arrow-flip"' +
+        (heading.flip ? ' style="transform:scaleX(-1)"' : '') +
+        '><svg viewBox="0 0 256 256">' + svg + '</svg></div></div></div>';
     }}
     function addStayLine(pts, opts) {{
       var line = L.polyline(pts, opts);
@@ -1508,12 +1617,7 @@ def _overview_script(
         keyboard: false,
         icon: L.divIcon({{
           className: 'tj-stay-arrow' + (clickable ? ' tj-stay-arrow-hit' : ''),
-          html: '<div class="tj-stay-badge">' +
-            '<div class="tj-stay-badge-disc"></div>' +
-            '<div class="tj-stay-arrow-rot" style="transform:' +
-            staySymbolTransform(angle) +
-            '"><svg viewBox="0 0 256 256">' +
-            svg + '</svg></div></div>',
+          html: staySymbolMarkup(angle, svg),
           iconSize: [36, 36],
           iconAnchor: [18, 18]
         }})
@@ -1634,6 +1738,13 @@ def _overview_script(
             var placed = pointAlong(pts, segment.symbol ? 0.62 : 0.5);
             var symbolAt = placed.latlng;
             var angle = placed.angle;
+            if (!link.via_transfer) {{
+              var from = map.latLngToLayerPoint(a);
+              var to = map.latLngToLayerPoint(b);
+              if (from.distanceTo(to) >= 1) {{
+                angle = Math.atan2(to.y - from.y, to.x - from.x) * 180 / Math.PI;
+              }}
+            }}
             if (segment.symbol) {{
               addStayMarker(symbolAt, angle, segment.symbol, link.transfer_key);
               var hubs = link.hubs || [];
