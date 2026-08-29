@@ -10,6 +10,20 @@ Die dynamischen Qt-Bibliotheken liegen im Installationsordner. Eine
 Weitergabe muss die LGPL-Hinweispflichten einhalten. Dies ist keine
 Rechtsberatung.
 
+Kartensymbole (eingebettet)
+---------------------------
+Verkehrsmittelsymbole: Phosphor Icons Bold (MIT) und Seitenansichten von
+SVG Repo (Bus, Bahn, Fahrrad, zu Fuß, Schiff, Camper Van, Camper, Klettern):
+https://www.svgrepo.com/svg/455207/bus-vehicle
+https://www.svgrepo.com/svg/382850/train-toy-baby
+https://www.svgrepo.com/svg/488802/bike
+https://www.svgrepo.com/svg/489218/walk
+https://www.svgrepo.com/svg/271469/ship
+https://www.svgrepo.com/svg/480849/delivery-car
+https://www.svgrepo.com/svg/480908/camper-2
+https://www.svgrepo.com/svg/307723/climb-person-people-climber
+Phosphor: https://github.com/phosphor-icons/core
+
 Optional, nicht Bestandteil dieses Pakets
 -----------------------------------------
 - ExifTool (Metadaten für HEIC/RAW), wenn im PATH oder an den üblichen

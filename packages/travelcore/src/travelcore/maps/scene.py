@@ -38,6 +38,9 @@ COVER_LINE_INSET_PX = 23
 STAY_LINK_STYLE_STRAIGHT = "straight"
 STAY_LINK_STYLE_CURVE = "curve"
 STAY_LINK_STYLE_TRACK = "track"
+STAY_LINK_STYLE_ROUTE = "route"
+STAY_LINK_ROLE_USER = "user"
+STAY_LINK_ROLE_GAP = "gap"
 _DAY_COLORS = (
     "blue",
     "green",
@@ -82,6 +85,26 @@ class MapPolyline:
 
 
 @dataclass(frozen=True, slots=True)
+class StayLinkSegment:
+    """One drawn piece of a stay link: user geometry or a dotted gap filler."""
+
+    role: str = STAY_LINK_ROLE_USER
+    style: str = STAY_LINK_STYLE_STRAIGHT
+    dash: str = "solid"
+    symbol: str | None = None
+    points: tuple[tuple[float, float], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class StayLinkHub:
+    """Transfer cover that a stay-link symbol can connect to."""
+
+    key: str
+    latitude: float
+    longitude: float
+
+
+@dataclass(frozen=True, slots=True)
 class StayLink:
     """Overview connection between two consecutive stay covers."""
 
@@ -91,6 +114,9 @@ class StayLink:
     end_key: str
     style: str = STAY_LINK_STYLE_STRAIGHT
     via_transfer: bool = False
+    transfer_key: str = ""
+    hubs: tuple[StayLinkHub, ...] = ()
+    segments: tuple[StayLinkSegment, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

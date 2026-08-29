@@ -37,6 +37,9 @@ MOVEMENT_MODES = (
     "car",
     "bike",
     "boat",
+    "campervan",
+    "camper",
+    "climb",
     "other",
 )
 
@@ -378,6 +381,9 @@ def update_section_kind(
     section.kind = kind
     section.origin = ORIGIN_MANUAL
     if kind == KIND_DAY:
+        from travelcore.timeline.transfer_links import delete_transfer_links
+
+        delete_transfer_links(session, section.id)
         key = calendar_key(section.started_at) or (
             calendar_key(members[0][1].journal_at) if members else None
         )
@@ -399,7 +405,11 @@ def update_section_kind(
             member.journal_latitude = None
             member.journal_longitude = None
         _refresh_section_span(session, section)
+        _seed_links_from_mode(session, section)
         return
+    from travelcore.timeline.transfer_links import delete_transfer_links
+
+    delete_transfer_links(session, section.id)
     section.mode = None
     section.location_from = None
     section.location_to = None
@@ -487,6 +497,9 @@ def dissolve_section(session: Session, section_id: int) -> None:
         if source.id is not None
     }
     files = [source for source, _member in payload]
+    from travelcore.timeline.transfer_links import delete_transfer_links
+
+    delete_transfer_links(session, section_id)
     session.execute(delete(SectionMember).where(SectionMember.section_id == section_id))
     session.delete(section)
     session.flush()
@@ -503,6 +516,12 @@ def delete_section(session: Session, section_id: int) -> None:
     ids = [source.id for source, _member in _member_rows(session, section_id) if source.id is not None]
     if ids:
         park_media(session, ids)
+    leftover = session.get(TripSection, section_id)
+    if leftover is None:
+        return
+    from travelcore.timeline.transfer_links import delete_transfer_links
+
+    delete_transfer_links(session, section_id)
     leftover = session.get(TripSection, section_id)
     if leftover is None:
         return
@@ -560,6 +579,9 @@ def move_members(
         )
     }
     clocks = _take_member_clocks(session, ids)
+    from travelcore.timeline.transfer_links import clear_transfer_track_refs
+
+    clear_transfer_track_refs(session, ids)
     session.execute(delete(SectionMember).where(SectionMember.source_file_id.in_(ids)))
     for row in rows:
         row.parked = False
@@ -622,6 +644,9 @@ def park_media(session: Session, source_file_ids: list[int]) -> None:
     )
     section_ids = {section_id for section_id, _trip_id in member_sections}
     trip_ids = {trip_id for _section_id, trip_id in member_sections}
+    from travelcore.timeline.transfer_links import clear_transfer_track_refs
+
+    clear_transfer_track_refs(session, ids)
     session.execute(delete(SectionMember).where(SectionMember.source_file_id.in_(ids)))
     for row in rows:
         row.parked = True
@@ -961,6 +986,19 @@ def _refresh_section_span(session: Session, section: TripSection) -> None:
         return
     section.started_at = started
     section.ended_at = ended
+
+
+def _seed_links_from_mode(session: Session, section: TripSection) -> None:
+    """Create line segments from mode when the Transfer has none yet."""
+
+    from travelcore.timeline.transfer_links import links_from_modes, load_transfer_links, save_transfer_links
+
+    if load_transfer_links(session, section.id):
+        return
+    seeded = links_from_modes(section.mode)
+    if not seeded:
+        return
+    save_transfer_links(session, section.id, list(seeded))
 
 
 def expand_range_selection(

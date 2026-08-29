@@ -8,7 +8,15 @@ from datetime import datetime
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from travelcore.database.models import Photo, SectionMember, SourceFile, Trip, TripDay, TripSection
+from travelcore.database.models import (
+    Photo,
+    SectionMember,
+    SourceFile,
+    TransferLink,
+    Trip,
+    TripDay,
+    TripSection,
+)
 from travelcore.media.gallery import effective_sort_status
 from travelcore.timeline.sections import drop_empty_auto_day_sections
 
@@ -48,9 +56,23 @@ class SectionSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class TransferLinkSnapshot:
+    id: int
+    section_id: int
+    sort_index: int
+    geometry: str
+    dash: str
+    symbol: str | None
+    end_latitude: float | None
+    end_longitude: float | None
+    track_source_file_id: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class JournalEdit:
     sections: tuple[SectionSnapshot, ...] = ()
     placements: tuple[MemberPlacement, ...] = ()
+    transfer_links: tuple[TransferLinkSnapshot, ...] = ()
 
 
 def photo_sort_status(session: Session, source_file_id: int) -> str | None:
@@ -167,14 +189,51 @@ def capture_placement_edit(
     placements = capture_member_placements(session, source_file_ids)
     section_ids = {item.section_id for item in placements if item.section_id is not None}
     section_ids.update(item for item in extra_section_ids if item)
-    return JournalEdit(sections=capture_sections(session, section_ids), placements=placements)
+    return JournalEdit(
+        sections=capture_sections(session, section_ids),
+        placements=placements,
+        transfer_links=capture_transfer_links(session, section_ids),
+    )
 
 
 def capture_section_edit(session: Session, section_id: int) -> JournalEdit | None:
     section = capture_section(session, section_id)
     if section is None:
         return None
-    return JournalEdit(sections=(section,), placements=capture_section_members(session, section_id))
+    return JournalEdit(
+        sections=(section,),
+        placements=capture_section_members(session, section_id),
+        transfer_links=capture_transfer_links(session, [section_id]),
+    )
+
+
+def capture_transfer_links(
+    session: Session, section_ids: set[int] | list[int]
+) -> tuple[TransferLinkSnapshot, ...]:
+    wanted = [item for item in dict.fromkeys(section_ids) if item]
+    if not wanted:
+        return ()
+    rows = list(
+        session.scalars(
+            select(TransferLink)
+            .where(TransferLink.section_id.in_(wanted))
+            .order_by(TransferLink.section_id.asc(), TransferLink.sort_index.asc())
+        )
+    )
+    return tuple(
+        TransferLinkSnapshot(
+            id=row.id,
+            section_id=row.section_id,
+            sort_index=row.sort_index,
+            geometry=row.geometry,
+            dash=row.dash,
+            symbol=row.symbol,
+            end_latitude=row.end_latitude,
+            end_longitude=row.end_longitude,
+            track_source_file_id=row.track_source_file_id,
+        )
+        for row in rows
+    )
 
 
 def restore_journal_edit(session: Session, edit: JournalEdit) -> None:
@@ -184,6 +243,7 @@ def restore_journal_edit(session: Session, edit: JournalEdit) -> None:
     for snapshot in edit.sections:
         _upsert_section(session, snapshot)
     session.flush()
+    _restore_transfer_links(session, edit)
     _restore_placements(session, edit.placements)
     for placement in edit.placements:
         if placement.section_id is None:
@@ -241,6 +301,29 @@ def _upsert_section(session: Session, snapshot: SectionSnapshot) -> TripSection:
     section.sort_index = snapshot.sort_index
     section.origin = snapshot.origin
     return section
+
+
+def _restore_transfer_links(session: Session, edit: JournalEdit) -> None:
+    section_ids = {item.id for item in edit.sections}
+    section_ids.update(item.section_id for item in edit.transfer_links)
+    if section_ids:
+        session.execute(delete(TransferLink).where(TransferLink.section_id.in_(section_ids)))
+        session.flush()
+    for item in edit.transfer_links:
+        session.add(
+            TransferLink(
+                id=item.id,
+                section_id=item.section_id,
+                sort_index=item.sort_index,
+                geometry=item.geometry,
+                dash=item.dash,
+                symbol=item.symbol,
+                end_latitude=item.end_latitude,
+                end_longitude=item.end_longitude,
+                track_source_file_id=item.track_source_file_id,
+            )
+        )
+    session.flush()
 
 
 def _restore_placements(session: Session, placements: tuple[MemberPlacement, ...]) -> None:

@@ -67,16 +67,33 @@ from travelcore.timeline.sections import (
     unpark_media,
     update_section_kind,
 )
-from travelcore.timeline.types import PendingSectionSpec, TimelineDay, TimelineSnapshot
+from travelcore.timeline.transfer_links import (
+    LINK_GEOMETRY_ARC,
+    LINK_GEOMETRY_LINE,
+    LINK_GEOMETRY_ROUTE,
+    LINK_GEOMETRY_TRACK,
+    TransferLinkSpec,
+    clear_transfer_track_refs,
+    links_from_modes,
+    load_transfer_links,
+    save_transfer_links,
+)
+from travelcore.timeline.types import PendingSectionSpec, TimelineDay, TimelineLink, TimelineSnapshot
 
 __all__ = [
     "KIND_DAY",
     "KIND_MOVEMENT",
     "KIND_STAY",
+    "LINK_GEOMETRY_ARC",
+    "LINK_GEOMETRY_LINE",
+    "LINK_GEOMETRY_ROUTE",
+    "LINK_GEOMETRY_TRACK",
     "MOVEMENT_MODES",
     "JournalEdit",
     "MemberPlacement",
     "PendingSectionSpec",
+    "TimelineLink",
+    "TransferLinkSpec",
     "SectionSnapshot",
     "PhotoFeatures",
     "RankingStrategy",
@@ -101,7 +118,9 @@ __all__ = [
     "format_section_when",
     "insert_dates_between",
     "is_igc_filename",
+    "links_from_modes",
     "load_timeline",
+    "load_transfer_links",
     "move_members",
     "park_media",
     "parse_leonardo_urls",
@@ -117,6 +136,8 @@ __all__ = [
     "save_section_leonardo_urls",
     "save_section_text",
     "save_section_youtube_urls",
+    "save_transfer_links",
+    "clear_transfer_track_refs",
     "serialize_leonardo_urls",
     "serialize_modes",
     "serialize_youtube_urls",

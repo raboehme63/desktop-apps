@@ -60,6 +60,7 @@ def test_parse_and_serialize_transfer_modes() -> None:
     assert parse_modes(None) == []
     assert parse_modes("bus") == ["bus"]
     assert parse_modes("train,bus,walk") == ["bus", "train", "walk"]
+    assert parse_modes("climb,camper,campervan") == ["campervan", "camper", "climb"]
     assert serialize_modes([]) is None
     assert serialize_modes(["train", "bus"]) == "bus,train"
     assert serialize_modes(["bus", "unknown"]) == "bus"

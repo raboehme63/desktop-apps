@@ -29,6 +29,7 @@ from travelcore.maps.interaction import (
     _standalone_settings_script,
     config_script,
     interaction_config,
+    stay_link_line_options,
 )
 from travelcore.maps.scene import (
     COVER_ICON_PX,
@@ -285,14 +286,16 @@ def _stay_link_layer(links: Sequence[StayLink], *, color: str) -> folium.Feature
         return None
     group = folium.FeatureGroup(name="Aufenthaltslinien", show=True)
     for link in links:
+        if link.segments:
+            for segment in link.segments:
+                if len(segment.points) < 2:
+                    continue
+                style = stay_link_line_options(segment.dash, color=color)
+                folium.PolyLine(locations=[list(point) for point in segment.points], **style).add_to(group)
+            continue
         folium.PolyLine(
             locations=[list(link.start), list(link.end)],
-            color=color,
-            weight=3.5,
-            opacity=1.0,
-            interactive=False,
-            className="tj-stay-link",
-            lineCap="butt",
+            **stay_link_line_options("solid", color=color),
         ).add_to(group)
     return group
 

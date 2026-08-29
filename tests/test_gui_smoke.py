@@ -9,7 +9,7 @@ from pathlib import Path
 def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtGui import QKeySequence
-    from PySide6.QtWidgets import QApplication, QScrollArea
+    from PySide6.QtWidgets import QApplication, QLabel, QScrollArea, QWidget
 
     from traveljournal.services import workspace as workspace_mod
     from traveljournal.ui.main_window import MainWindow
@@ -23,6 +23,25 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     titles = [action.text() for action in window.menuBar().actions()]
     assert "Projekt" in titles
     assert "Bearbeiten" in titles
+    assert "Hilfe" in titles
+    help_menu = next(action.menu() for action in window.menuBar().actions() if action.text() == "Hilfe")
+    help_items = [action.text() for action in help_menu.actions()]
+    assert "Verkehrsmittelsymbole…" in help_items
+    from travelcore.timeline.symbols import TRANSPORT_SYMBOLS
+    from traveljournal.views.help_dialog import HelpDialog
+
+    help_dialog = HelpDialog(window)
+    assert help_dialog.windowTitle() == "Hilfe"
+    assert help_dialog.objectName() == "helpDialog"
+    for item in TRANSPORT_SYMBOLS:
+        row = help_dialog.findChild(QWidget, f"helpSymbol-{item.key}")
+        assert row is not None
+        assert item.label in row.findChild(QLabel, "fieldCaption").text()
+        assert item.summary in row.findChild(QLabel, "pageSubtitle").text()
+        icon = row.findChild(QLabel, "helpSymbolIcon")
+        assert icon is not None
+        assert not icon.pixmap().isNull()
+    help_dialog.close()
     assert window._undo_action.shortcut() == QKeySequence.StandardKey.Undo
     assert window._redo_action.shortcut() == QKeySequence.StandardKey.Redo
     assert window._settings_action is not None

@@ -56,6 +56,7 @@ from travelcore.project_settings import DEFAULT_STAY_LINK_COLOR
 from travelcore.timeline.build import apply_pending_sections
 from travelcore.timeline.journal import calendar_key
 from travelcore.timeline.links import (
+    is_igc_filename,
     normalize_leonardo_url,
     parse_leonardo_urls,
     parse_youtube_urls,
@@ -76,9 +77,12 @@ from travelcore.timeline.sections import (
     serialize_modes,
     span_for_manual_dates,
 )
+from travelcore.timeline.symbols import TRANSPORT_SYMBOLS
+from travelcore.timeline.transfer_links import LINK_GEOMETRY_LINE, links_from_modes
 from travelcore.timeline.types import (
     PendingSectionSpec,
     TimelineEntry,
+    TimelineLink,
     TimelinePhoto,
     TimelineSection,
     TimelineSnapshot,
@@ -107,6 +111,7 @@ from traveljournal.widgets.media_tabs import (
 )
 from traveljournal.widgets.pool_pane import PoolCollapse, PoolPane
 from traveljournal.widgets.scroll_date import scrollbar_slider_rect as _scrollbar_slider_rect
+from traveljournal.widgets.transfer_links import TransferLinkStrip
 
 _REVEAL_TOP_PAD = 0
 _REVEAL_RETRY_MS = (0, 32, 80, 160, 320)
@@ -158,16 +163,7 @@ def timeline_center_date(blocks: list[EntryWidget], host: QWidget, mid_y: int) -
     return blocks[index].scroll_date()
 
 
-_MODE_LABELS = (
-    ("bus", "Bus"),
-    ("train", "Bahn"),
-    ("plane", "Flugzeug"),
-    ("walk", "zu Fuß"),
-    ("car", "Auto"),
-    ("bike", "Fahrrad"),
-    ("boat", "Schiff"),
-    ("other", "Sonstiges"),
-)
+_MODE_LABELS = tuple((item.key, item.label) for item in TRANSPORT_SYMBOLS)
 _COVER_HEAD = 168
 _GALLERY_DRAG_HINT = (
     "Ziehen auf eine andere Karte oder in den Pool. T oben links: Titelbild für diesen Tag oder Abschnitt"
@@ -855,6 +851,7 @@ class TimelineView(QWidget):
             location_to=payload.get("location_to") if isinstance(payload.get("location_to"), str) else None,
             started_at=started if isinstance(started, datetime) else None,
             ended_at=ended if isinstance(ended, datetime) else None,
+            links=_links_from_payload(payload),
         )
         index = len(self._pending)
         self._pending.append(spec)
@@ -1506,6 +1503,7 @@ class TimelineView(QWidget):
             spec.youtube_urls = tuple(block.youtube_urls())
             spec.leonardo_urls = tuple(block.leonardo_urls())
             spec.cover_source_file_id = block.cover_source_file_id()
+            spec.links = tuple(block.transfer_links())
 
     def _stash_pending_youtube(self) -> None:
         for block in self._blocks:
@@ -1568,6 +1566,7 @@ class TimelineView(QWidget):
             ended_at=spec.ended_at,
             record=False,
         )
+        self._save_pending_links(section_id, spec)
         created = [section_id]
         snapshot = _copy_pending_spec(spec)
 
@@ -1593,8 +1592,16 @@ class TimelineView(QWidget):
                 ended_at=snapshot.ended_at,
                 record=False,
             )
+            self._save_pending_links(created[0], snapshot)
 
         self.workspace.history.push("Abschnitt einfügen", undo, redo)
+
+    def _save_pending_links(self, section_id: int, spec: PendingSectionSpec) -> None:
+        if spec.kind != KIND_MOVEMENT:
+            return
+        links = list(spec.links) or list(links_from_modes(spec.mode))
+        if links:
+            self.workspace.save_transfer_links(section_id, links)
 
     def _commit_if_dirty(self) -> bool:
         if self._loading:
@@ -1613,6 +1620,8 @@ class TimelineView(QWidget):
                     continue
                 if kind == "section":
                     self.workspace.save_section_text(entity_id, title=title, notes=notes)
+                    if block.entry_kind() == KIND_MOVEMENT:
+                        self.workspace.save_transfer_links(entity_id, block.transfer_links())
                 else:
                     self.workspace.save_day_text(entity_id, title=title, notes=notes)
                 block.mark_clean()
@@ -1717,6 +1726,10 @@ class EntryWidget(QFrame):
         self._flights = igc_flights(items)
         self._loaded_title = title
         self._loaded_notes = notes
+        self._link_strip: TransferLinkStrip | None = None
+        self._loaded_links: tuple[TimelineLink, ...] = (
+            section.links if section is not None and section.kind == KIND_MOVEMENT else ()
+        )
         self._entry_kind = entry.card_kind
 
         layout = QVBoxLayout(self)
@@ -1797,6 +1810,12 @@ class EntryWidget(QFrame):
         self._extra_label.setWordWrap(True)
         self._extra_label.setVisible(bool(extra_text))
         meta.addWidget(self._extra_label)
+        if section is not None and section.kind == KIND_MOVEMENT:
+            self._link_strip = TransferLinkStrip(self)
+            self._link_strip.set_tracks(_gpx_track_choices(items))
+            self._link_strip.set_links(section.links)
+            self._link_strip.links_changed.connect(self.content_changed.emit)
+            meta.addWidget(self._link_strip)
         title_label = QLabel("Titel", self)
         title_label.setObjectName("fieldCaption")
         meta.addWidget(title_label)
@@ -2007,11 +2026,18 @@ class EntryWidget(QFrame):
         return (
             self.title_edit.text() != self._loaded_title
             or self.notes_edit.toPlainText() != self._loaded_notes
+            or self.transfer_links() != list(self._loaded_links)
         )
 
     def mark_clean(self) -> None:
         self._loaded_title = self.title_edit.text()
         self._loaded_notes = self.notes_edit.toPlainText()
+        self._loaded_links = tuple(self.transfer_links())
+
+    def transfer_links(self) -> list[TimelineLink]:
+        if self._link_strip is None:
+            return []
+        return _compact_links(self._link_strip.links())
 
     def youtube_key(self) -> tuple[str, int]:
         return self._kind, self._entity_id
@@ -2530,7 +2556,8 @@ def _configure_date_edit(edit: QDateEdit, value: date) -> None:
 def _card_extra(section: TimelineSection) -> str:
     if section.kind == KIND_MOVEMENT:
         bits: list[str] = []
-        modes = _format_modes(section.mode)
+        symbols = [item.symbol for item in section.links if item.symbol]
+        modes = _format_modes(",".join(symbols) if symbols else section.mode)
         if modes:
             bits.append(modes)
         if section.location_from or section.location_to:
@@ -2606,6 +2633,37 @@ def _gallery_item_has_map_position(item: GalleryItem) -> bool:
     if item.display_latitude is not None and item.display_longitude is not None:
         return True
     return item.gps_latitude is not None and item.gps_longitude is not None
+
+
+def _gpx_track_choices(items: tuple[TimelinePhoto, ...] | list[TimelinePhoto]) -> list[tuple[int, str]]:
+    found: list[tuple[int, str]] = []
+    for item in items:
+        if item.file_kind != FileKind.GPS.value or is_igc_filename(item.filename):
+            continue
+        found.append((item.source_file_id, item.filename))
+    return found
+
+
+def _compact_links(links: list[TimelineLink]) -> list[TimelineLink]:
+    if len(links) != 1:
+        return list(links)
+    link = links[0]
+    if (
+        link.geometry == LINK_GEOMETRY_LINE
+        and not link.symbol
+        and link.track_source_file_id is None
+        and link.end_latitude is None
+    ):
+        return []
+    return list(links)
+
+
+def _links_from_payload(payload: dict[str, object]) -> tuple[TimelineLink, ...]:
+    raw = payload.get("links")
+    if isinstance(raw, tuple) and raw:
+        return raw
+    mode = payload.get("mode") if isinstance(payload.get("mode"), str) else None
+    return links_from_modes(mode)
 
 
 def split_media_and_tracks(

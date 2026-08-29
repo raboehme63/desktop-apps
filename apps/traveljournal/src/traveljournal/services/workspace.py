@@ -389,6 +389,11 @@ class Workspace:
             lambda: self._apply_trip_title(trip_id, cleaned),
         )
 
+    def save_transfer_links(self, section_id: int, links: list) -> None:
+        from travelcore.timeline.transfer_links import save_transfer_links
+
+        self._mutate(lambda session: save_transfer_links(session, section_id, links))
+
     def save_section_text(self, section_id: int, *, title: str, notes: str) -> None:
         self._save_entry_text("section", section_id, title=title, notes=notes)
 

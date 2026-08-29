@@ -317,10 +317,16 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_stay_links_connect_days_and_stays_in_timeline_order` | `test_maps.py` | Linien zwischen Tag- und Aufenthaltskreisen in Timeline-Reihenfolge |
 | `test_stay_links_connect_leftover_days` | `test_maps.py` | Tage mit GPS werden verbunden |
 | `test_build_map_overview_links_leftover_days` | `test_maps.py` | Übersicht verbindet Tage mit GPS |
-| `test_stay_links_skip_transfer_as_endpoint` | `test_maps.py` | Transfer-Kreis ist kein Linienende |
+| `test_stay_links_skip_transfer_as_endpoint` | `test_maps.py` | Transfer-Kreis ist kein Linienende; Hub und `transfer_key` für Symbolsteg |
 | `test_stay_links_mark_transfer_between_stays` | `test_maps.py` | Transfer zwischen Endpunkten setzt `via_transfer` |
+| `test_save_and_reorder_transfer_links` | `test_transfer_links.py` | Kindtabelle, Reihenfolge, Mode-Cache |
+| `test_park_media_clears_track_choice` | `test_transfer_links.py` | Spurwahl wird geleert, Geometrie bleibt Track |
+| `test_gap_filler_between_cover_and_track` | `test_transfer_links.py` | gepunktete Stummel Cover↔Spur |
+| `test_stay_links_use_first_transfer_segments` | `test_transfer_links.py` | erster Transfer liefert Segmente |
 | `test_stay_links_skip_stays_without_gps` | `test_maps.py` | Aufenthalt ohne GPS ist kein Linienende |
 | `test_stay_link_hidden_when_covers_overlap` | `test_maps.py` | Linie unsichtbar, wenn Kreise sich überdecken |
+| `test_transport_symbols_cover_movement_modes` | `test_symbols.py` | Katalog-Keys = `MOVEMENT_MODES` |
+| `test_symbol_badge_is_white_on_black` | `test_symbols.py` | Badge ohne Rotation außer Flugzeug; Quellen siehe Architektur |
 | `test_build_map_overview_links_consecutive_stays` | `test_maps.py` | Übersicht verbindet zwei Aufenthalte über einen Transfer |
 | `test_parse_map_bridge_url_reads_group_key` | `tests/test_gui_smoke.py` | Expand-URL, Konsolen-Bridge, Platzieren-Konsole, Zoom/Ausschnitt nach Platzieren |
 | `test_map_view_refresh_uses_disk_cache_without_rebuild` | `tests/test_gui_smoke.py` | MapView zeigt Cache; Leiste unter dem WebView |
@@ -553,7 +559,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 - Sortierstatus Favorit/Reserve/Aussortiert inkl. Fallback auf Favoriten-Flag
 - Import bricht bei einer defekten Datei (JPEG oder GPX) nicht ab
 - Projekt anlegen, Schema (Abschnitte, Mitglieder, Journal-Zeit, Pool `parked`, URLs, Cover, Drehung), Wiederöffnen, `settings.toml` und Pfad-Rebase
-- Karte: Titelbild-Kreise je Tag/Transfer/Aufenthalt (Cover-Fallback Foto/Track/YouTube), Verbindungslinien zwischen Tag- und Aufenthaltskreisen, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad (Fotokegel, Reserve), Leiste darunter mit **+**, Tagebuchtext rechts, YouTube-Thumbs unten rechts auf der Karte, Detail mit Tracklinie und Fotomarkern (Stapel naher Fotos bis Zoom 16), Foto-Popup, offline ohne OSM
+- Karte: Titelbild-Kreise je Tag/Transfer/Aufenthalt (Cover-Fallback Foto/Track/YouTube), Verbindungslinien zwischen Tag- und Aufenthaltskreisen, Transfer-Kreis per dünner Linie am Verkehrssymbol, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad (Fotokegel, Reserve), Leiste darunter mit **+**, Tagebuchtext rechts, YouTube-Thumbs unten rechts auf der Karte, Detail mit Tracklinie und Fotomarkern (Stapel naher Fotos bis Zoom 16), Foto-Popup, offline ohne OSM
 - Timeline: Tage als Abschnitte mit Mitgliedern, Medienpool, Journal-Zeit, Drag & Drop Karte↔Karte und Pool inkl. Auto-Scroll, manuelle Texte bleiben, Ortsvorschläge, `used_in_journal`; Speichern-Button nur bei Abschnitten, Texten, Reisetitel, YouTube; Rückgängig/Wiederherstellen (Snapshots in `travelcore`, Stack im Workspace)
 - Reiseabschnitte, Pending-Vorschau, Eintrags-Titelbild (Foto und Track, YouTube-Fallback)
 - YouTube- und DHV-Leonardo-URL-Normalisierung
@@ -712,7 +718,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | ein runder Kreis je Tag, Transfer oder Aufenthalt; zwischen **Tag- und Aufenthaltskreisen** in Timeline-Reihenfolge eine Verbindungslinie mit Richtungsmarker; Layer-Symbol oben rechts mit Straßenkarte / Topo / Satellit; Zahnrad unter den Zoom-Buttons; ohne gesetztes Titelbild das erste Foto, sonst das erste Track-Thumbnail, sonst das erste YouTube-Vorschaubild; darunter die Timeline-Leiste mit denselben Einträgen und **+** zwischen den Karten; **Übersicht aller Kreise** im Ausschnitt |
+| Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | ein runder Kreis je Tag, Transfer oder Aufenthalt; zwischen **Tag- und Aufenthaltskreisen** in Timeline-Reihenfolge eine Verbindungslinie mit Richtungsmarker; Transfer-Kreis mit dünner Linie am Verkehrssymbol; Layer-Symbol oben rechts mit Straßenkarte / Topo / Satellit; Zahnrad unter den Zoom-Buttons; ohne gesetztes Titelbild das erste Foto, sonst das erste Track-Thumbnail, sonst das erste YouTube-Vorschaubild; darunter die Timeline-Leiste mit denselben Einträgen und **+** zwischen den Karten; **Übersicht aller Kreise** im Ausschnitt |
 | **+** zwischen zwei Leistenkarten | Dialog **Neuer Reiseabschnitt** mit Datum der Lücke; nach OK erscheint der Abschnitt in der Timeline (**Speichern**) |
 | Layer-Symbol: **Straßenkarte**, **Topo**, **Satellit** | wechselt OSM, OpenTopoMap und Esri World Imagery; Kreise und Linien bleiben; Quellenangabe je Anbieter; `offline` ohne Symbol |
 | Zahnrad: **Fotokegel anzeigen** | ab Zoom 17 ein Kegel an Fotos mit Blickrichtung und Brennweite (am Stapel und am Ursprung nach der Auswahl); im Fächer keine Kegel; bleibt nach Projekt-Neuöffnen |
@@ -733,9 +739,10 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Leiste nach links/rechts ziehen oder Mausrad | Karten verschieben sich horizontal; Klick trifft die Karte, nicht die OSM-Kacheln |
 | Hineinzoomen, dann eine Leistenkarte anklicken | die Karte schwenkt auf diesen Eintrag, **Zoom bleibt** |
 | Zwei nahe Tag-/Aufenthaltskreise, weit herausgezoomt | Verbindungslinie unsichtbar, sobald sich die Kreise überdecken |
-| Zwei entfernte Tag- oder Aufenthaltskreise | Linie mit Pfeil in Timeline-Richtung; in der Detailansicht keine Linie |
+| Zwei entfernte Tag- oder Aufenthaltskreise mit Transfer dazwischen | Linie mit Verkehrssymbol in Timeline-Richtung; dünne Linie vom Transfer-Kreis zum Symbol; in der Detailansicht keine Linie |
 | Doppelklick in die freie (nicht belegte) Kartenfläche | Übersicht: alle Kreise im Ausschnitt |
 | Klick auf einen Kreis | Detailansicht: Fotos, Videos und Tracks dieses Eintrags, Ausschnitt angepasst; **Reiseabschnitt schließen** rechts neben dem Zoom-Plus stellt Zoom und Ausschnitt der Übersicht wieder her |
+| Klick auf das Verkehrssymbol eines Transfers | dieselbe Detailansicht wie Klick auf den Transfer-Kreis |
 | Freie Karte: offene Hand (Verschieben); über einem Kreis: Zeiger (Auswahl) | der Kreis-Klick öffnet das Detail, startet kein Zoomen |
 | Klick auf ein einzelnes viereckiges Foto-Symbol im Detail | kleines Thumbnail-Popup auf der Karte (nicht sofort der Inspektor) |
 | Mehrere Fotos fast am selben Ort, Zoom unter 17 | ein Stapel-Marker mit der Anzahl |

@@ -39,6 +39,7 @@ def test_schema_contains_core_tables(tmp_path: Path) -> None:
         columns = {column["name"] for column in inspector.get_columns("gps_tracks")}
         source_columns = {column["name"] for column in inspector.get_columns("source_files")}
     assert "trip_sections" in tables
+    assert "transfer_links" in tables
     assert "section_members" in tables
     assert "source_files" in tables
     assert "gps_points" in tables

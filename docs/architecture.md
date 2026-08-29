@@ -218,11 +218,18 @@ die Journal-Anzeigeposition des Covers (`display_latitude`, sonst Original-GPS),
 Mitglieder mit Anzeigeposition, sonst `pin_latitude`/`pin_longitude`. Detailmarker und -reihenfolge folgen `section_members` und `journal_at`. Abschnitte ohne Koordinate bleiben in der
 Leiste mit rotem Rand. Rechtsklick **Platzieren** / **Verschieben** (Fadenkreuz, Zoom und Fokus bleiben) bzw. **Zentrieren** (schwenkt und zoomt auf den Kreis). Unsaved
 Pending-Abschnitte erscheinen nicht auf der Karte. Zwischen **Tag- und Aufenthaltskreisen**
-in Timeline-Reihenfolge liegen `StayLink`-Polylinien mit Richtungsmarker (gleiche
-Positionen wie die runden Cover). Transfer-Kreise sind keine Endpunkte. Bei
-überdeckenden Kreisen (Pixelabstand ≤ Cover-Durchmesser) blendet das Leaflet-Skript
-die Linie aus. Ein Transfer dazwischen setzt `via_transfer` (Linienbild später:
-gerade, gebogen, Trackspur). In der Detailansicht sind die Linien ausgeblendet.
+in Timeline-Reihenfolge liegen `StayLink`-Polylinien. Transfer-Kreise sind keine
+Endpunkte. Der erste Transfer in der Lücke besitzt eine geordnete Liste
+`transfer_links` (Linie, Track, Bogenlinie, Route als Platzhalter; Symbol;
+optional GPX-Member). Ohne Zeilen bleibt die bisherige Gerade mit Pfeil. Mehrere
+Zeilen werden in Timeline-Reihenfolge gezeichnet; Lücken zwischen Linienenden
+oder Linie und Cover füllt eine gepunktete Gerade. Das Symbol ersetzt den
+Richtungsmarker der jeweiligen Nutzerkante. Ein Transfer-Kreis (kein Linienende)
+hängt mit einer dünnen Linie am Verkehrssymbol; Klick auf Kreis oder Symbol
+öffnet die Detailansicht des Transfers. Bei überdeckenden Kreisen
+(Pixelabstand ≤ Cover-Durchmesser) blendet das Leaflet-Skript die Linie aus.
+`via_transfer` ist gesetzt, sobald ein Transfer zwischen den Endpunkten liegt.
+In der Detailansicht sind die Linien ausgeblendet.
 
 Folium schreibt `cache/map.html` (`MAP_CACHE_VERSION` im Stamp). Qt WebEngine
 zeigt die Datei; die kompakte Leiste (`MapTimelineStrip`) sitzt **unter** dem
@@ -237,6 +244,8 @@ Detailansicht (`traveljournalShowDetail`): Fotos, Videos, GPX-Linien,
 IGC-Flugtracks ab Zoom 10 (Start/Landung immer sichtbar) und Orte.
 Rechtsklick **Zur Karte…** auf einem Timeline-Thumbnail öffnet dieselbe Detailansicht
 und zentriert auf dem Medium (`traveljournalFocusMedia`).
+Klick auf einen Transfer-Kreis oder auf das Verkehrssymbol öffnet dieselbe
+Detailansicht (`traveljournalExpand` mit `section:<id>`).
 `resolve_map_group` liest nur den angeklickten Eintrag, nicht die ganze
 Timeline. Klick auf ein einzelnes Foto im Detail öffnet ein Leaflet-Popup mit Thumbnail;
 bei einem Stapel fächert der erste Klick die Bilder auf.
@@ -260,6 +269,42 @@ stehen in `settings.toml`. Das Datums-Label am Foto sitzt bündig unter dem
 Vorschaubild. Aussortierte Medien kommen nicht auf die Karte. `map_provider=offline` setzt
 `tiles=None` (keine OSM-, OpenTopoMap- oder Satellitenkacheln, kein Umschalter). Fehlt Qt WebEngine, bleibt der Pfad sichtbar.
 
+## Verkehrsmittelsymbole
+
+Katalog: `travelcore.timeline.symbols.TRANSPORT_SYMBOLS`. Die Keys müssen zu
+`MOVEMENT_MODES` in `travelcore.timeline.sections` passen (`transfer_links.symbol`
+ist `String(16)`). Hilfe, ModePicker und die Transfer-Combo iterieren denselben
+Katalog. Eingebettete Pfade, keine Laufzeit-Downloads. Nach einer Änderung
+`MAP_CACHE_VERSION` in `travelcore.maps.cache` hochzählen. Lizenzen und URLs
+stehen auch in `packaging/NOTICE.txt`.
+
+| Key | Label | Quelle |
+| --- | --- | --- |
+| `car` | Auto | Phosphor Bold `car-profile` (MIT), Seitenansicht nach rechts |
+| `campervan` | Camper Van | [SVG Repo 480849/delivery-car](https://www.svgrepo.com/svg/480849/delivery-car) |
+| `camper` | Camper | [SVG Repo 480908/camper-2](https://www.svgrepo.com/svg/480908/camper-2) |
+| `climb` | Klettern | [SVG Repo 307723/climb-person-people-climber](https://www.svgrepo.com/svg/307723/climb-person-people-climber) |
+| `plane` | Flugzeug | Phosphor Bold `airplane`, im Katalog 90° gedreht (Nase nach rechts) |
+| `bus` | Bus | [SVG Repo 455207/bus-vehicle](https://www.svgrepo.com/svg/455207/bus-vehicle) |
+| `train` | Bahn | [SVG Repo 382850/train-toy-baby](https://www.svgrepo.com/svg/382850/train-toy-baby) |
+| `walk` | zu Fuß | [SVG Repo 489218/walk](https://www.svgrepo.com/svg/489218/walk) |
+| `bike` | Fahrrad | [SVG Repo 488802/bike](https://www.svgrepo.com/svg/488802/bike) |
+| `boat` | Schiff | [SVG Repo 271469/ship](https://www.svgrepo.com/svg/271469/ship) |
+| `other` | Sonstiges | Phosphor Bold `arrow-right` (nur wenn gewählt; sonst Richtungspfeil ohne Kreis) |
+
+Phosphor: https://github.com/phosphor-icons/core (MIT).
+
+Neues Verkehrsmittel:
+
+1. SVG wählen (Phosphor Bold MIT oder SVG Repo), URL in die Tabelle und in
+   `packaging/NOTICE.txt` schreiben.
+2. Key (höchstens 16 Zeichen) in `MOVEMENT_MODES` **vor** `other` eintragen.
+3. `TransportSymbol` in `symbols.py` anlegen. Ziel-viewBox 256; Farbe über
+   `::FILL::` / `::COLOR::`. Seitenansicht: `_fit(native, …)`. Kontur:
+   `_stroke`. Frontansicht Phosphor: `_path(..., from_up=True)`, damit die
+   Nase nach rechts zeigt. Kein verschachteltes `<svg>` (Qt SVG Tiny).
+4. `MAP_CACHE_VERSION` erhöhen. Hilfe und Tests folgen dem Katalog.
+
 ## Austauschbare Schnittstellen
 
 Bereits in Phase 1 angelegt, schrittweise gefüllt:
@@ -279,7 +324,7 @@ Bereits in Phase 1 angelegt, schrittweise gefüllt:
 - `VideoMetadataProvider` – ffprobe-Adapter (noch nicht aktiv)
 - `Exporter` – HTML, PDF, LaTeX, CEWE (Implementierung ab Phase 8)
 - `MapBackend` – Folium/Leaflet, Übersicht als Titelbild-Kreise je Tag/Transfer/Aufenthalt, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad für Fotokegel und Reserve (in `settings.toml`; Fotokegel am Stapel und nach der Auswahl, nicht im Fächer; überlappende Marker ab Zoom 17 per Klick zum Fächer, Klick in die Karte stellt den Stapel wieder her),
-  Verbindungslinien zwischen Tag- und Aufenthaltskreisen (Richtungsmarker, Zoom-Überdeckung),
+  Verbindungslinien zwischen Tag- und Aufenthaltskreisen (Richtungsmarker, Zoom-Überdeckung, Transfer-Kreis per dünner Linie am Symbol),
   Qt-Leiste unter der Karte (Tag mit Kalender, Transfer als liegendes Sechseck), Tagebucheintrag rechts, YouTube-Thumbs unten rechts auf der Karte, Detail mit GPX-Polylinien, IGC-Flugtracks ab Zoom 10
   (Start/Landung immer sichtbar), Foto-Popup und Inspektor, Orte
 - Timeline in `travelcore.timeline` – Tage, Transfers, Aufenthalte, Cover, Links;

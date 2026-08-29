@@ -83,6 +83,21 @@ class TimelineSection:
     pin_latitude: float | None = None
     pin_longitude: float | None = None
     items: tuple[TimelinePhoto, ...] = ()
+    links: tuple[TimelineLink, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class TimelineLink:
+    """One connection line on a Transfer, in sort order."""
+
+    id: int
+    sort_index: int
+    geometry: str
+    dash: str = "solid"
+    symbol: str | None = None
+    end_latitude: float | None = None
+    end_longitude: float | None = None
+    track_source_file_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,3 +153,4 @@ class PendingSectionSpec:
     cover_source_file_id: int | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
+    links: tuple[TimelineLink, ...] = ()

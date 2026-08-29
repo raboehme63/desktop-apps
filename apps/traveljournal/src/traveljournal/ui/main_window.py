@@ -26,6 +26,7 @@ from traveljournal.views.import_view import ImportView
 from traveljournal.views.map_view import MapView
 from traveljournal.views.photos_view import PhotosView
 from traveljournal.views.project_view import ProjectView
+from traveljournal.views.help_dialog import HelpDialog
 from traveljournal.views.settings_dialog import SettingsDialog
 from traveljournal.views.timeline_view import TimelineView
 from traveljournal.widgets.media_inspector import MediaInspectorWindow
@@ -140,6 +141,12 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self._redo_action)
         self._sync_edit_menu()
 
+        help_menu = bar.addMenu("Hilfe")
+        symbols_action = QAction("Verkehrsmittelsymbole…", self)
+        symbols_action.setShortcut(QKeySequence.StandardKey.HelpContents)
+        symbols_action.triggered.connect(self._open_help)
+        help_menu.addAction(symbols_action)
+
     def _sync_menu(self) -> None:
         self._settings_action.setEnabled(self.workspace.current is not None)
         self._sync_edit_menu()
@@ -180,6 +187,9 @@ class MainWindow(QMainWindow):
             updated = by_id.get(current.source_file_id)
             if updated is not None:
                 inspector.sync_from_item(updated)
+
+    def _open_help(self) -> None:
+        HelpDialog(self).exec()
 
     def _open_settings(self) -> None:
         if self.workspace.current is None:

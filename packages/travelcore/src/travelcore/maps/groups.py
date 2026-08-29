@@ -20,14 +20,18 @@ from travelcore.database.models import (
     TripDay,
     TripSection,
 )
+from travelcore.maps.links import build_stay_segments, style_for_geometry
 from travelcore.maps.scene import (
+    STAY_LINK_ROLE_USER,
     STAY_LINK_STYLE_STRAIGHT,
     MapMarker,
     MapScene,
     StayLink,
+    StayLinkHub,
     _center,
     _journal_moments,
     _photo_markers,
+    downsample_points,
     track_polylines,
 )
 from travelcore.media.gallery import SORT_REJECTED, SORT_RESERVE
@@ -45,6 +49,7 @@ from travelcore.timeline.sections import (
     day_section_for_date,
     format_section_span,
 )
+from travelcore.timeline.transfer_links import OVERVIEW_TRACK_POINTS
 from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelinePhoto, TimelineSection
 
 
@@ -110,7 +115,9 @@ def build_map_overview(
     if snapshot is not None and snapshot.entries:
         entries = list(snapshot.entries)
         covers = _covers_from_entries(entries, list(snapshot.days))
-        links = stay_links_from_entries(entries, list(snapshot.days))
+        links = stay_links_from_entries(
+            entries, list(snapshot.days), session=session, project_id=project_id
+        )
     else:
         covers = _covers_from_source_files(session, project_id, thumbs_dir, size=size)
         links = []
@@ -424,12 +431,11 @@ def _card_from_entry(entry: TimelineEntry) -> MapTimelineCard | None:
 def stay_links_from_entries(
     entries: list[TimelineEntry],
     days: list[TimelineDay] | None = None,
+    *,
+    session: Session | None = None,
+    project_id: int | None = None,
 ) -> list[StayLink]:
-    """Straight links between Tag and Aufenthalt covers in timeline order.
-
-    Transfer circles are not endpoints. A transfer between two linked covers is
-    recorded so a later pass can pick a curved line or a track trace.
-    """
+    """Links between Tag and Aufenthalt covers. The first Transfer supplies segments."""
 
     stops: list[tuple[int, MapMarker]] = []
     for index, entry in enumerate(entries):
@@ -439,28 +445,101 @@ def stay_links_from_entries(
         if marker is None:
             continue
         stops.append((index, marker))
+    track_ids = _track_ids_from_entries(entries)
+    tracks = _overview_tracks(session, project_id, track_ids)
     links: list[StayLink] = []
     for (left, start), (right, end) in zip(stops, stops[1:], strict=False):
         between = entries[left + 1 : right]
-        via_transfer = any(item.card_kind == KIND_MOVEMENT for item in between)
+        transfer = next((item for item in between if item.card_kind == KIND_MOVEMENT), None)
+        via_transfer = transfer is not None
+        transfer_links = transfer.section.links if transfer is not None and transfer.section else ()
+        transfer_key = (
+            f"section:{transfer.section.id}" if transfer is not None and transfer.section else ""
+        )
+        hubs = _transfer_hubs(between, days)
+        start_pt = (start.latitude, start.longitude)
+        end_pt = (end.latitude, end.longitude)
+        segments = build_stay_segments(start_pt, end_pt, transfer_links, tracks)
+        first_user = next((item for item in segments if item.role == STAY_LINK_ROLE_USER), None)
+        if first_user is not None:
+            style = first_user.style
+        elif transfer_links:
+            style = style_for_geometry(transfer_links[0].geometry)
+        else:
+            style = stay_link_style(via_transfer=via_transfer)
         links.append(
             StayLink(
-                start=(start.latitude, start.longitude),
-                end=(end.latitude, end.longitude),
+                start=start_pt,
+                end=end_pt,
                 start_key=start.group_key or "",
                 end_key=end.group_key or "",
-                style=stay_link_style(via_transfer=via_transfer),
+                style=style,
                 via_transfer=via_transfer,
+                transfer_key=transfer_key,
+                hubs=hubs,
+                segments=segments,
             )
         )
     return links
 
 
 def stay_link_style(*, via_transfer: bool) -> str:
-    """Line look between two Tag/Aufenthalt covers. Transfers will later choose curve or track."""
+    """Default look when the Transfer has no stored connection lines."""
 
     del via_transfer
     return STAY_LINK_STYLE_STRAIGHT
+
+
+def _transfer_hubs(
+    between: Sequence[TimelineEntry],
+    days: list[TimelineDay] | None,
+) -> tuple[StayLinkHub, ...]:
+    hubs: list[StayLinkHub] = []
+    for item in between:
+        if item.card_kind != KIND_MOVEMENT:
+            continue
+        marker = _cover_marker_for_entry(item, days)
+        if marker is None:
+            continue
+        hubs.append(
+            StayLinkHub(
+                key=marker.group_key or "",
+                latitude=marker.latitude,
+                longitude=marker.longitude,
+            )
+        )
+    return tuple(hubs)
+
+
+def _track_ids_from_entries(entries: list[TimelineEntry]) -> set[int]:
+    wanted: set[int] = set()
+    for entry in entries:
+        section = entry.section
+        if section is None:
+            continue
+        for link in section.links:
+            if link.track_source_file_id is not None:
+                wanted.add(link.track_source_file_id)
+    return wanted
+
+
+def _overview_tracks(
+    session: Session | None,
+    project_id: int | None,
+    source_file_ids: set[int],
+) -> dict[int, tuple[tuple[float, float], ...]]:
+    if session is None or project_id is None or not source_file_ids:
+        return {}
+    found: dict[int, list[tuple[float, float]]] = {}
+    for line in track_polylines(session, project_id, source_file_ids=source_file_ids):
+        if line.source_file_id is None or line.kind != "track":
+            continue
+        found.setdefault(line.source_file_id, []).extend(line.points)
+    return {
+        key: tuple(downsample_points(points, max_points=OVERVIEW_TRACK_POINTS))
+        for key, points in found.items()
+        if len(points) >= 2
+    }
 
 
 def _covers_from_entries(

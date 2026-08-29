@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from travelcore.maps.groups import MapTimelineCard
+from travelcore.timeline.symbols import stay_symbol_svg_js
 from travelcore.maps.scene import (
     COVER_ICON_PX,
     COVER_LINE_INSET_PX,
@@ -72,6 +73,35 @@ _GEAR_ICON_SVG = (
 
 
 PHOTO_STACK_RADIUS_PX = 48
+
+# Round caps turn a near-zero dash into a circular dot. A 1px dash with
+# butt caps looks like a perpendicular tick (the previous dotted style).
+STAY_LINK_WEIGHT = 3.5
+STAY_LINK_DOTTED_WEIGHT = 5.0
+STAY_LINK_DOTTED_DASH = "0.01, 12"
+STAY_LINK_DASHED_DASH = "10, 8"
+STAY_SYMBOL_BADGE_PX = 36
+
+
+def stay_link_line_options(dash: str, *, color: str) -> dict[str, Any]:
+    """Leaflet path options for a stay-link polyline (Folium fallback)."""
+
+    dotted = dash == "dotted"
+    dashed = dash == "dashed"
+    style: dict[str, Any] = {
+        "color": color,
+        "weight": STAY_LINK_DOTTED_WEIGHT if dotted else STAY_LINK_WEIGHT,
+        "opacity": 1.0,
+        "interactive": False,
+        "className": "tj-stay-link",
+        "lineCap": "round",
+        "lineJoin": "round",
+    }
+    if dotted:
+        style["dashArray"] = STAY_LINK_DOTTED_DASH
+    elif dashed:
+        style["dashArray"] = STAY_LINK_DASHED_DASH
+    return style
 
 
 PHOTO_OVERLAP_PX = 56
@@ -1197,12 +1227,42 @@ _COVER_CSS = (
   border: none !important;
   pointer-events: none !important;
 }
+.tj-stay-arrow-hit {
+  pointer-events: auto !important;
+  cursor: pointer !important;
+}
+.tj-stay-badge {
+  width: 36px;
+  height: 36px;
+  position: relative;
+}
+.tj-stay-badge-disc {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: #000;
+}
 .tj-stay-arrow-rot {
+  position: absolute;
+  inset: 6px;
+  width: 24px;
+  height: 24px;
+  transform-origin: 12px 12px;
+}
+.tj-stay-arrow-rot svg {
+  display: block;
+  width: 24px;
+  height: 24px;
+}
+.tj-stay-dir {
+  pointer-events: none !important;
+}
+.tj-stay-dir-rot {
   width: 18px;
   height: 18px;
   transform-origin: 9px 9px;
 }
-.tj-stay-arrow-rot svg {
+.tj-stay-dir-rot svg {
   display: block;
 }
 .leaflet-overlay-pane .tj-stay-link {
@@ -1264,6 +1324,22 @@ def _stay_links_payload(links: Sequence[StayLink]) -> list[dict[str, Any]]:
             "end_key": link.end_key,
             "style": link.style,
             "via_transfer": link.via_transfer,
+            "transfer_key": link.transfer_key,
+            "hubs": [
+                {"key": hub.key, "lat": hub.latitude, "lon": hub.longitude}
+                for hub in link.hubs
+            ],
+            "segments": [
+                {
+                    "role": segment.role,
+                    "style": segment.style,
+                    "dash": segment.dash,
+                    "symbol": segment.symbol,
+                    "points": [[point[0], point[1]] for point in segment.points],
+                }
+                for segment in link.segments
+                if len(segment.points) >= 2
+            ],
         }
         for link in links
     ]
@@ -1289,6 +1365,7 @@ def _overview_script(
     basemap_boot = "installBasemapToggle();" if extra is not None else ""
     settings_js = _map_settings_js()
     cone_js = _photo_cone_js()
+    symbol_js = stay_symbol_svg_js()
     return f"""
 <script>
 (function() {{
@@ -1311,13 +1388,186 @@ def _overview_script(
     var stayLinkGroup = {link_ref};
     var satLayer = {sat_ref};
     var topoLayer = {topo_ref};
-    var stayArrowLayer = L.layerGroup().addTo(map);
+    if (!map.getPane('tjStaySymbolPane')) {{
+      map.createPane('tjStaySymbolPane');
+      map.getPane('tjStaySymbolPane').style.zIndex = 450;
+      map.getPane('tjStaySymbolPane').style.pointerEvents = 'none';
+    }}
+    var stayArrowLayer = L.layerGroup({{pane: 'tjStaySymbolPane'}}).addTo(map);
     function stayLinkVisible(pixelDist) {{
       return pixelDist > COVER_PX;
+    }}
+    function lineOptsFor(dash, hide) {{
+      var dotted = dash === 'dotted';
+      var dashed = dash === 'dashed';
+      return {{
+        color: LINK_COLOR,
+        weight: hide ? 0 : (dotted ? 5 : 3.5),
+        opacity: hide ? 0 : 1,
+        interactive: false,
+        className: 'tj-stay-link',
+        lineCap: 'round',
+        lineJoin: 'round',
+        dashArray: dotted ? '0.01, 12' : (dashed ? '10, 8' : null)
+      }};
+    }}
+{symbol_js}
+    function staySymbolTransform(angle) {{
+      var flip = angle > 90 || angle < -90;
+      var rot = flip ? angle - (angle > 0 ? 180 : -180) : angle;
+      return 'rotate(' + rot + 'deg)' + (flip ? ' scaleX(-1)' : '');
+    }}
+    function addStayLine(pts, opts) {{
+      var line = L.polyline(pts, opts);
+      if (stayLinkGroup) {{
+        line.addTo(stayLinkGroup);
+      }} else {{
+        line.addTo(stayArrowLayer);
+      }}
+    }}
+    function drawStayStem(fromLatLng, toLatLng) {{
+      var a = map.latLngToLayerPoint(fromLatLng);
+      var b = map.latLngToLayerPoint(toLatLng);
+      var dist = a.distanceTo(b);
+      var fromR = COVER_PX / 2;
+      var toR = 18;
+      if (dist < fromR + toR + 4) {{
+        return;
+      }}
+      var ux = (b.x - a.x) / dist;
+      var uy = (b.y - a.y) / dist;
+      addStayLine([
+        map.layerPointToLatLng(L.point(a.x + ux * fromR, a.y + uy * fromR)),
+        map.layerPointToLatLng(L.point(b.x - ux * toR, b.y - uy * toR))
+      ], {{
+        color: '#ffffff',
+        weight: 1.25,
+        opacity: 1,
+        interactive: false,
+        className: 'tj-stay-stem',
+        lineCap: 'round',
+        lineJoin: 'round'
+      }});
+    }}
+    function pointAlong(pts, fraction) {{
+      var pixels = pts.map(function(pt) {{
+        return map.latLngToLayerPoint(pt);
+      }});
+      var total = 0;
+      for (var i = 1; i < pixels.length; i++) {{
+        total += pixels[i - 1].distanceTo(pixels[i]);
+      }}
+      if (total < 1) {{
+        return {{latlng: pts[0], angle: 0}};
+      }}
+      var target = total * fraction;
+      var walked = 0;
+      for (var j = 1; j < pixels.length; j++) {{
+        var seg = pixels[j - 1].distanceTo(pixels[j]);
+        if (walked + seg >= target || j === pixels.length - 1) {{
+          var t = seg < 1e-6 ? 0 : (target - walked) / seg;
+          t = Math.max(0, Math.min(1, t));
+          var angle = Math.atan2(
+            pixels[j].y - pixels[j - 1].y,
+            pixels[j].x - pixels[j - 1].x
+          ) * 180 / Math.PI;
+          return {{
+            latlng: map.layerPointToLatLng(L.point(
+              pixels[j - 1].x + (pixels[j].x - pixels[j - 1].x) * t,
+              pixels[j - 1].y + (pixels[j].y - pixels[j - 1].y) * t
+            )),
+            angle: angle
+          }};
+        }}
+        walked += seg;
+      }}
+      return {{latlng: pts[pts.length - 1], angle: 0}};
+    }}
+    function addStayArrow(latlng, angle) {{
+      L.marker(latlng, {{
+        pane: 'tjStaySymbolPane',
+        interactive: false,
+        keyboard: false,
+        icon: L.divIcon({{
+          className: 'tj-stay-arrow tj-stay-dir',
+          html: '<div class="tj-stay-dir-rot" style="transform:rotate(' +
+            angle + 'deg)"><svg viewBox="0 0 18 18" width="18" height="18">' +
+            '<polygon points="5,4 17,9 5,14" fill="' + LINK_COLOR +
+            '"/></svg></div>',
+          iconSize: [18, 18],
+          iconAnchor: [9, 9]
+        }})
+      }}).addTo(stayArrowLayer);
+    }}
+    function addStayMarker(latlng, angle, symbol, groupKey) {{
+      var svg = staySymbolSvg(symbol, '#ffffff');
+      var clickable = !!groupKey;
+      var marker = L.marker(latlng, {{
+        pane: 'tjStaySymbolPane',
+        interactive: clickable,
+        keyboard: false,
+        icon: L.divIcon({{
+          className: 'tj-stay-arrow' + (clickable ? ' tj-stay-arrow-hit' : ''),
+          html: '<div class="tj-stay-badge">' +
+            '<div class="tj-stay-badge-disc"></div>' +
+            '<div class="tj-stay-arrow-rot" style="transform:' +
+            staySymbolTransform(angle) +
+            '"><svg viewBox="0 0 256 256">' +
+            svg + '</svg></div></div>',
+          iconSize: [36, 36],
+          iconAnchor: [18, 18]
+        }})
+      }});
+      if (clickable) {{
+        marker.on('click', function(event) {{
+          L.DomEvent.stop(event);
+          if (window.traveljournalExpand) {{
+            window.traveljournalExpand(groupKey);
+          }}
+        }});
+      }}
+      marker.addTo(stayArrowLayer);
+    }}
+    function insetStart(points) {{
+      if (!points || points.length < 2) {{
+        return points;
+      }}
+      var first = map.latLngToLayerPoint(points[0]);
+      var second = map.latLngToLayerPoint(points[1]);
+      var head = first.distanceTo(second);
+      if (head <= INSET_PX) {{
+        return points;
+      }}
+      var out = points.slice();
+      out[0] = map.layerPointToLatLng(L.point(
+        first.x + (second.x - first.x) / head * INSET_PX,
+        first.y + (second.y - first.y) / head * INSET_PX
+      ));
+      return out;
+    }}
+    function insetEnd(points) {{
+      if (!points || points.length < 2) {{
+        return points;
+      }}
+      var last = map.latLngToLayerPoint(points[points.length - 1]);
+      var prev = map.latLngToLayerPoint(points[points.length - 2]);
+      var tail = last.distanceTo(prev);
+      if (tail <= INSET_PX) {{
+        return points;
+      }}
+      var out = points.slice();
+      out[out.length - 1] = map.layerPointToLatLng(L.point(
+        last.x + (prev.x - last.x) / tail * INSET_PX,
+        last.y + (prev.y - last.y) / tail * INSET_PX
+      ));
+      return out;
     }}
     function drawStayLinks() {{
       try {{
         stayArrowLayer.clearLayers();
+        if (stayLinkGroup && stayLinkGroup.clearLayers) {{
+          stayLinkGroup.clearLayers();
+        }}
         if (savedView) {{
           if (stayLinkGroup && map.hasLayer(stayLinkGroup)) {{
             map.removeLayer(stayLinkGroup);
@@ -1329,72 +1579,71 @@ def _overview_script(
         }}
         var size = map.getSize && map.getSize();
         var ready = size && size.x > 2 && size.y > 2;
-        var layers = stayLinkGroup && stayLinkGroup.getLayers
-          ? stayLinkGroup.getLayers()
-          : [];
-        stayLinks.forEach(function(link, idx) {{
+        stayLinks.forEach(function(link) {{
           var a = L.latLng(link.start[0], link.start[1]);
           var b = L.latLng(link.end[0], link.end[1]);
           var hide = false;
-          var start = a;
-          var end = b;
           if (ready) {{
             var pa = map.latLngToLayerPoint(a);
             var pb = map.latLngToLayerPoint(b);
-            var dist = pa.distanceTo(pb);
-            if (!stayLinkVisible(dist)) {{
-              hide = true;
-            }} else {{
-              var ux = (pb.x - pa.x) / dist;
-              var uy = (pb.y - pa.y) / dist;
-              start = map.layerPointToLatLng(L.point(pa.x + ux * INSET_PX, pa.y + uy * INSET_PX));
-              end = map.layerPointToLatLng(L.point(pb.x - ux * INSET_PX, pb.y - uy * INSET_PX));
-            }}
+            hide = !stayLinkVisible(pa.distanceTo(pb));
           }}
-          var layer = layers[idx];
-          if (layer && layer.setLatLngs) {{
-            layer.setLatLngs([start, end]);
-            if (layer.setStyle) {{
-              layer.setStyle({{
-                color: LINK_COLOR,
-                opacity: hide ? 0 : 1,
-                weight: hide ? 0 : 3.5,
-                lineCap: 'butt'
-              }});
+          var pieces = (link.segments && link.segments.length)
+            ? link.segments
+            : [{{
+                role: 'user',
+                style: 'straight',
+                dash: 'solid',
+                symbol: null,
+                points: [[link.start[0], link.start[1]], [link.end[0], link.end[1]]]
+              }}];
+          var drawn = [];
+          pieces.forEach(function(segment) {{
+            if (!segment.points || segment.points.length < 2) {{
+              return;
             }}
-          }} else if (!hide) {{
-            layer = L.polyline([start, end], {{
-              color: LINK_COLOR,
-              weight: 3.5,
-              opacity: 1,
-              interactive: false,
-              className: 'tj-stay-link',
-              lineCap: 'butt'
+            drawn.push({{
+              role: segment.role || 'user',
+              dash: segment.dash || 'solid',
+              symbol: segment.symbol || null,
+              points: segment.points.map(function(pt) {{
+                return L.latLng(pt[0], pt[1]);
+              }})
             }});
-            layer.addTo(stayArrowLayer);
-          }}
-          if (hide || !ready) {{
+          }});
+          if (!drawn.length || hide) {{
             return;
           }}
-          var sa = map.latLngToLayerPoint(start);
-          var sb = map.latLngToLayerPoint(end);
-          var t = 0.62;
-          var ax = sa.x + (sb.x - sa.x) * t;
-          var ay = sa.y + (sb.y - sa.y) * t;
-          var angle = Math.atan2(sb.y - sa.y, sb.x - sa.x) * 180 / Math.PI;
-          L.marker(map.layerPointToLatLng(L.point(ax, ay)), {{
-            pane: 'overlayPane',
-            interactive: false,
-            keyboard: false,
-            icon: L.divIcon({{
-              className: 'tj-stay-arrow',
-              html: '<div class="tj-stay-arrow-rot" style="transform:rotate(' +
-                angle + 'deg)"><svg viewBox="0 0 18 18" width="18" height="18">' +
-                '<polygon points="5,4 17,9 5,14" fill="' + LINK_COLOR + '"/></svg></div>',
-              iconSize: [18, 18],
-              iconAnchor: [9, 9]
-            }})
-          }}).addTo(stayArrowLayer);
+          if (ready) {{
+            drawn[0].points = insetStart(drawn[0].points);
+            drawn[drawn.length - 1].points = insetEnd(drawn[drawn.length - 1].points);
+          }}
+          drawn.forEach(function(segment) {{
+            var pts = segment.points;
+            if (ready && segment.role === 'gap') {{
+              var ga = map.latLngToLayerPoint(pts[0]);
+              var gb = map.latLngToLayerPoint(pts[pts.length - 1]);
+              if (ga.distanceTo(gb) < 8) {{
+                return;
+              }}
+            }}
+            addStayLine(pts, lineOptsFor(segment.dash, hide));
+            if (hide || !ready || segment.role === 'gap') {{
+              return;
+            }}
+            var placed = pointAlong(pts, segment.symbol ? 0.62 : 0.5);
+            var symbolAt = placed.latlng;
+            var angle = placed.angle;
+            if (segment.symbol) {{
+              addStayMarker(symbolAt, angle, segment.symbol, link.transfer_key);
+              var hubs = link.hubs || [];
+              for (var h = 0; h < hubs.length; h++) {{
+                drawStayStem(L.latLng(hubs[h].lat, hubs[h].lon), symbolAt);
+              }}
+            }} else {{
+              addStayArrow(symbolAt, angle);
+            }}
+          }});
         }});
       }} catch (err) {{
         console.warn('traveljournal:stayLinks', err);

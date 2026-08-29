@@ -50,6 +50,7 @@ from travelcore.timeline.texts import (
     date_from_text_filename,
     read_imported_text,
 )
+from travelcore.timeline.transfer_links import load_transfer_links_for_sections
 from travelcore.timeline.types import (
     PendingSectionSpec,
     TimelineDay,
@@ -635,6 +636,7 @@ def _section_views(
             .order_by(TripSection.started_at.asc().nulls_last(), TripSection.id.asc())
         )
     )
+    links_by_section = load_transfer_links_for_sections(session, [section.id for section in sections])
     views: list[TimelineSection] = []
     for section in sections:
         members = list(
@@ -684,6 +686,7 @@ def _section_views(
                 pin_latitude=section.pin_latitude,
                 pin_longitude=section.pin_longitude,
                 items=tuple(items),
+                links=links_by_section.get(section.id, ()),
             )
         )
     return views
@@ -749,6 +752,7 @@ def apply_pending_sections(
                 leonardo_urls=spec.leonardo_urls,
                 cover_source_file_id=spec.cover_source_file_id,
                 items=items,
+                links=spec.links,
             )
         )
     sections = tuple(trimmed) + tuple(extra)

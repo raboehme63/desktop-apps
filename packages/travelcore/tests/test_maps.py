@@ -20,6 +20,7 @@ from travelcore.maps import (
     MapPolyline,
     MapScene,
     StayLink,
+    StayLinkHub,
     build_map_group_detail,
     build_map_overview,
     build_map_scene,
@@ -31,6 +32,7 @@ from travelcore.maps import (
     stay_links_from_entries,
 )
 from travelcore.maps.cache import map_html_path, map_stamp_path
+from travelcore.maps.interaction import stay_link_line_options
 from travelcore.maps.groups import (
     MapTimelineCard,
     count_card_media,
@@ -165,6 +167,8 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
                 start_key="section:1",
                 end_key="section:2",
                 via_transfer=True,
+                transfer_key="section:9",
+                hubs=(StayLinkHub(key="section:9", latitude=46.8, longitude=11.6),),
             ),
         ),
         center=(46.75, 11.6),
@@ -173,6 +177,8 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
     assert "window.traveljournalConfig" in text
     assert "data-group-key" in text
     assert "section:1" in text
+    assert '"transfer_key": "section:9"' in text
+    assert '"lat": 46.8' in text
     assert "border-radius: 50%" in text
     assert "width: 47px" in text
     assert "border: 3px solid #fff" in text
@@ -224,7 +230,33 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
     assert 'var LINK_COLOR = "#ffffff"' in text or "var LINK_COLOR = '#ffffff'" in text
     assert "tj-stay-arrow" in text
     assert "tj-stay-arrow-rot" in text
-    assert "iconAnchor: [9, 9]" in text or "iconAnchor:[9,9]" in text
+    assert "tj-stay-badge" in text
+    assert "tj-stay-badge-disc" in text
+    assert "tjStaySymbolPane" in text
+    assert "tj-stay-badge-disc\" style=\"border" not in text
+    assert "staySymbolSvg(symbol, '#ffffff')" in text or 'staySymbolSvg(symbol, "#ffffff")' in text
+    assert "function addStayArrow" in text
+    assert "function pointAlong(pts, fraction)" in text
+    assert "segment.symbol ? 0.62 : 0.5" in text
+    assert "if (segment.symbol)" in text
+    assert "tj-stay-dir" in text
+    assert 'polygon points="5,4 17,9 5,14"' in text
+    assert "tj-stay-dir-rot" in text
+    assert "function staySymbolTransform(angle)" in text
+    assert "scaleX(-1)" in text
+    assert "angle > 90 || angle < -90" in text
+    assert "function drawStayStem" in text
+    assert "tj-stay-stem" in text
+    assert "color: '#ffffff'" in text or 'color: "#ffffff"' in text
+    assert "tj-stay-arrow-hit" in text
+    assert "link.transfer_key" in text
+    assert "window.traveljournalExpand(groupKey)" in text
+    assert "iconSize: [36, 36]" in text or "iconSize:[36,36]" in text
+    assert "iconAnchor: [18, 18]" in text or "iconAnchor:[18,18]" in text
+    assert "viewBox=\"0 0 256 256\"" in text or "viewBox='0 0 256 256'" in text
+    assert "0.01, 12" in text
+    assert "lineCap: 'round'" in text or 'lineCap: "round"' in text
+    assert "lineOptsFor" in text
     assert "tj-stay-link" in text
     assert "traveljournalDrawStayLinks" in text
     assert '"via_transfer": true' in text
@@ -408,6 +440,8 @@ def test_interaction_config_is_declarative_payload(tmp_path: Path) -> None:
     config = interaction_config(scene, html_path, link_color="#ffffff")
     assert config["cover_px"] == COVER_ICON_PX
     assert config["stay_links"][0]["start_key"] == "loose:1"
+    assert config["stay_links"][0]["transfer_key"] == ""
+    assert config["stay_links"][0]["hubs"] == []
     assert "detail" in config
     assert config["link_color"] == "#ffffff"
 
@@ -1226,6 +1260,11 @@ def test_stay_links_skip_transfer_as_endpoint() -> None:
     assert links[0].start == (46.0, 11.0)
     assert links[0].end == (47.0, 12.0)
     assert links[0].via_transfer is True
+    assert links[0].transfer_key == "section:9"
+    assert len(links[0].hubs) == 1
+    assert links[0].hubs[0].key == "section:9"
+    assert links[0].hubs[0].latitude == 46.5
+    assert links[0].hubs[0].longitude == 11.5
 
 
 def test_stay_links_mark_transfer_between_stays() -> None:
@@ -1250,6 +1289,16 @@ def test_stay_link_hidden_when_covers_overlap() -> None:
     assert stay_link_visible(COVER_ICON_PX - 1) is False
     assert stay_link_visible(float(COVER_ICON_PX)) is False
     assert stay_link_visible(COVER_ICON_PX + 1) is True
+
+
+def test_stay_link_dotted_uses_round_dots() -> None:
+    dotted = stay_link_line_options("dotted", color="#ff00aa")
+    assert dotted["dashArray"] == "0.01, 12"
+    assert dotted["lineCap"] == "round"
+    assert dotted["weight"] == 5.0
+    solid = stay_link_line_options("solid", color="#ff00aa")
+    assert "dashArray" not in solid
+    assert solid["lineCap"] == "round"
 
 
 def test_build_map_overview_links_consecutive_stays(open_project: OpenProject, tmp_path: Path) -> None:
@@ -1300,6 +1349,10 @@ def test_build_map_overview_links_consecutive_stays(open_project: OpenProject, t
     assert link.end == (47.2, 11.4)
     assert link.via_transfer is True
     assert link.style == "straight"
+    assert link.transfer_key.startswith("section:")
+    assert len(link.hubs) == 1
+    assert link.hubs[0].latitude == 46.5
+    assert link.hubs[0].longitude == 11.4
 
 
 def test_build_map_overview_links_leftover_days(open_project: OpenProject, tmp_path: Path) -> None:

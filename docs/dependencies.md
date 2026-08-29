@@ -88,6 +88,14 @@ hinzugefügt, wenn der zugehörige Code sie tatsächlich nutzt.
 PDF-Export (Phase 8+) soll über HTML→Druckengine oder LaTeX→PDF erfolgen,
 hinter einer austauschbaren `PdfRenderer`-Schnittstelle.
 
+## Eingebettete Pictogramme (keine pip-Abhängigkeit)
+
+Verkehrsmittelsymbole liegen als SVG-Pfade in
+`travelcore.timeline.symbols`. Phosphor Icons Bold (MIT) und Seitenansichten
+von SVG Repo. Tabelle, URLs und Schritte zum Ergänzen:
+[architecture.md — Verkehrsmittelsymbole](architecture.md#verkehrsmittelsymbole).
+Lizenzhinweis im Paket: `packaging/NOTICE.txt`.
+
 ## Externe Werkzeuge (optional, nicht per pip erzwungen)
 
 | Werkzeug | Geplante Phase | Hinweis |

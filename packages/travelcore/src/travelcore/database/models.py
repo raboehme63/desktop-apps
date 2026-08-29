@@ -232,6 +232,33 @@ class TripSection(Base):
 
     trip: Mapped[Trip] = relationship(back_populates="sections")
     members: Mapped[list[SectionMember]] = relationship(back_populates="section")
+    transfer_links: Mapped[list[TransferLink]] = relationship(
+        back_populates="section",
+        cascade="all, delete-orphan",
+    )
+
+
+class TransferLink(Base):
+    """One ordered connection line owned by a Transfer section."""
+
+    __tablename__ = "transfer_links"
+    __table_args__ = (UniqueConstraint("section_id", "sort_index", name="uq_transfer_links_order"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    section_id: Mapped[int] = mapped_column(
+        ForeignKey("trip_sections.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    sort_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    geometry: Mapped[str] = mapped_column(String(16), nullable=False, default="line")
+    dash: Mapped[str] = mapped_column(String(16), nullable=False, default="solid")
+    symbol: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    end_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    end_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    track_source_file_id: Mapped[int | None] = mapped_column(
+        ForeignKey("source_files.id", ondelete="SET NULL"), nullable=True
+    )
+
+    section: Mapped[TripSection] = relationship(back_populates="transfer_links")
 
 
 class SectionMember(Base):
