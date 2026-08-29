@@ -39,7 +39,9 @@ from travelcore.project_settings import (
 )
 from travelcore.timeline import TimelineSnapshot
 from travelcore.timeline import build as timeline_build
+from travelcore.timeline import history as timeline_history
 from travelcore.timeline import sections as timeline_sections
+from traveljournal.services.edit_history import EditHistory
 
 _CONFIG_DIR = Path.home() / "AppData" / "Local" / "TravelJournal"
 _RECENT_PATH = _CONFIG_DIR / "recent.json"
@@ -78,8 +80,10 @@ class Workspace:
     def __init__(self) -> None:
         self._store = ProjectStore()
         self.current: OpenProject | None = None
+        self.history = EditHistory()
 
     def create_project(self, parent: Path, name: str) -> OpenProject:
+        self.history.clear()
         opened = self._store.create_under(parent, name)
         self.current = opened
         self._remember(opened.directory)
@@ -94,6 +98,7 @@ class Workspace:
         return self.current
 
     def close(self) -> None:
+        self.history.clear()
         self.current = None
 
     def rename(self, name: str) -> None:
@@ -118,6 +123,7 @@ class Workspace:
 
         if self.current is None:
             raise ProjectError("Kein Projekt geöffnet.")
+        self.history.clear()
         previous = load_project_settings(self.current.directory)
         save_project_settings(self.current.directory, settings)
         rebased = 0
@@ -369,15 +375,22 @@ class Workspace:
             return timeline_build.load_timeline(session, project, thumbs_dir=thumbs, size=size)
 
     def save_day_text(self, day_id: int, *, title: str, notes: str) -> None:
-        self._mutate(lambda session: timeline_build.save_day_text(session, day_id, title=title, notes=notes))
+        self._save_entry_text("day", day_id, title=title, notes=notes)
 
     def save_trip_title(self, trip_id: int, title: str) -> None:
-        self._mutate(lambda session: timeline_build.save_trip_title(session, trip_id, title))
+        previous = self._read_trip_title(trip_id) or ""
+        cleaned = title.strip()
+        if not cleaned or cleaned == previous.strip():
+            return
+        self._apply_trip_title(trip_id, cleaned)
+        self.history.push(
+            "Reisetitel",
+            lambda: self._apply_trip_title(trip_id, previous),
+            lambda: self._apply_trip_title(trip_id, cleaned),
+        )
 
     def save_section_text(self, section_id: int, *, title: str, notes: str) -> None:
-        self._mutate(
-            lambda session: timeline_sections.save_section_text(session, section_id, title=title, notes=notes)
-        )
+        self._save_entry_text("section", section_id, title=title, notes=notes)
 
     def save_youtube_urls(self, kind: str, entity_id: int, urls: list[str]) -> None:
         if kind == "section":
@@ -411,47 +424,91 @@ class Workspace:
         cover_source_file_id: int | None = None,
         started_at: datetime | None = None,
         ended_at: datetime | None = None,
-    ) -> None:
-        opened = self._require_open()
-        with opened.session_factory() as session:
-            trip_id = session.scalar(
-                select(Trip.id).where(Trip.project_id == opened.project_id).order_by(Trip.id.asc())
+        record: bool = True,
+    ) -> int:
+        ids = list(dict.fromkeys(source_file_ids))
+        before = self._capture_placement(ids)
+        section_id = self._apply_create(
+            ids,
+            kind=kind,
+            mode=mode,
+            title=title,
+            notes=notes,
+            location_name=location_name,
+            location_from=location_from,
+            location_to=location_to,
+            youtube_urls=youtube_urls,
+            leonardo_urls=leonardo_urls,
+            cover_source_file_id=cover_source_file_id,
+            started_at=started_at,
+            ended_at=ended_at,
+        )
+        if record:
+            created = [section_id]
+            self.history.push(
+                "Abschnitt einfügen",
+                lambda: self._undo_created_section(before, created),
+                lambda: created.__setitem__(
+                    0,
+                    self._apply_create(
+                        ids,
+                        kind=kind,
+                        mode=mode,
+                        title=title,
+                        notes=notes,
+                        location_name=location_name,
+                        location_from=location_from,
+                        location_to=location_to,
+                        youtube_urls=youtube_urls,
+                        leonardo_urls=leonardo_urls,
+                        cover_source_file_id=cover_source_file_id,
+                        started_at=started_at,
+                        ended_at=ended_at,
+                    ),
+                ),
             )
-            if trip_id is None:
-                raise ProjectError("Keine Timeline. Bitte zuerst die Timeline aktualisieren.")
-            timeline_sections.create_section(
-                session,
-                trip_id,
-                source_file_ids,
-                kind=kind,
-                mode=mode,
-                title=title,
-                notes=notes,
-                location_name=location_name,
-                location_from=location_from,
-                location_to=location_to,
-                youtube_urls=youtube_urls,
-                leonardo_urls=leonardo_urls,
-                cover_source_file_id=cover_source_file_id,
-                started_at=started_at,
-                ended_at=ended_at,
-            )
-            session.commit()
+        return section_id
 
     def update_section_kind(self, section_id: int, kind: str, *, mode: str | None = None) -> None:
-        self._mutate(
-            lambda session: timeline_sections.update_section_kind(session, section_id, kind, mode=mode)
+        before = self._capture_section_edit(section_id)
+        self._apply_section_kind(section_id, kind, mode=mode)
+        if before is None:
+            return
+        self.history.push(
+            "Abschnittstyp",
+            lambda: self._apply_restore(before),
+            lambda: self._apply_section_kind(section_id, kind, mode=mode),
         )
 
     def dissolve_section(self, section_id: int) -> None:
-        self._mutate(lambda session: timeline_sections.dissolve_section(session, section_id))
+        before = self._capture_section_edit(section_id)
+        self._apply_dissolve(section_id)
+        if before is None:
+            return
+        self.history.push(
+            "Abschnitt auflösen",
+            lambda: self._apply_restore(before),
+            lambda: self._apply_dissolve(section_id),
+        )
 
     def delete_section(self, section_id: int) -> None:
-        self._mutate(lambda session: timeline_sections.delete_section(session, section_id))
+        before = self._capture_section_edit(section_id)
+        self._apply_delete(section_id)
+        if before is None:
+            return
+        self.history.push(
+            "Abschnitt löschen",
+            lambda: self._apply_restore(before),
+            lambda: self._apply_delete(section_id),
+        )
 
     def set_section_pin(self, section_id: int, latitude: float, longitude: float) -> None:
-        self._mutate(
-            lambda session: timeline_sections.set_section_pin(session, section_id, latitude, longitude)
+        previous = self._read_section_pin(section_id)
+        self._apply_section_pin(section_id, latitude, longitude)
+        self.history.push(
+            "Kartenposition",
+            lambda: self._apply_section_pin(section_id, previous[0], previous[1]),
+            lambda: self._apply_section_pin(section_id, latitude, longitude),
         )
 
     def set_section_span(
@@ -460,24 +517,30 @@ class Workspace:
         started_at: datetime,
         ended_at: datetime | None = None,
     ) -> None:
-        self._mutate(
-            lambda session: timeline_sections.set_section_span(
-                session, section_id, started_at, ended_at=ended_at
-            )
+        before = self._capture_section_edit(section_id)
+        self._apply_section_span(section_id, started_at, ended_at)
+        if before is None:
+            return
+        self.history.push(
+            "Datum",
+            lambda: self._apply_restore(before),
+            lambda: self._apply_section_span(section_id, started_at, ended_at),
         )
 
     def park_media(self, source_file_ids: list[int]) -> None:
-        self._mutate(lambda session: timeline_sections.park_media(session, source_file_ids))
+        ids = list(dict.fromkeys(source_file_ids))
+        if not ids:
+            return
+        before = self._capture_placement(ids)
+        self._apply_park(ids)
+        self.history.push("Pool", lambda: self._apply_restore(before), lambda: self._apply_park(ids))
 
     def unpark_media(self, source_file_ids: list[int]) -> None:
-        opened = self._require_open()
-        with opened.session_factory() as session:
-            timeline_sections.unpark_media(session, source_file_ids)
-            project = session.get(Project, opened.project_id)
-            if project is not None:
-                thumbs, size = self._thumbs_and_size()
-                timeline_build.sync_timeline(session, project, thumbs_dir=thumbs, size=size)
-            session.commit()
+        ids = list(dict.fromkeys(source_file_ids))
+        if not ids:
+            return
+        self._apply_unpark(ids)
+        self.history.push("Zurückholen", lambda: self._apply_park(ids), lambda: self._apply_unpark(ids))
 
     def move_members(
         self,
@@ -486,10 +549,15 @@ class Workspace:
         *,
         keep_gps: bool = True,
     ) -> None:
-        self._mutate(
-            lambda session: timeline_sections.move_members(
-                session, section_id, source_file_ids, keep_gps=keep_gps
-            )
+        ids = list(dict.fromkeys(source_file_ids))
+        if not ids:
+            return
+        before = self._capture_placement(ids, extra_section_ids=(section_id,))
+        self._apply_move(section_id, ids, keep_gps=keep_gps)
+        self.history.push(
+            "Zuordnen",
+            lambda: self._apply_restore(before),
+            lambda: self._apply_move(section_id, ids, keep_gps=keep_gps),
         )
 
     def set_journal_at(
@@ -499,20 +567,42 @@ class Workspace:
         *,
         timezone_name: str | None = None,
     ) -> None:
-        self._mutate(
-            lambda session: timeline_sections.set_journal_at(
-                session, source_file_ids, journal_at, timezone_name=timezone_name
-            )
+        ids = list(dict.fromkeys(source_file_ids))
+        if not ids:
+            return
+        before = self._capture_placement(ids)
+        self._apply_journal_at(ids, journal_at, timezone_name=timezone_name)
+        self.history.push(
+            "Journal-Zeit",
+            lambda: self._apply_restore(before),
+            lambda: self._apply_journal_at(ids, journal_at, timezone_name=timezone_name),
         )
 
     def reset_journal(self, source_file_ids: list[int]) -> None:
-        self._mutate(lambda session: timeline_sections.reset_journal(session, source_file_ids))
+        ids = list(dict.fromkeys(source_file_ids))
+        if not ids:
+            return
+        before = self._capture_placement(ids)
+        self._apply_reset_journal(ids)
+        self.history.push(
+            "Originalzeit",
+            lambda: self._apply_restore(before),
+            lambda: self._apply_reset_journal(ids),
+        )
 
     def sort_members_by_journal(self, section_id: int) -> None:
         self._mutate(lambda session: timeline_sections.sort_members_by_journal(session, section_id))
 
     def set_entry_cover(self, kind: str, entity_id: int, source_file_id: int | None) -> None:
-        self._mutate(lambda session: timeline_build.set_entry_cover(session, kind, entity_id, source_file_id))
+        previous = self._read_entry_cover(kind, entity_id)
+        if previous == source_file_id:
+            return
+        self._apply_entry_cover(kind, entity_id, source_file_id)
+        self.history.push(
+            "Titelbild",
+            lambda: self._apply_entry_cover(kind, entity_id, previous),
+            lambda: self._apply_entry_cover(kind, entity_id, source_file_id),
+        )
 
     def thumbs_dir(self) -> Path | None:
         if self.current is None:
@@ -525,36 +615,27 @@ class Workspace:
         self.set_sort_status(source_file_id, "favorite" if value else None)
 
     def set_sort_status(self, source_file_id: int, status: str | None) -> None:
-        self._mutate(lambda session: timeline_build.set_photo_sort_status(session, source_file_id, status))
+        previous = self._read_sort_status(source_file_id)
+        if previous == status:
+            return
+        self._apply_sort_status(source_file_id, status)
+        self.history.push(
+            "Bewertung",
+            lambda: self._apply_sort_status(source_file_id, previous),
+            lambda: self._apply_sort_status(source_file_id, status),
+        )
 
     def add_rotation(self, source_file_id: int, delta_degrees: int) -> tuple[int, Path]:
         """Rotate a photo/video clockwise in 90° steps. Originals stay read-only."""
 
-        opened = self._require_open()
-        thumbs, size = self._thumbs_and_size()
-        with opened.session_factory() as session:
-            degrees = timeline_build.add_source_rotation(session, source_file_id, delta_degrees)
-            row = session.get(SourceFile, source_file_id)
-            if row is None:
-                raise ProjectError("Datei nicht gefunden.")
-            dest = cached_thumbnail_path(
-                thumbs,
-                source_file_id=row.id,
-                sha256=row.sha256,
-                size=size,
-                rotation_degrees=degrees,
+        result = self._apply_rotation(source_file_id, delta_degrees)
+        if delta_degrees:
+            self.history.push(
+                "Drehung",
+                lambda: self._apply_rotation(source_file_id, -delta_degrees),
+                lambda: self._apply_rotation(source_file_id, delta_degrees),
             )
-            source_path = Path(row.path)
-            extension = row.extension
-            session.commit()
-        if can_rotate_media(extension) and source_path.suffix.lower() not in GPS_EXTENSIONS:
-            try:
-                if dest.is_file():
-                    dest.unlink()
-            except OSError:
-                pass
-            ensure_thumbnail(source_path, dest, size=size, rotation_degrees=degrees)
-        return degrees, dest
+        return result
 
     def generate_missing_thumbnails(self) -> int:
         if self.current is None:
@@ -732,3 +813,241 @@ class Workspace:
         with opened.session_factory() as session:
             action(session)
             session.commit()
+
+    def _read_sort_status(self, source_file_id: int) -> str | None:
+        opened = self._require_open()
+        with opened.session_factory() as session:
+            return timeline_history.photo_sort_status(session, source_file_id)
+
+    def _apply_sort_status(self, source_file_id: int, status: str | None) -> None:
+        self._mutate(lambda session: timeline_build.set_photo_sort_status(session, source_file_id, status))
+
+    def _read_section_pin(self, section_id: int) -> tuple[float | None, float | None]:
+        opened = self._require_open()
+        with opened.session_factory() as session:
+            return timeline_history.section_pin(session, section_id)
+
+    def _apply_section_pin(
+        self,
+        section_id: int,
+        latitude: float | None,
+        longitude: float | None,
+    ) -> None:
+        self._mutate(
+            lambda session: timeline_sections.set_section_pin(session, section_id, latitude, longitude)
+        )
+
+    def _apply_section_kind(self, section_id: int, kind: str, *, mode: str | None = None) -> None:
+        self._mutate(
+            lambda session: timeline_sections.update_section_kind(session, section_id, kind, mode=mode)
+        )
+
+    def _apply_section_span(
+        self,
+        section_id: int,
+        started_at: datetime,
+        ended_at: datetime | None,
+    ) -> None:
+        self._mutate(
+            lambda session: timeline_sections.set_section_span(
+                session, section_id, started_at, ended_at=ended_at
+            )
+        )
+
+    def _apply_create(
+        self,
+        source_file_ids: list[int],
+        *,
+        kind: str,
+        mode: str | None = None,
+        title: str | None = None,
+        notes: str | None = None,
+        location_name: str | None = None,
+        location_from: str | None = None,
+        location_to: str | None = None,
+        youtube_urls: list[str] | None = None,
+        leonardo_urls: list[str] | None = None,
+        cover_source_file_id: int | None = None,
+        started_at: datetime | None = None,
+        ended_at: datetime | None = None,
+    ) -> int:
+        opened = self._require_open()
+        with opened.session_factory() as session:
+            trip_id = session.scalar(
+                select(Trip.id).where(Trip.project_id == opened.project_id).order_by(Trip.id.asc())
+            )
+            if trip_id is None:
+                raise ProjectError("Keine Timeline. Bitte zuerst die Timeline aktualisieren.")
+            section = timeline_sections.create_section(
+                session,
+                trip_id,
+                source_file_ids,
+                kind=kind,
+                mode=mode,
+                title=title,
+                notes=notes,
+                location_name=location_name,
+                location_from=location_from,
+                location_to=location_to,
+                youtube_urls=youtube_urls,
+                leonardo_urls=leonardo_urls,
+                cover_source_file_id=cover_source_file_id,
+                started_at=started_at,
+                ended_at=ended_at,
+            )
+            section_id = section.id
+            session.commit()
+        return section_id
+
+    def _apply_delete(self, section_id: int) -> None:
+        self._mutate(lambda session: timeline_sections.delete_section(session, section_id))
+
+    def _apply_dissolve(self, section_id: int) -> None:
+        self._mutate(lambda session: timeline_sections.dissolve_section(session, section_id))
+
+    def _apply_journal_at(
+        self,
+        source_file_ids: list[int],
+        journal_at: datetime | None,
+        *,
+        timezone_name: str | None = None,
+    ) -> None:
+        self._mutate(
+            lambda session: timeline_sections.set_journal_at(
+                session, source_file_ids, journal_at, timezone_name=timezone_name
+            )
+        )
+
+    def _apply_reset_journal(self, source_file_ids: list[int]) -> None:
+        self._mutate(lambda session: timeline_sections.reset_journal(session, source_file_ids))
+
+    def _apply_entry_cover(self, kind: str, entity_id: int, source_file_id: int | None) -> None:
+        self._mutate(lambda session: timeline_build.set_entry_cover(session, kind, entity_id, source_file_id))
+
+    def _apply_rotation(self, source_file_id: int, delta_degrees: int) -> tuple[int, Path]:
+        opened = self._require_open()
+        thumbs, size = self._thumbs_and_size()
+        with opened.session_factory() as session:
+            degrees = timeline_build.add_source_rotation(session, source_file_id, delta_degrees)
+            row = session.get(SourceFile, source_file_id)
+            if row is None:
+                raise ProjectError("Datei nicht gefunden.")
+            dest = cached_thumbnail_path(
+                thumbs,
+                source_file_id=row.id,
+                sha256=row.sha256,
+                size=size,
+                rotation_degrees=degrees,
+            )
+            source_path = Path(row.path)
+            extension = row.extension
+            session.commit()
+        if can_rotate_media(extension) and source_path.suffix.lower() not in GPS_EXTENSIONS:
+            try:
+                if dest.is_file():
+                    dest.unlink()
+            except OSError:
+                pass
+            ensure_thumbnail(source_path, dest, size=size, rotation_degrees=degrees)
+        return degrees, dest
+
+    def _undo_created_section(
+        self,
+        before: timeline_history.JournalEdit,
+        created: list[int],
+    ) -> None:
+        self._apply_restore(before)
+        if created and created[0]:
+            self._apply_delete(created[0])
+
+    def _apply_park(self, source_file_ids: list[int]) -> None:
+        self._mutate(lambda session: timeline_sections.park_media(session, source_file_ids))
+
+    def _apply_unpark(self, source_file_ids: list[int]) -> None:
+        opened = self._require_open()
+        with opened.session_factory() as session:
+            timeline_sections.unpark_media(session, source_file_ids)
+            project = session.get(Project, opened.project_id)
+            if project is not None:
+                thumbs, size = self._thumbs_and_size()
+                timeline_build.sync_timeline(session, project, thumbs_dir=thumbs, size=size)
+            session.commit()
+
+    def _apply_move(self, section_id: int, source_file_ids: list[int], *, keep_gps: bool) -> None:
+        self._mutate(
+            lambda session: timeline_sections.move_members(
+                session, section_id, source_file_ids, keep_gps=keep_gps
+            )
+        )
+
+    def _capture_placement(
+        self,
+        source_file_ids: list[int],
+        extra_section_ids: tuple[int, ...] = (),
+    ) -> timeline_history.JournalEdit:
+        opened = self._require_open()
+        with opened.session_factory() as session:
+            return timeline_history.capture_placement_edit(
+                session, source_file_ids, extra_section_ids=extra_section_ids
+            )
+
+    def _capture_section_edit(self, section_id: int) -> timeline_history.JournalEdit | None:
+        opened = self._require_open()
+        with opened.session_factory() as session:
+            return timeline_history.capture_section_edit(session, section_id)
+
+    def _apply_restore(self, edit: timeline_history.JournalEdit) -> None:
+        self._mutate(lambda session: timeline_history.restore_journal_edit(session, edit))
+
+    def _read_entry_title(self, kind: str, entity_id: int) -> str | None:
+        opened = self._require_open()
+        with opened.session_factory() as session:
+            return timeline_history.entry_title(session, kind, entity_id)
+
+    def _read_entry_notes(self, kind: str, entity_id: int) -> str | None:
+        opened = self._require_open()
+        with opened.session_factory() as session:
+            return timeline_history.entry_notes(session, kind, entity_id)
+
+    def _apply_entry_text(self, kind: str, entity_id: int, *, title: str, notes: str) -> None:
+        if kind == "section":
+            self._mutate(
+                lambda session: timeline_sections.save_section_text(
+                    session, entity_id, title=title, notes=notes
+                )
+            )
+            return
+        self._mutate(
+            lambda session: timeline_build.save_day_text(session, entity_id, title=title, notes=notes)
+        )
+
+    def _read_trip_title(self, trip_id: int) -> str | None:
+        opened = self._require_open()
+        with opened.session_factory() as session:
+            return timeline_history.trip_title(session, trip_id)
+
+    def _apply_trip_title(self, trip_id: int, title: str) -> None:
+        self._mutate(lambda session: timeline_build.save_trip_title(session, trip_id, title))
+
+    def _read_entry_cover(self, kind: str, entity_id: int) -> int | None:
+        opened = self._require_open()
+        with opened.session_factory() as session:
+            return timeline_history.entry_cover(session, kind, entity_id)
+
+    def _save_entry_text(self, kind: str, entity_id: int, *, title: str, notes: str) -> None:
+        previous_title = self._read_entry_title(kind, entity_id)
+        previous_notes = self._read_entry_notes(kind, entity_id) or ""
+        self._apply_entry_text(kind, entity_id, title=title, notes=notes)
+        applied_title = title.strip() or previous_title
+        title_changed = (previous_title or "").strip() != (applied_title or "").strip()
+        notes_changed = previous_notes != notes
+        if not title_changed and not notes_changed:
+            return
+        label = "Titel" if title_changed and not notes_changed else "Tagebucheintrag"
+        self.history.push(
+            label,
+            lambda: self._apply_entry_text(
+                kind, entity_id, title=previous_title or "", notes=previous_notes
+            ),
+            lambda: self._apply_entry_text(kind, entity_id, title=applied_title or "", notes=notes),
+        )

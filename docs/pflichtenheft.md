@@ -4,14 +4,14 @@
 | --- | --- |
 | Produkt | Reisetagebuch (Windows-Desktop) |
 | Version | 2.0 (Software **R2.0.0**) |
-| Stand | 28. August 2026 |
+| Stand | 29. August 2026 |
 | Status | verbindlich für die Umsetzung; Phase 7, Software R2.0.0 (Journal-Modell nach Design-Review) |
 | Bezug | Auftraggeber-Prompt „Reise-Tagebuch-Anwendung für Windows“ |
 | Begleitdokumente | [konzept.md](konzept.md), [architecture.md](architecture.md), [testdokumentation.md](testdokumentation.md), [dependencies.md](dependencies.md), [packaging/README.md](../packaging/README.md) |
 
 Dieses Pflichtenheft beschreibt **was** das System leisten muss. Das **wie** steht im Konzept und in der Architektur.
 
-**R2.0.0** ist die Fassung nach dem Design-Review: drei gleichberechtigte Journal-Typen (**Tag**, **Aufenthalt**, **Transfer**) als Abschnitte mit Mitgliedern, ein **Medienpool** für nicht zugeordnete Dateien, eine **Journal-Zeit** je Clip neben der unveränderten Aufnahmezeit, und die überarbeitete Oberfläche (Pool-Spalte, Timeline-Verbindungen mit **+**, Drag & Drop mit Auto-Scroll, Kartenleiste mit **+**, Cover-Fallback). HTML-Export bleibt Phase 8.
+**R2.0.0** ist die Fassung nach dem Design-Review: drei gleichberechtigte Journal-Typen (**Tag**, **Aufenthalt**, **Transfer**) als Abschnitte mit Mitgliedern, ein **Medienpool** für nicht zugeordnete Dateien, eine **Journal-Zeit** je Clip neben der unveränderten Aufnahmezeit, und die überarbeitete Oberfläche (Pool-Spalte, Timeline-Verbindungen mit **+**, Drag & Drop mit Auto-Scroll, Kartenleiste mit **+**, Cover-Fallback, **Rückgängig / Wiederherstellen**). HTML-Export bleibt Phase 8.
 
 Prioritäten:
 
@@ -223,11 +223,12 @@ Auswahlmodell in der Timeline und auf der Medienseite: erster und letzter Klick 
 
 | ID | Prio | Anforderung | Stand |
 | --- | --- | --- | --- |
-| FA-080 | Muss | Tagebuch vollständig bearbeitbar: Tage, Orte, GPS, Ereignisse, Texte, Fotos, Reihenfolge, Titelbilder, Abschnitte. | teilweise (Timeline: Reisetitel, Tage/Aufenthalte/Transfers, Titel/Text, Abschnitte, Eintrags-Titelbilder, Journal-Zeit und Originalzeit, Drag & Drop Karte↔Karte und Pool; Reisetitel, Titel, Texte und YouTube gemäß FA-064; `used_in_journal` und Reise-Titelbild `is_cover` in `travelcore`, ohne eigene UI; keine Ereignis-Reihenfolge) |
+| FA-080 | Muss | Tagebuch vollständig bearbeitbar: Tage, Orte, GPS, Ereignisse, Texte, Fotos, Reihenfolge, Titelbilder, Abschnitte. | teilweise (Timeline: Reisetitel, Tage/Aufenthalte/Transfers, Titel/Text, Abschnitte, Eintrags-Titelbilder, Journal-Zeit und Originalzeit, Drag & Drop Karte↔Karte und Pool; Reisetitel, Titel, Texte und YouTube gemäß FA-064; Rückgängig/Wiederherstellen gemäß FA-085; `used_in_journal` und Reise-Titelbild `is_cover` in `travelcore`, ohne eigene UI; keine Ereignis-Reihenfolge) |
 | FA-081 | Muss | Automatisch erzeugte und manuelle Daten sind unterscheidbar (`origin=auto\|manual`). | umgesetzt |
 | FA-082 | Muss | Jedes Foto trägt einen Sortierstatus `favorite` / `reserve` / `rejected` (oder leer). `is_favorite` bleibt synchron. Leerer Status plus altes Favoriten-Flag gilt als Favorit (`effective_sort_status`). Klick auf den aktiven Status hebt ihn auf. Abgelehnte Vorschaubilder sind abgedunkelt. **Aussortierte** erscheinen nur im Register Aussortiert, nicht in Favoriten / Reserve. Im Register **Alle** blendet eine Checkbox **Aussortierte anzeigen** sie ein oder aus (Standard aus; `show_rejected_in_all` in `config.json`). Speichern sofort. Bewertung in **Medien** gilt auch in der Timeline (und umgekehrt). | umgesetzt |
 | FA-083 | Muss | Zwei Titelbilder: (1) **Reise-Titelbild** `Photo.is_cover`; (2) **Eintrags-Titelbild** `cover_source_file_id` an Tag oder Abschnitt, Chip **T** auf Foto- **und Track**-Thumbs, 72-px-Vorschau in der Timeline-Kartenüberschrift. Videos sind keine Titelbilder. An gespeicherten Einträgen sofort; an ungespeicherten Abschnitten erst mit Speichern. | teilweise (Eintrags-Titelbild in der Timeline; Reise-Titelbild nur in `travelcore`, ohne UI) |
 | FA-084 | Soll | Beim Bewegen des vertikalen Timeline-Schiebers erscheint am Schieber das Datum des Abschnitts in der Bildmitte (ein Kalendertag bzw. kompakt von–bis). Dasselbe Chip am Schieber des **Medienpools** (Aufnahmedatum des Mediums in der Bildmitte). | umgesetzt |
+| FA-085 | Muss | Journal-Edits sind rückgängig und wiederholbar: Menü **Bearbeiten → Rückgängig / Wiederherstellen**, Tastatur **Strg+Z / Strg+Y**. Der Stack umfasst Zuordnen und Parken, Bewerten, Drehen, Abschnitt einfügen/löschen/auflösen (auch ungespeicherte), Typ und Datum, Kartenposition, Journal-Zeit und Originalzeit, Titel und Tagebucheintrag, Reisetitel, Eintrags-Titelbild. In einem Textfeld gilt zuerst die Widget-Historie. Import, Synchronisieren, Timeline aktualisieren, Projekt öffnen/schließen und Einstellungen leeren den Stack. YouTube, DHV-Leonardo, Orte und Projekteinstellungen gehören nicht dazu. | umgesetzt |
 
 ### 4.9 Benutzeroberfläche
 
@@ -380,7 +381,7 @@ Nach jeder Phase: Anwendung startbar, bestehende Tests grün, keine ungenutzten 
 | 4 | GPX und GPS-Zuordnung | erledigt |
 | 5 | Thumbnail-Galerie | erledigt |
 | 6 | Karte | erledigt |
-| 7 | Timeline und manuelle Bearbeitung: Tag/Aufenthalt/Transfer als Abschnitte, Medienpool, Journal-Zeit, Bewertungen, Inspektor, Track-Vorschauen, Karten-Leiste, Design-Review-UI | erledigt (HTML-Export nicht enthalten; Software R2.0.0) |
+| 7 | Timeline und manuelle Bearbeitung: Tag/Aufenthalt/Transfer als Abschnitte, Medienpool, Journal-Zeit, Bewertungen, Inspektor, Track-Vorschauen, Karten-Leiste, Design-Review-UI, Rückgängig/Wiederherstellen | erledigt (HTML-Export nicht enthalten; Software R2.0.0) |
 | 8 | HTML-Export | offen |
 | 9 | Qualitätsanalyse | offen |
 | 10 | Dublettenerkennung | offen |

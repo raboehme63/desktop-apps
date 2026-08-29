@@ -2,7 +2,7 @@
 
 Produktanforderungen: [pflichtenheft.md](pflichtenheft.md). Leitkonzept: [konzept.md](konzept.md). Tests: [testdokumentation.md](testdokumentation.md). Windows-Paket: [packaging/README.md](../packaging/README.md).
 
-Stand: **Phase 7**, Software **R2.0.0** (28. August 2026). Journal-Modell nach Design-Review.
+Stand: **Phase 7**, Software **R2.0.0** (29. August 2026). Journal-Modell nach Design-Review.
 
 ## Prinzip
 
@@ -27,7 +27,7 @@ und ändert die JSON-Datei nicht.
 | Schicht | Ort | Aufgabe |
 | --- | --- | --- |
 | UI | `apps/traveljournal/.../ui`, `views`, `widgets` | Darstellung, keine Geschäftslogik |
-| Services | `apps/traveljournal/.../services` | Qt-Threads, Dialoge, Fortschritt, Workspace |
+| Services | `apps/traveljournal/.../services` | Qt-Threads, Dialoge, Fortschritt, Workspace, Undo-Stack |
 | Domain | `travelcore.trip` | Reise, Kalendertag, Journal-Eintrag (Tag / Aufenthalt / Transfer), Ort, Ereignis (Pydantic) |
 | Use Cases | `travelcore.media`, `gps`, `timeline`, `geolocation`, `maps`, `export` | Import, Zuordnung, Timeline, Karte, Export |
 | Persistenz | `travelcore.database` | SQLAlchemy-Modelle, Alembic, Projektordner |
@@ -40,7 +40,7 @@ und ändert die JSON-Datei nicht.
 | `metadata` | Pillow, HEIC-Container, optional ExifTool, Merge |
 | `gps` | GPX/IGC-Parse und Ingest, KML/GeoJSON nur für Vorschauen, zeitliche Interpolation |
 | `geolocation` | Aufenthaltscluster (Haversine, Radius 150 m) |
-| `timeline` | Tage, Transfers und Aufenthalte als Abschnitte, Mitglieder, Journal-Zeit, Pool (`parked`), Links, Cover, manuelle Edits |
+| `timeline` | Tage, Transfers und Aufenthalte als Abschnitte, Mitglieder, Journal-Zeit, Pool (`parked`), Links, Cover, manuelle Edits, Snapshots zum Wiederherstellen (`history`) |
 | `maps` | `MapScene` + Folium/Leaflet; statische OSM-Ausschnitte für Track-Thumbs |
 | `export` | Vertrag `Exporter`; HTML/PDF/LaTeX/CEWE noch Platzhalter |
 | `image_analysis` / `similarity` | Verträge für Phase 9/10, ohne Engines |
@@ -160,6 +160,19 @@ sofort und zählen nicht. `confirm_leave` fragt bei `_pending`
 (Verwerfen/Abbrechen); dirty Texte allein erzeugen keine Rückfrage.
 `refresh()` ruft `_commit_if_dirty()` auf, sodass **Timeline aktualisieren**
 ungespeicherte Texte mitschreibt.
+
+Rückgängig/Wiederherstellen liegt in der GUI-Schicht, nicht in der Bibliothek.
+`travelcore.timeline.history` liefert Snapshots (`SectionSnapshot`,
+`MemberPlacement`, `JournalEdit`) und `restore_journal_edit`.
+`traveljournal.services.edit_history.EditHistory` wickelt `QUndoStack`
+(Limit 80). Der Workspace schiebt nach der Mutation ein Command mit
+Undo-/Redo-Lambdas; die erste `redo` des Commands ist leer, weil die Aktion
+schon gelaufen ist. Ungespeicherte Abschnitte (`_pending`) invertieren
+`TimelineView` im Speicher. Steht der Fokus in einem Textfeld, greift zuerst
+die Widget-Historie (`undo_focused_text` / `redo_focused_text`). Der Stack
+wird geleert bei Projekt anlegen/schließen, Einstellungen, Import/Sync
+(`_after_import`) und `TimelineView.rebuild`. YouTube, DHV-Leonardo und Orte
+stehen nicht auf dem Stack.
 
 Manuelle Titel, Notizen, bestätigte Orte, Foto-Flags
 (`used_in_journal`, `is_cover`, `is_favorite`, `sort_status`), YouTube-URLs,
@@ -336,7 +349,8 @@ macOS ist kein Ziel (WIC-Vorschauen, AppData-Pfade).
 6. Karte
 7. Timeline und manuelle Bearbeitung  ← aktueller Stand, Software R2.0.0
    (Tag/Aufenthalt/Transfer als Abschnitte, Medienpool, Journal-Zeit,
-    Design-Review-UI, Bewertungen, Inspektor, Track-Vorschauen, Anzeigedrehung)
+    Design-Review-UI, Bewertungen, Inspektor, Track-Vorschauen, Anzeigedrehung,
+    Rückgängig/Wiederherstellen)
    Windows-Endnutzerpaket: `packaging/` (keine eigene Fachphase)
 8. HTML-Export
 9. Qualitätsanalyse

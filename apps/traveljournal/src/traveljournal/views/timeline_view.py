@@ -170,8 +170,7 @@ _MODE_LABELS = (
 )
 _COVER_HEAD = 168
 _GALLERY_DRAG_HINT = (
-    "Ziehen auf eine andere Karte oder in den Pool. "
-    "T oben links: Titelbild für diesen Tag oder Abschnitt"
+    "Ziehen auf eine andere Karte oder in den Pool. T oben links: Titelbild für diesen Tag oder Abschnitt"
 )
 _TIMELINE_JOIN_H = 64
 _AUTOSCROLL_MARGIN = 72
@@ -229,6 +228,15 @@ class SectionKindCombo(QComboBox):
         if container is not None:
             extra = max(4, container.height() - view.height())
             container.setFixedHeight(height + extra)
+
+
+def _copy_pending_spec(spec: PendingSectionSpec) -> PendingSectionSpec:
+    return replace(
+        spec,
+        source_file_ids=tuple(spec.source_file_ids),
+        youtube_urls=tuple(spec.youtube_urls),
+        leonardo_urls=tuple(spec.leonardo_urls),
+    )
 
 
 class TimelineView(QWidget):
@@ -371,9 +379,7 @@ class TimelineView(QWidget):
         self._pool_pane = PoolPane(
             workspace=self.workspace,
             accept_drops=True,
-            gallery_drag_hint=(
-                "Medien einer Karte hierher ziehen; aus dem Pool auf einen Abschnitt legen."
-            ),
+            gallery_drag_hint=("Medien einer Karte hierher ziehen; aus dem Pool auf einen Abschnitt legen."),
         )
         self._pool_pane.unpark_requested.connect(self._unpark_selected)
         self._pool_pane.item_rating_changed.connect(self._on_item_rating)
@@ -402,6 +408,7 @@ class TimelineView(QWidget):
         self._reset_button.setEnabled(False)
 
     def rebuild(self) -> None:
+        self.workspace.history.clear()
         self._pending_youtube.clear()
         self.refresh(rebuild=True)
         self.timeline_changed.emit()
@@ -476,8 +483,9 @@ class TimelineView(QWidget):
         self._base_snapshot = None
         return True
 
-    def refresh(self, rebuild: bool = False) -> None:
-        self._commit_if_dirty()
+    def refresh(self, rebuild: bool = False, *, commit: bool = True) -> None:
+        if commit:
+            self._commit_if_dirty()
         if self.workspace.current is None:
             self._snapshot = None
             self._base_snapshot = None
@@ -498,11 +506,12 @@ class TimelineView(QWidget):
             QMessageBox.warning(self, "Timeline", str(exc))
             return
         self._base_snapshot = snapshot
-        self._apply_pending_view()
+        self._apply_pending_view(sync=commit)
 
-    def _apply_pending_view(self) -> None:
-        self._sync_pending_from_widgets()
-        self._stash_pending_youtube()
+    def _apply_pending_view(self, *, sync: bool = True) -> None:
+        if sync:
+            self._sync_pending_from_widgets()
+            self._stash_pending_youtube()
         snapshot = self._base_snapshot
         if snapshot is None:
             self._snapshot = None
@@ -830,22 +839,27 @@ class TimelineView(QWidget):
     ) -> None:
         started = payload.get("started_at")
         ended = payload.get("ended_at")
-        self._pending.append(
-            PendingSectionSpec(
-                local_id=self._next_pending_id,
-                source_file_ids=tuple(source_ids),
-                kind=str(payload["kind"]),
-                mode=payload.get("mode"),
-                title=payload.get("title"),
-                notes=payload.get("notes"),
-                location_name=payload.get("location_name"),
-                location_from=payload.get("location_from"),
-                location_to=payload.get("location_to"),
-                started_at=started if isinstance(started, datetime) else None,
-                ended_at=ended if isinstance(ended, datetime) else None,
-            )
+        spec = PendingSectionSpec(
+            local_id=self._next_pending_id,
+            source_file_ids=tuple(source_ids),
+            kind=str(payload["kind"]),
+            mode=payload.get("mode") if isinstance(payload.get("mode"), str) else None,
+            title=payload.get("title") if isinstance(payload.get("title"), str) else None,
+            notes=payload.get("notes") if isinstance(payload.get("notes"), str) else None,
+            location_name=payload.get("location_name")
+            if isinstance(payload.get("location_name"), str)
+            else None,
+            location_from=payload.get("location_from")
+            if isinstance(payload.get("location_from"), str)
+            else None,
+            location_to=payload.get("location_to") if isinstance(payload.get("location_to"), str) else None,
+            started_at=started if isinstance(started, datetime) else None,
+            ended_at=ended if isinstance(ended, datetime) else None,
         )
+        index = len(self._pending)
+        self._pending.append(spec)
         self._next_pending_id -= 1
+        self._record_pending_insert(_copy_pending_spec(spec), index)
         self._apply_pending_view()
         self.status_message.emit("Reiseabschnitt angelegt. Speichern, sonst geht er verloren.")
 
@@ -870,7 +884,13 @@ class TimelineView(QWidget):
             return False
         self._pending_youtube.pop(("section", section_id), None)
         if section_id < 0:
+            removed = next((spec for spec in self._pending if spec.local_id == section_id), None)
+            index = next((i for i, spec in enumerate(self._pending) if spec.local_id == section_id), 0)
             self._pending = [spec for spec in self._pending if spec.local_id != section_id]
+            if removed is not None:
+                self._record_pending_remove(
+                    _copy_pending_spec(removed), index, title="Abschnitt auflösen"
+                )
             self._apply_pending_view()
             self.status_message.emit("Reiseabschnitt verworfen.")
             return True
@@ -899,7 +919,11 @@ class TimelineView(QWidget):
             return False
         self._pending_youtube.pop(("section", section_id), None)
         if pending:
+            removed = next((spec for spec in self._pending if spec.local_id == section_id), None)
+            index = next((i for i, spec in enumerate(self._pending) if spec.local_id == section_id), 0)
             self._pending = [spec for spec in self._pending if spec.local_id != section_id]
+            if removed is not None:
+                self._record_pending_remove(_copy_pending_spec(removed), index)
             self._apply_pending_view()
             self.status_message.emit("Reiseabschnitt verworfen.")
             return True
@@ -928,8 +952,10 @@ class TimelineView(QWidget):
             for spec in self._pending:
                 if spec.local_id != section_id:
                     continue
+                previous = (spec.started_at, spec.ended_at)
                 spec.started_at = started
                 spec.ended_at = ended
+                self._record_pending_span(spec, previous, (started, ended))
                 break
             self._apply_pending_view()
             self.status_message.emit(f"{done} Speichern, sonst geht die Änderung verloren.")
@@ -988,9 +1014,7 @@ class TimelineView(QWidget):
 
     def _drop_on_timeline_pool(self, source_ids: list[int]) -> None:
         ids = [
-            source_id
-            for source_id in dict.fromkeys(source_ids)
-            if not self._pool_pane.contains(source_id)
+            source_id for source_id in dict.fromkeys(source_ids) if not self._pool_pane.contains(source_id)
         ]
         if not ids:
             return
@@ -998,9 +1022,7 @@ class TimelineView(QWidget):
 
     def _drop_pool_on_entry(self, block: EntryWidget, source_ids: list[int]) -> None:
         ids = [
-            source_id
-            for source_id in dict.fromkeys(source_ids)
-            if source_id not in block.member_source_ids()
+            source_id for source_id in dict.fromkeys(source_ids) if source_id not in block.member_source_ids()
         ]
         if not ids:
             return
@@ -1126,6 +1148,13 @@ class TimelineView(QWidget):
                 return
             for spec in self._pending:
                 if spec.local_id == block.entity_id():
+                    previous = (
+                        spec.kind,
+                        spec.mode,
+                        spec.location_name,
+                        spec.location_from,
+                        spec.location_to,
+                    )
                     spec.kind = kind
                     if kind != KIND_MOVEMENT:
                         spec.mode = None
@@ -1133,6 +1162,11 @@ class TimelineView(QWidget):
                         spec.location_to = None
                     else:
                         spec.location_name = None
+                    self._record_pending_kind(
+                        spec,
+                        previous,
+                        (spec.kind, spec.mode, spec.location_name, spec.location_from, spec.location_to),
+                    )
                     break
             self._apply_pending_view()
             return
@@ -1368,6 +1402,98 @@ class TimelineView(QWidget):
         self._loaded_trip_title = cleaned
         return True
 
+    def _record_pending_insert(self, spec: PendingSectionSpec, index: int) -> None:
+        snapshot = _copy_pending_spec(spec)
+
+        def undo() -> None:
+            self._remove_pending_id(snapshot.local_id)
+
+        def redo() -> None:
+            self._insert_pending_copy(snapshot, index)
+
+        self.workspace.history.push("Abschnitt einfügen", undo, redo)
+
+    def _record_pending_remove(
+        self,
+        spec: PendingSectionSpec,
+        index: int,
+        *,
+        title: str = "Abschnitt löschen",
+    ) -> None:
+        snapshot = _copy_pending_spec(spec)
+
+        def undo() -> None:
+            self._insert_pending_copy(snapshot, index)
+
+        def redo() -> None:
+            self._remove_pending_id(snapshot.local_id)
+
+        self.workspace.history.push(title, undo, redo)
+
+    def _insert_pending_copy(self, spec: PendingSectionSpec, index: int) -> None:
+        if any(existing.local_id == spec.local_id for existing in self._pending):
+            return
+        self._pending.insert(max(0, min(index, len(self._pending))), _copy_pending_spec(spec))
+
+    def _remove_pending_id(self, local_id: int) -> None:
+        self._pending = [spec for spec in self._pending if spec.local_id != local_id]
+        self._pending_youtube.pop(("section", local_id), None)
+
+    def _record_pending_kind(
+        self,
+        spec: PendingSectionSpec,
+        previous: tuple[object, ...],
+        current: tuple[object, ...],
+    ) -> None:
+        if previous == current:
+            return
+        local_id = spec.local_id
+
+        def undo() -> None:
+            self._set_pending_kind_fields(local_id, previous)
+
+        def redo() -> None:
+            self._set_pending_kind_fields(local_id, current)
+
+        self.workspace.history.push("Abschnittstyp", undo, redo)
+
+    def _set_pending_kind_fields(self, local_id: int, fields: tuple[object, ...]) -> None:
+        kind, mode, location_name, location_from, location_to = fields
+        for spec in self._pending:
+            if spec.local_id != local_id:
+                continue
+            spec.kind = str(kind)
+            spec.mode = mode if isinstance(mode, str) else None
+            spec.location_name = location_name if isinstance(location_name, str) else None
+            spec.location_from = location_from if isinstance(location_from, str) else None
+            spec.location_to = location_to if isinstance(location_to, str) else None
+            return
+
+    def _record_pending_span(
+        self,
+        spec: PendingSectionSpec,
+        previous: tuple[datetime | None, datetime | None],
+        current: tuple[datetime | None, datetime | None],
+    ) -> None:
+        if previous == current:
+            return
+        local_id = spec.local_id
+
+        def undo() -> None:
+            self._set_pending_span(local_id, previous)
+
+        def redo() -> None:
+            self._set_pending_span(local_id, current)
+
+        self.workspace.history.push("Datum", undo, redo)
+
+    def _set_pending_span(self, local_id: int, span: tuple[datetime | None, datetime | None]) -> None:
+        for spec in self._pending:
+            if spec.local_id != local_id:
+                continue
+            spec.started_at, spec.ended_at = span
+            return
+
     def _sync_pending_from_widgets(self) -> None:
         by_id = {spec.local_id: spec for spec in self._pending}
         for block in self._blocks:
@@ -1414,28 +1540,61 @@ class TimelineView(QWidget):
         self._sync_pending_from_widgets()
         if not self._pending:
             return True
+        specs = [_copy_pending_spec(spec) for spec in self._pending]
         try:
-            for spec in self._pending:
-                self.workspace.create_section(
-                    list(spec.source_file_ids),
-                    kind=spec.kind,
-                    mode=spec.mode,
-                    title=spec.title,
-                    notes=spec.notes,
-                    location_name=spec.location_name,
-                    location_from=spec.location_from,
-                    location_to=spec.location_to,
-                    youtube_urls=list(spec.youtube_urls),
-                    leonardo_urls=list(spec.leonardo_urls),
-                    cover_source_file_id=spec.cover_source_file_id,
-                    started_at=spec.started_at,
-                    ended_at=spec.ended_at,
-                )
+            for index, spec in enumerate(specs):
+                self._persist_one_pending(spec, index)
         except ProjectError as exc:
             QMessageBox.warning(self, "Timeline", str(exc))
             return False
         self._pending.clear()
         return True
+
+    def _persist_one_pending(self, spec: PendingSectionSpec, index: int) -> None:
+        before = self.workspace._capture_placement(list(spec.source_file_ids))
+        section_id = self.workspace.create_section(
+            list(spec.source_file_ids),
+            kind=spec.kind,
+            mode=spec.mode,
+            title=spec.title,
+            notes=spec.notes,
+            location_name=spec.location_name,
+            location_from=spec.location_from,
+            location_to=spec.location_to,
+            youtube_urls=list(spec.youtube_urls),
+            leonardo_urls=list(spec.leonardo_urls),
+            cover_source_file_id=spec.cover_source_file_id,
+            started_at=spec.started_at,
+            ended_at=spec.ended_at,
+            record=False,
+        )
+        created = [section_id]
+        snapshot = _copy_pending_spec(spec)
+
+        def undo() -> None:
+            self.workspace._undo_created_section(before, created)
+            self._insert_pending_copy(snapshot, index)
+
+        def redo() -> None:
+            self._remove_pending_id(snapshot.local_id)
+            created[0] = self.workspace.create_section(
+                list(snapshot.source_file_ids),
+                kind=snapshot.kind,
+                mode=snapshot.mode,
+                title=snapshot.title,
+                notes=snapshot.notes,
+                location_name=snapshot.location_name,
+                location_from=snapshot.location_from,
+                location_to=snapshot.location_to,
+                youtube_urls=list(snapshot.youtube_urls),
+                leonardo_urls=list(snapshot.leonardo_urls),
+                cover_source_file_id=snapshot.cover_source_file_id,
+                started_at=snapshot.started_at,
+                ended_at=snapshot.ended_at,
+                record=False,
+            )
+
+        self.workspace.history.push("Abschnitt einfügen", undo, redo)
 
     def _commit_if_dirty(self) -> bool:
         if self._loading:
@@ -1537,9 +1696,7 @@ class EntryWidget(QFrame):
             cover_id = day.cover_source_file_id
             title_ph = "Titel des Tages"
             notes_ph = "Tagebucheintrag — aus importierten Texten vorbefüllt"
-            self._center_date = (
-                day.date.strftime("%d.%m.%Y") if day.date is not None else "Ohne Datum"
-            )
+            self._center_date = day.date.strftime("%d.%m.%Y") if day.date is not None else "Ohne Datum"
         else:
             self._kind = "day"
             self._entity_id = 0

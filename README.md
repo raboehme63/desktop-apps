@@ -15,8 +15,9 @@ Die Anwendung importiert Medien, liest Metadaten und GPS-Tracks, erzeugt
 Vorschaubilder, zeigt eine Karte (Titelbild-Kreise, Leiste, Detail) und baut
 eine bearbeitbare Timeline aus Tagen, Transfers und Aufenthalten (alle als
 Abschnitte mit Mitgliedern). Nicht zugeordnete Medien liegen im Medienpool.
-Medieninspektor, Bewertungen, Anzeigedrehung, Drag & Drop und Track-Vorschauen
-gehören dazu. HTML-Export folgt in Phase 8.
+Medieninspektor, Bewertungen, Anzeigedrehung, Drag & Drop, Track-Vorschauen
+und Rückgängig/Wiederherstellen (Strg+Z / Strg+Y) gehören dazu. HTML-Export
+folgt in Phase 8.
 
 ## Voraussetzungen
 

@@ -510,12 +510,22 @@ def delete_section(session: Session, section_id: int) -> None:
     session.flush()
 
 
-def set_section_pin(session: Session, section_id: int, latitude: float, longitude: float) -> None:
-    """Assign a map coordinate to a section. Does not write originals."""
+def set_section_pin(
+    session: Session,
+    section_id: int,
+    latitude: float | None,
+    longitude: float | None,
+) -> None:
+    """Assign or clear a map coordinate on a section. Does not write originals."""
 
     section = session.get(TripSection, section_id)
     if section is None:
         raise ProjectError("Reiseabschnitt nicht gefunden.")
+    if latitude is None or longitude is None:
+        section.pin_latitude = None
+        section.pin_longitude = None
+        section.origin = ORIGIN_MANUAL
+        return
     if not -90.0 <= float(latitude) <= 90.0 or not -180.0 <= float(longitude) <= 180.0:
         raise ProjectError("Ungültige Kartenposition.")
     section.pin_latitude = float(latitude)
@@ -648,9 +658,7 @@ def set_journal_at(
     if not ids:
         return
     stamp = aware(journal_at)
-    members = list(
-        session.scalars(select(SectionMember).where(SectionMember.source_file_id.in_(ids)))
-    )
+    members = list(session.scalars(select(SectionMember).where(SectionMember.source_file_id.in_(ids))))
     section_ids: set[int] = set()
     for member in members:
         member.journal_at = stamp
@@ -674,9 +682,7 @@ def reset_journal(session: Session, source_file_ids: list[int]) -> None:
         return
     rows = list(session.scalars(select(SourceFile).where(SourceFile.id.in_(ids))))
     by_id = {row.id: row for row in rows}
-    members = list(
-        session.scalars(select(SectionMember).where(SectionMember.source_file_id.in_(ids)))
-    )
+    members = list(session.scalars(select(SectionMember).where(SectionMember.source_file_id.in_(ids))))
     section_ids: set[int] = set()
     for member in members:
         source = by_id.get(member.source_file_id)
@@ -922,11 +928,7 @@ def _apply_magnetic_day(session: Session, section_id: int, source_file_ids: list
     if section is None or section.kind != KIND_DAY:
         return
     wanted = set(source_file_ids)
-    rows = [
-        (source, member)
-        for source, member in _member_rows(session, section_id)
-        if source.id in wanted
-    ]
+    rows = [(source, member) for source, member in _member_rows(session, section_id) if source.id in wanted]
     for source, member in rows:
         key = calendar_key(member.journal_at)
         if key == calendar_key(section.started_at):

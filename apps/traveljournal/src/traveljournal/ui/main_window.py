@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from travelcore.exceptions import ProjectError
 from traveljournal.__about__ import app_window_title
+from traveljournal.services.edit_history import redo_focused_text, undo_focused_text
 from traveljournal.services.workspace import Workspace
 from traveljournal.ui.sidebar import Sidebar
 from traveljournal.views.export_view import ExportView
@@ -27,6 +28,7 @@ from traveljournal.views.photos_view import PhotosView
 from traveljournal.views.project_view import ProjectView
 from traveljournal.views.settings_dialog import SettingsDialog
 from traveljournal.views.timeline_view import TimelineView
+from traveljournal.widgets.media_inspector import MediaInspectorWindow
 
 
 class MainWindow(QMainWindow):
@@ -95,6 +97,8 @@ class MainWindow(QMainWindow):
         self.timeline_view.timeline_changed.connect(self._on_timeline_changed)
         self.timeline_view.open_on_map.connect(self._open_map_entry)
         self.timeline_view.open_media_on_map.connect(self._open_map_media)
+        self.workspace.history.applied.connect(self._on_history_applied)
+        self.workspace.history.index_changed.connect(self._sync_edit_menu)
         self._sync_menu()
 
     def _build_menu(self) -> None:
@@ -125,8 +129,57 @@ class MainWindow(QMainWindow):
         project_menu.addSeparator()
         project_menu.addAction(quit_action)
 
+        edit_menu = bar.addMenu("Bearbeiten")
+        self._undo_action = QAction("Rückgängig", self)
+        self._undo_action.setShortcut(QKeySequence.StandardKey.Undo)
+        self._undo_action.triggered.connect(self._undo)
+        self._redo_action = QAction("Wiederherstellen", self)
+        self._redo_action.setShortcut(QKeySequence.StandardKey.Redo)
+        self._redo_action.triggered.connect(self._redo)
+        edit_menu.addAction(self._undo_action)
+        edit_menu.addAction(self._redo_action)
+        self._sync_edit_menu()
+
     def _sync_menu(self) -> None:
         self._settings_action.setEnabled(self.workspace.current is not None)
+        self._sync_edit_menu()
+
+    def _sync_edit_menu(self) -> None:
+        history = self.workspace.history
+        undo_label = history.undo_text().strip()
+        redo_label = history.redo_text().strip()
+        self._undo_action.setText(f"Rückgängig: {undo_label}" if undo_label else "Rückgängig")
+        self._redo_action.setText(f"Wiederherstellen: {redo_label}" if redo_label else "Wiederherstellen")
+        self._undo_action.setEnabled(True)
+        self._redo_action.setEnabled(True)
+
+    def _undo(self) -> None:
+        if undo_focused_text():
+            return
+        if self.workspace.history.undo():
+            self._set_status("Rückgängig")
+
+    def _redo(self) -> None:
+        if redo_focused_text():
+            return
+        if self.workspace.history.redo():
+            self._set_status("Wiederhergestellt")
+
+    def _on_history_applied(self) -> None:
+        self.timeline_view.refresh(commit=False)
+        self.photos_view.refresh()
+        self.map_view.refresh(force=True)
+        self._sync_inspectors()
+
+    def _sync_inspectors(self) -> None:
+        if self.workspace.current is None:
+            return
+        by_id = {item.source_file_id: item for item in self.workspace.gallery_items()}
+        for inspector in self.findChildren(MediaInspectorWindow):
+            current = inspector.item()
+            updated = by_id.get(current.source_file_id)
+            if updated is not None:
+                inspector.sync_from_item(updated)
 
     def _open_settings(self) -> None:
         if self.workspace.current is None:
@@ -168,6 +221,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._after_import)
 
     def _after_import(self) -> None:
+        self.workspace.history.clear()
         self.timeline_view.rebuild()
         self.photos_view.refresh()
         self.map_view.prepare_in_background()

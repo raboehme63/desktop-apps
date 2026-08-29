@@ -3,7 +3,7 @@
 | Feld | Inhalt |
 | --- | --- |
 | Version | 2.0 |
-| Stand | 28. August 2026 |
+| Stand | 29. August 2026 |
 | Bezugsversion Software | Phase 7, Software **R2.0.0** (Journal-Modell nach Design-Review) |
 | Bezug | [pflichtenheft.md](pflichtenheft.md), [konzept.md](konzept.md), [packaging/README.md](../packaging/README.md) |
 
@@ -24,11 +24,11 @@ Diese Dokumentation beschreibt **Teststrategie, Automatisierung, manuelle Prüfu
 
 | Stufe | Ort | Werkzeug | Was |
 | --- | --- | --- | --- |
-| Unit | `packages/travelcore/tests/` | pytest | Typen, Hash, Zeit, GPS, Provider, HEIC-Container, GPX/IGC/KML, Interpolation, ExifTool-JSON, Thumbnails, Orientierung, Timeline, Abschnitte |
-| Integration | `packages/travelcore/tests/test_indexer.py`, `test_database.py`, `test_timeline.py`; `tests/integration/` | pytest | Projektordner, Schema, Index → SQLite, Timeline-Sync, Re-Open |
-| GUI-Rauch | `tests/test_gui_smoke.py` | pytest + Qt offscreen | Hauptfenster, sechs Seiten, Inspektor, Register, Titel mit Version, Timeline-Speichern nur bei Abschnitten/Texten/Reisetitel/YouTube |
+| Unit | `packages/travelcore/tests/` | pytest | Typen, Hash, Zeit, GPS, Provider, HEIC-Container, GPX/IGC/KML, Interpolation, ExifTool-JSON, Thumbnails, Orientierung, Timeline, Abschnitte, History-Snapshots |
+| Integration | `packages/travelcore/tests/test_indexer.py`, `test_database.py`, `test_timeline.py`; `tests/integration/`; `tests/test_edit_history.py` | pytest | Projektordner, Schema, Index → SQLite, Timeline-Sync, Re-Open, Workspace-Undo |
+| GUI-Rauch | `tests/test_gui_smoke.py` | pytest + Qt offscreen | Hauptfenster, sechs Seiten, Menü **Bearbeiten**, Inspektor, Register, Titel mit Version, Timeline-Speichern nur bei Abschnitten/Texten/Reisetitel/YouTube |
 | Paketierung | `packaging/` | manuell nach `build.ps1` | Frozen-EXE startet, Alembic/Karte, kein Python nötig (MT-22) |
-| Manuell | dieses Dokument, Abschnitt 7 | Windows-Desktop | Import echter HEIC/JPEG, Liste, Timeline, Abschnitte, Karte, Inspektor |
+| Manuell | dieses Dokument, Abschnitt 7 | Windows-Desktop | Import echter HEIC/JPEG, Liste, Timeline, Abschnitte, Karte, Inspektor, Undo/Redo |
 | Statisch | Repository-Wurzel | Ruff, später pyright | Stil, Imports, grundlegende Typen |
 
 Nicht eingeführt (geplant): pytest-qt für Interaktion, visuelle Galerie-/Kartentests, Lasttest mit zehntausenden Dateien.
@@ -207,7 +207,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_project_survives_close_and_reopen` | `tests/integration/test_project_lifecycle.py` | Index überlebt Re-Open |
 | `test_exporters_share_interface` | `test_interfaces.py` | HTML/PDF/LaTeX/CEWE sind `Exporter` |
 | `test_protocols_are_importable` | `test_interfaces.py` | `MetadataProvider`, `RankingStrategy`, `MapBackend` |
-| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R2.0.0, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren** |
+| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R2.0.0, Menü **Bearbeiten** mit Strg+Z/Strg+Y, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren** |
 
 ### 4.7 GPX und zeitliche Zuordnung — FA-040 bis FA-042
 
@@ -438,7 +438,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_orient_image_applies_exif_then_user_rotation` | `test_orientation.py` | EXIF zuerst, dann Nutzer |
 | `test_can_rotate_photos_and_videos_not_tracks` | `test_orientation.py` | Tracks nicht drehbar |
 
-### 4.15 GUI-Rauch — FA-064, FA-082, FA-090, FA-092, FA-102, FA-103, FA-105
+### 4.15 GUI-Rauch — FA-064, FA-082, FA-085, FA-090, FA-092, FA-102, FA-103, FA-105
 
 | Test | Datei | Prüft |
 | --- | --- | --- |
@@ -514,6 +514,23 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_show_rejected_in_all_persists` | `tests/test_workspace.py` | `config.json` hält „Aussortierte anzeigen“ |
 | `test_map_display_flags_persist_in_project` | `tests/test_workspace.py` | Zahnrad-Optionen in `settings.toml` |
 
+### 4.16 Rückgängig und Wiederherstellen — FA-085
+
+| Test | Datei | Prüft |
+| --- | --- | --- |
+| `test_restore_park_brings_back_auto_day` | `test_timeline_history.py` | Parken rückgängig stellt den Auto-Tag wieder her |
+| `test_restore_move_members_returns_file` | `test_timeline_history.py` | Zuordnen rückgängig legt das Medium zurück |
+| `test_restore_section_kind_and_span` | `test_timeline_history.py` | Typ und Spanne wiederherstellen |
+| `test_restore_pin_and_title` | `test_timeline_history.py` | Kartenposition und Titel wiederherstellen |
+| `test_restore_deleted_section` | `test_timeline_history.py` | gelöschten Abschnitt inkl. Mitglieder wiederherstellen |
+| `test_restore_after_create_removes_new_section` | `test_timeline_history.py` | neu angelegten Abschnitt entfernen |
+| `test_restore_dissolved_section` | `test_timeline_history.py` | aufgelösten Abschnitt wiederherstellen |
+| `test_photo_sort_status_roundtrip` | `test_timeline_history.py` | Sortierstatus lesen und schreiben |
+| `test_workspace_undo_rating_and_park` | `tests/test_edit_history.py` | Workspace: Bewertung und Pool undo/redo |
+| `test_workspace_undo_create_and_delete_section` | `tests/test_edit_history.py` | Workspace: Abschnitt anlegen und löschen undo/redo |
+| `test_workspace_undo_dissolve_journal_notes_cover_rotation` | `tests/test_edit_history.py` | Workspace: Auflösen, Journal-Zeit, Texte, Reisetitel, Titelbild, Drehung |
+| `test_main_window_starts` | `tests/test_gui_smoke.py` | Menü **Bearbeiten**, Standard-Shortcuts Undo/Redo |
+
 ---
 
 ## 5. Abdeckung gegen das Pflichtenheft
@@ -537,11 +554,11 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 - Import bricht bei einer defekten Datei (JPEG oder GPX) nicht ab
 - Projekt anlegen, Schema (Abschnitte, Mitglieder, Journal-Zeit, Pool `parked`, URLs, Cover, Drehung), Wiederöffnen, `settings.toml` und Pfad-Rebase
 - Karte: Titelbild-Kreise je Tag/Transfer/Aufenthalt (Cover-Fallback Foto/Track/YouTube), Verbindungslinien zwischen Tag- und Aufenthaltskreisen, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad (Fotokegel, Reserve), Leiste darunter mit **+**, Tagebuchtext rechts, YouTube-Thumbs unten rechts auf der Karte, Detail mit Tracklinie und Fotomarkern (Stapel naher Fotos bis Zoom 16), Foto-Popup, offline ohne OSM
-- Timeline: Tage als Abschnitte mit Mitgliedern, Medienpool, Journal-Zeit, Drag & Drop Karte↔Karte und Pool inkl. Auto-Scroll, manuelle Texte bleiben, Ortsvorschläge, `used_in_journal`; Speichern-Button nur bei Abschnitten, Texten, Reisetitel, YouTube
+- Timeline: Tage als Abschnitte mit Mitgliedern, Medienpool, Journal-Zeit, Drag & Drop Karte↔Karte und Pool inkl. Auto-Scroll, manuelle Texte bleiben, Ortsvorschläge, `used_in_journal`; Speichern-Button nur bei Abschnitten, Texten, Reisetitel, YouTube; Rückgängig/Wiederherstellen (Snapshots in `travelcore`, Stack im Workspace)
 - Reiseabschnitte, Pending-Vorschau, Eintrags-Titelbild (Foto und Track, YouTube-Fallback)
 - YouTube- und DHV-Leonardo-URL-Normalisierung
 - Anzeigedrehung (Index, Cachepfad, Re-Import, Inspektor ohne Originalschreiben)
-- GUI-Rauch: Fenstertitel mit Version R2.0.0, Pipeline Import→Medien→Timeline, Pool-Spalte, getrennte Medien/Tracks, Register nur per Klick, Inspektor Blättern/Zoom/Drehen/Pool
+- GUI-Rauch: Fenstertitel mit Version R2.0.0, Menü **Bearbeiten** (Strg+Z/Strg+Y), Pipeline Import→Medien→Timeline, Pool-Spalte, getrennte Medien/Tracks, Register nur per Klick, Inspektor Blättern/Zoom/Drehen/Pool
 - Export- und Provider-*Verträge* existieren
 
 ### 5.2 Bewusst noch ohne Automatisierung
@@ -549,7 +566,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | Lücke | FA | Grund / nächste Phase |
 | --- | --- | --- |
 | Visuelle Marker-Vorschau / Bedienung in Qt | FA-050–FA-053 | Szene und Bridge in `test_maps.py` / `test_gui_smoke.py`; visuell MT-12 |
-| Timeline-Bedienung | FA-060–FA-069, FA-080, FA-084 | Logik in `test_timeline*.py`; Speichern-Button und Schieber-Datum `test_gui_smoke.py`; visuell MT-13, MT-18–MT-21 |
+| Timeline-Bedienung | FA-060–FA-069, FA-080, FA-084, FA-085 | Logik in `test_timeline*.py` und `test_edit_history.py`; Speichern-Button, Schieber-Datum und Menü Bearbeiten `test_gui_smoke.py`; visuell MT-13, MT-18–MT-21, MT-24 |
 | Windows-Endnutzerpaket | FA-140–FA-144 | kein pytest; manuell MT-22 nach `packaging/build.ps1` |
 | Galeriefilter in der UI | FA-101 | Logik der Liste automatisiert; Filter nur MT-09 |
 | Zuletzt verwendete Projekte in der UI | FA-091 | `recent.json` ohne Oberfläche; manuell nicht zwingend |
@@ -587,7 +604,7 @@ Schweregrade für manuelle Funde:
 
 ---
 
-## 7. Manuelle Testfälle (Phase 3 bis 7, Software R2.0.0, inkl. Windows-Paket)
+## 7. Manuelle Testfälle (Phase 3 bis 7, Software R2.0.0, inkl. Windows-Paket und Undo/Redo)
 
 Voraussetzung: App starten mit
 
@@ -770,6 +787,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Medium einer Karte auf eine andere gespeicherte Karte ziehen | ohne Umweg über den Pool; Journal-Datum des Ziels; dieselbe GPS-Rückfrage; Originale unverändert |
 | Thumbnail an den oberen oder unteren Fensterrand ziehen | die Timeline scrollt in diese Richtung, bis das Ziel sichtbar ist; Loslassen legt das Medium dort ab |
 | Medium einer Karte auf den Pool ziehen | Medium liegt im Pool; Pool-Spalte öffnet sich |
+| Strg+Z / Strg+Y nach Zuordnen, Bewerten, Abschnitt anlegen oder löschen | siehe MT-24 |
 | Pool-Spalte: Reiter Favoriten | nur geparkte Favoriten; unbewertete Pool-Medien verschwinden aus der Ansicht, nicht aus dem Pool |
 | Medien: Favorit im Pool, Reiter Favoriten links | erscheint nicht links, sondern rechts im Pool unter Favoriten |
 
@@ -827,6 +845,29 @@ Voraussetzung: `packaging/build.ps1` erfolgreich; optional Inno Setup 6 für die
 | Optional: Setup-EXE, Installation ohne Admin | Programm unter `%LOCALAPPDATA%\Programs\Reisetagebuch`, Startmenüeintrag |
 | SmartScreen beim ersten Start | dokumentiertes Verhalten ohne Signatur (FA-142); „Trotzdem ausführen“ erlaubt den Start |
 
+### MT-24 Rückgängig und Wiederherstellen (FA-085)
+
+Voraussetzung: Projekt mit Timeline (mindestens ein Tag mit Foto, ein gespeicherter Aufenthalt).
+
+| Schritt | Erwartung |
+| --- | --- |
+| Menüleiste | **Bearbeiten** mit **Rückgängig** (Strg+Z) und **Wiederherstellen** (Strg+Y); ohne vorherige Aktion sind beide inaktiv |
+| Foto bewerten, dann Strg+Z | Bewertung weg; Strg+Y setzt sie wieder |
+| Foto in den Pool, Strg+Z | Foto wieder auf dem Tag; Pool leer für dieses Medium |
+| Neuen Abschnitt anlegen (auch ohne Speichern), Strg+Z | Abschnitt verschwindet; Strg+Y bringt ihn zurück (weiterhin ungespeichert, **Speichern** aktiv) |
+| Gespeicherten Abschnitt löschen, Strg+Z | Abschnitt und Mitglieder wieder da |
+| Aufenthalt auflösen, Strg+Z | Aufenthalt wieder da, Medien nicht mehr auf den Auto-Tagen |
+| Typ oder Datum ändern, Strg+Z | vorheriger Typ bzw. vorherige Spanne; Karte an der alten Stelle |
+| Kartenposition setzen oder verschieben, Strg+Z | Pin wieder am vorherigen Ort bzw. ohne Pin |
+| Journal-Zeit über Mitternacht, dann Originalzeit, jeweils Strg+Z | Clip wechselt den Tag zurück; Originalzeit-Schritt ebenfalls invertierbar |
+| Titel oder Tagebuchtext **Speichern**, Strg+Z | gespeicherter Text wieder der vorherige; im fokussierten Feld vor dem Speichern gilt zuerst die Zeichen-Historie des Widgets |
+| Reisetitel **Speichern**, Strg+Z | vorheriger Reisetitel |
+| Eintrags-Titelbild setzen, 90° drehen, jeweils Strg+Z | Cover weg bzw. Drehung zurück; Original unverändert |
+| Import, Synchronisieren, Timeline aktualisieren oder Projekt schließen | Stack leer; Strg+Z ändert nichts mehr an den vorherigen Journal-Edits |
+| YouTube oder DHV-Leonardo ändern | Strg+Z nimmt das nicht zurück (nicht auf dem Stack) |
+
+---
+
 ## 8. Manuelle Fälle ab Phase 8 (Vorschau)
 
 Diese Fälle werden mit der jeweiligen Phase verbindlich.
@@ -847,6 +888,7 @@ Diese Fälle werden mit der jeweiligen Phase verbindlich.
 | Jede Codeänderung an `travelcore.metadata` oder Import | `pytest` vollständig |
 | HEIC-/GPS-Parser | zusätzlich `test_heic_gps.py`, `test_indexer.py`, manuell MT-03 |
 | Timeline / Abschnitte | `test_timeline.py`, `test_timeline_sections.py`, `tests/test_gui_smoke.py` (Speichern-Button), manuell MT-13 |
+| Undo / Redo | `test_timeline_history.py`, `tests/test_edit_history.py`, Menü in `tests/test_gui_smoke.py`, manuell MT-24 |
 | Hilfsskript JSON → GPX | `tests/test_json_routes_to_gpx.py`; Aufruf im README |
 | Karte / Leiste / Kreis-Detail | `test_maps.py`, `tests/test_gui_smoke.py` (Map-Fälle), manuell MT-12 |
 | Inspektor / Drehung / Register | `test_orientation.py`, `tests/test_gui_smoke.py`, manuell MT-18–MT-21 |
@@ -862,6 +904,7 @@ Ein Phasenabschluss ohne grüne Automatisierung gilt als nicht abgenommen.
 
 | Datum | Kommando | Ergebnis |
 | --- | --- | --- |
+| 29.08.2026 | `python -m pytest` (`test_timeline_history`, `test_edit_history`, `test_main_window_starts`) im Projekt-venv | 12 bestanden; gesamt 375 Tests (R2.0.0, inkl. Undo/Redo) |
 | 28.08.2026 | `python -m pytest` im Projekt-venv | 364 bestanden (R2.0.0) |
 | 27.08.2026 | `python -m pytest` im Projekt-venv | 264 bestanden |
 | 26.08.2026 | `python -m pytest` im Projekt-venv | 222 bestanden |

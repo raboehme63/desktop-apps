@@ -8,6 +8,7 @@ from pathlib import Path
 
 def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtGui import QKeySequence
     from PySide6.QtWidgets import QApplication, QScrollArea
 
     from traveljournal.services import workspace as workspace_mod
@@ -21,6 +22,9 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     assert window.stack.count() == 6
     titles = [action.text() for action in window.menuBar().actions()]
     assert "Projekt" in titles
+    assert "Bearbeiten" in titles
+    assert window._undo_action.shortcut() == QKeySequence.StandardKey.Undo
+    assert window._redo_action.shortcut() == QKeySequence.StandardKey.Redo
     assert window._settings_action is not None
     assert not window._settings_action.isEnabled()
     headers = [
@@ -774,11 +778,7 @@ def test_entry_widget_header_is_compact() -> None:
         )
     )
     assert leftover._date_label.text() == "31.10.2024"
-    media = [
-        child
-        for child in leftover.findChildren(QLabel)
-        if child.text().startswith("Medien")
-    ]
+    media = [child for child in leftover.findChildren(QLabel) if child.text().startswith("Medien")]
     assert [child.text() for child in media] == ["Medien (1)"]
     assert all(child.objectName() == "fieldCaption" for child in media)
     _ = app
@@ -1477,6 +1477,7 @@ def test_timeline_drop_pool_on_section_moves_members(tmp_path: Path, monkeypatch
     )
     workspace = Workspace()
     moved: list[tuple[int, list[int]]] = []
+
     def fake_move(section_id: int, ids: list[int], **_kwargs: object) -> None:
         moved.append((section_id, list(ids)))
 
@@ -1733,7 +1734,6 @@ def test_photos_view_multi_select_and_pool_drag(tmp_path: Path, monkeypatch) -> 
     view._drop_on_gallery([1, 5])
     assert unparked == [[5]]
     _ = app
-
 
 
 def test_photos_view_media_tab_filters_favorites(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
