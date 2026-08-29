@@ -1,6 +1,6 @@
 # Direkte Abhängigkeiten
 
-Stand: Phase 7, Software R2.0.0. Es werden **keine** Platzhalter-Bibliotheken installiert,
+Stand: Phase 7, Software R2.1.0. Es werden **keine** Platzhalter-Bibliotheken installiert,
 die der aktuelle Code nicht verwendet.
 
 Lizenzangaben stammen aus den veröffentlichten Projektdaten der jeweiligen

@@ -2,9 +2,9 @@
 
 | Feld | Inhalt |
 | --- | --- |
-| Version | 2.0 |
+| Version | 2.1 |
 | Stand | 29. August 2026 |
-| Bezugsversion Software | Phase 7, Software **R2.0.0** (Journal-Modell nach Design-Review) |
+| Bezugsversion Software | Phase 7, Software **R2.1.0** |
 | Bezug | [pflichtenheft.md](pflichtenheft.md), [konzept.md](konzept.md), [packaging/README.md](../packaging/README.md) |
 
 Diese Dokumentation beschreibt **Teststrategie, Automatisierung, manuelle Prüfung und Abdeckungslücken**. Sie ist die Testdoku zum Pflichtenheft, kein Ersatz für pytest-Ausgaben.
@@ -207,7 +207,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_project_survives_close_and_reopen` | `tests/integration/test_project_lifecycle.py` | Index überlebt Re-Open |
 | `test_exporters_share_interface` | `test_interfaces.py` | HTML/PDF/LaTeX/CEWE sind `Exporter` |
 | `test_protocols_are_importable` | `test_interfaces.py` | `MetadataProvider`, `RankingStrategy`, `MapBackend` |
-| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R2.0.0, Menü **Bearbeiten** mit Strg+Z/Strg+Y, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren** |
+| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R2.1.0, Menü **Bearbeiten** mit Strg+Z/Strg+Y, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren** |
 
 ### 4.7 GPX und zeitliche Zuordnung — FA-040 bis FA-042
 
@@ -333,6 +333,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_stay_link_hidden_when_covers_overlap` | `test_maps.py` | Linie unsichtbar, wenn Kreise sich überdecken |
 | `test_transport_symbols_cover_movement_modes` | `test_symbols.py` | Katalog-Keys = `MOVEMENT_MODES` |
 | `test_symbol_badge_is_white_on_black` | `test_symbols.py` | Badge ohne Rotation außer Flugzeug; Camper/Van im Katalog nach rechts gespiegelt |
+| `test_stay_symbol_svg_js_lists_every_key` | `test_symbols.py` | Leaflet-Helfer enthält jeden Katalog-Key |
 | `test_build_map_overview_links_consecutive_stays` | `test_maps.py` | Übersicht verbindet zwei Aufenthalte über einen Transfer |
 | `test_parse_map_bridge_url_reads_group_key` | `tests/test_gui_smoke.py` | Expand-URL, Konsolen-Bridge, Platzieren-Konsole, Zoom/Ausschnitt nach Platzieren |
 | `test_map_view_refresh_uses_disk_cache_without_rebuild` | `tests/test_gui_smoke.py` | MapView zeigt Cache; Leiste unter dem WebView |
@@ -454,7 +455,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 
 | Test | Datei | Prüft |
 | --- | --- | --- |
-| `test_app_window_title_includes_version` | `tests/test_gui_smoke.py` | `Reisetagebuch R2.0.0` |
+| `test_app_window_title_includes_version` | `tests/test_gui_smoke.py` | `Reisetagebuch R2.1.0` |
 | `test_source_sync_dialog_defaults_to_timeline` | `tests/test_gui_smoke.py` | Sync-Dialog: Timeline vorausgewählt, Pool wählbar |
 | `test_source_sync_dialog_hides_destination_without_new_files` | `tests/test_gui_smoke.py` | ohne neue Dateien keine Timeline/Pool-Wahl |
 | `test_entry_widget_separates_tracks_from_media` | `tests/test_gui_smoke.py` | getrennte Galerien |
@@ -547,7 +548,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 
 ## 5. Abdeckung gegen das Pflichtenheft
 
-### 5.1 Gut abgedeckt (Phase 7, R2.0.0)
+### 5.1 Gut abgedeckt (Phase 7, R2.1.0)
 
 - Dateiklassifikation und rekursiver Scan
 - SHA-256 und Skip unveränderter Dateien
@@ -565,12 +566,13 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 - Sortierstatus Favorit/Reserve/Aussortiert inkl. Fallback auf Favoriten-Flag
 - Import bricht bei einer defekten Datei (JPEG oder GPX) nicht ab
 - Projekt anlegen, Schema (Abschnitte, Mitglieder, Journal-Zeit, Pool `parked`, URLs, Cover, Drehung), Wiederöffnen, `settings.toml` und Pfad-Rebase
-- Karte: Titelbild-Kreise je Tag/Transfer/Aufenthalt (Cover-Fallback Foto/Track/YouTube), Verbindungslinien zwischen Tag- und Aufenthaltskreisen, Transfer-Kreis per dünner Linie am Verkehrssymbol, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad (Fotokegel, Reserve, Ortsnamen und Straßen auf Satellit), Leiste darunter mit **+**, Tagebuchtext rechts, YouTube-Thumbs unten rechts auf der Karte, Detail mit Tracklinie und Fotomarkern (Stapel naher Fotos bis Zoom 16), Foto-Popup, offline ohne OSM
+- Karte: Titelbild-Kreise je Tag/Transfer/Aufenthalt (Cover-Fallback Foto/Track/YouTube), Verbindungslinien (Transfer-Liste oder Ausgangslinie, Symbol in Fahrtrichtung), Transfer-Kreis per dünner Linie am Verkehrssymbol, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad (Fotokegel, Reserve, Ortsnamen und Straßen auf Satellit), Leiste darunter mit **+**, Tagebuchtext rechts, YouTube-Thumbs unten rechts auf der Karte, Detail mit Tracklinie und Fotomarkern (Stapel naher Fotos bis Zoom 16), Foto-Popup, offline ohne OSM
+- Verkehrsmittelsymbole: Katalog = `MOVEMENT_MODES`, Hilfe und Combos, Camper/Van nach rechts, Karten-Spiegelung in eigenem Wrapper
 - Timeline: Tage als Abschnitte mit Mitgliedern, Medienpool, Journal-Zeit, Drag & Drop Karte↔Karte und Pool inkl. Auto-Scroll, manuelle Texte bleiben, Ortsvorschläge, `used_in_journal`; Speichern-Button nur bei Abschnitten, Texten, Reisetitel, YouTube; Rückgängig/Wiederherstellen (Snapshots in `travelcore`, Stack im Workspace)
 - Reiseabschnitte, Pending-Vorschau, Eintrags-Titelbild (Foto und Track, YouTube-Fallback)
 - YouTube- und DHV-Leonardo-URL-Normalisierung
 - Anzeigedrehung (Index, Cachepfad, Re-Import, Inspektor ohne Originalschreiben)
-- GUI-Rauch: Fenstertitel mit Version R2.0.0, Menü **Bearbeiten** (Strg+Z/Strg+Y), Pipeline Import→Medien→Timeline, Pool-Spalte, getrennte Medien/Tracks, Register nur per Klick, Inspektor Blättern/Zoom/Drehen/Pool
+- GUI-Rauch: Fenstertitel mit Version R2.1.0, Menü **Bearbeiten** (Strg+Z/Strg+Y), Pipeline Import→Medien→Timeline, Pool-Spalte, getrennte Medien/Tracks, Register nur per Klick, Inspektor Blättern/Zoom/Drehen/Pool
 - Export- und Provider-*Verträge* existieren
 
 ### 5.2 Bewusst noch ohne Automatisierung
@@ -578,7 +580,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | Lücke | FA | Grund / nächste Phase |
 | --- | --- | --- |
 | Visuelle Marker-Vorschau / Bedienung in Qt | FA-050–FA-053 | Szene und Bridge in `test_maps.py` / `test_gui_smoke.py`; visuell MT-12 |
-| Timeline-Bedienung | FA-060–FA-069, FA-080, FA-084, FA-085 | Logik in `test_timeline*.py` und `test_edit_history.py`; Speichern-Button, Schieber-Datum und Menü Bearbeiten `test_gui_smoke.py`; visuell MT-13, MT-18–MT-21, MT-24 |
+| Timeline-Bedienung | FA-060–FA-069, FA-080, FA-084, FA-085 | Logik in `test_timeline*.py` und `test_edit_history.py`; Speichern-Button, Schieber-Datum und Menü Bearbeiten `test_gui_smoke.py`; visuell MT-13, MT-18–MT-21, MT-24, MT-25 |
 | Windows-Endnutzerpaket | FA-140–FA-144 | kein pytest; manuell MT-22 nach `packaging/build.ps1` |
 | Galeriefilter in der UI | FA-101 | Logik der Liste automatisiert; Filter nur MT-09 |
 | Zuletzt verwendete Projekte in der UI | FA-091 | `recent.json` ohne Oberfläche; manuell nicht zwingend |
@@ -616,7 +618,7 @@ Schweregrade für manuelle Funde:
 
 ---
 
-## 7. Manuelle Testfälle (Phase 3 bis 7, Software R2.0.0, inkl. Windows-Paket und Undo/Redo)
+## 7. Manuelle Testfälle (Phase 3 bis 7, Software R2.1.0, inkl. Windows-Paket und Undo/Redo)
 
 Voraussetzung: App starten mit
 
@@ -747,7 +749,8 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Leiste nach links/rechts ziehen oder Mausrad | Karten verschieben sich horizontal; Klick trifft die Karte, nicht die OSM-Kacheln |
 | Hineinzoomen, dann eine Leistenkarte anklicken | die Karte schwenkt auf diesen Eintrag, **Zoom bleibt** |
 | Zwei nahe Tag-/Aufenthaltskreise, weit herausgezoomt | Verbindungslinie unsichtbar, sobald sich die Kreise überdecken |
-| Zwei entfernte Tag- oder Aufenthaltskreise, Ausgangslinie Bogen gestrichelt mit Auto | Bogenlinie gestrichelt mit Autosymbol, kein Transfer-Stiel |
+| Zwei entfernte Tag- oder Aufenthaltskreise, Ausgangslinie Bogen gestrichelt mit Auto | Bogenlinie gestrichelt mit Autosymbol (Nase zum Folgekreis), kein Transfer-Stiel |
+| Dieselbe Strecke mit Camper oder Camper Van | Fahrzeug zeigt in dieselbe Fahrtrichtung wie Auto (nicht entgegengesetzt) |
 | Zwei entfernte Tag- oder Aufenthaltskreise, Ausgangslinie **Keine Linie** | keine Verbindung zwischen den Kreisen |
 | Zwei entfernte Tag- oder Aufenthaltskreise mit Transfer dazwischen | Linie des Transfers (nicht die Ausgangslinie des linken Tags); dünne Linie vom Transfer-Kreis zum Symbol; in der Detailansicht keine Linie |
 | Doppelklick in die freie (nicht belegte) Kartenfläche | Übersicht: alle Kreise im Ausschnitt |
@@ -788,7 +791,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | ⋯ **Löschen** an einem gespeicherten Abschnitt | Abschnitt weg; Medien im Pool; Pool-Spalte öffnet sich |
 | Transfer-Verbindungslinie: **durchgezogen** / **gestrichelt** | nach Speichern auf der Karte dieselbe Strichart |
 | Transfer mit mehreren Verkehrsmitteln, **Speichern**, ⊟ auflösen | Dateien wieder auf Tagen |
-| Tag oder Aufenthalt, nächster Eintrag kein Transfer: **Verbindung zum nächsten Abschnitt** | Gerade/Bogenlinie, durchgezogen/gestrichelt, ein Verkehrsmittel (Symbol vor dem Namen); leer = Richtungspfeil auf der Geraden; **Keine Linie** zeichnet nichts zum Folgekreis; Track und Route fehlen; Symbolspitze zur nächsten Tag-/Aufenthaltsposition |
+| Tag oder Aufenthalt, nächster Eintrag kein Transfer: **Verbindung zum nächsten Abschnitt** | Gerade/Bogenlinie, durchgezogen/gestrichelt, ein Verkehrsmittel (Symbol vor dem Namen, Nase nach rechts in der Liste); leer = Richtungspfeil auf der Geraden; **Keine Linie** zeichnet nichts zum Folgekreis; Track und Route fehlen; Symbolspitze zur nächsten Tag-/Aufenthaltsposition |
 | Letzter Eintrag oder nächster Eintrag ist Transfer | keine Ausgangslinie-Zeile; gespeicherte Werte bleiben |
 | YouTube im ⋯-Menü, Dialog-OK | **Speichern** wird aktiv; ohne Speichern die Timeline verlassen: Dialog Verwerfen/Abbrechen; nach Verwerfen YouTube nicht in der DB |
 | Nur Titel oder Tagebuchtext ändern und die Timeline verlassen | keine Rückfrage; die Edits bleiben in der Timeline, bis **Speichern**; Schließen des Fensters verwirft sie |
@@ -848,8 +851,8 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| App ohne Projekt | Titelleiste `Reisetagebuch R2.0.0` |
-| Projekt öffnen | `Reisetagebuch R2.0.0 - {Projekttitel}` |
+| App ohne Projekt | Titelleiste `Reisetagebuch R2.1.0` |
+| Projekt öffnen | `Reisetagebuch R2.1.0 - {Projekttitel}` |
 
 ### MT-22 Windows-Paket (FA-140–FA-144)
 
@@ -857,7 +860,7 @@ Voraussetzung: `packaging/build.ps1` erfolgreich; optional Inno Setup 6 für die
 
 | Schritt | Erwartung |
 | --- | --- |
-| `dist/Reisetagebuch/Reisetagebuch.exe` starten (ohne venv, ohne `python` auf dem PATH) | Fenster `Reisetagebuch R2.0.0`; kein Python-Fehlerdialog |
+| `dist/Reisetagebuch/Reisetagebuch.exe` starten (ohne venv, ohne `python` auf dem PATH) | Fenster `Reisetagebuch R2.1.0`; kein Python-Fehlerdialog |
 | Neues Projekt anlegen, JPEG-Ordner importieren | Index und Thumbnails wie in der Entwicklungsumgebung; Originale unverändert |
 | Seite **Karte** | WebEngine zeigt die Karte (nicht nur den HTML-Pfad) |
 | `%LOCALAPPDATA%\TravelJournal` | `config.json` / `recent.json` wie bisher, nicht im Programmordner |
@@ -886,6 +889,15 @@ Voraussetzung: Projekt mit Timeline (mindestens ein Tag mit Foto, ein gespeicher
 | Import, Synchronisieren, Timeline aktualisieren oder Projekt schließen | Stack leer; Strg+Z ändert nichts mehr an den vorherigen Journal-Edits |
 | YouTube oder DHV-Leonardo ändern | Strg+Z nimmt das nicht zurück (nicht auf dem Stack) |
 
+### MT-25 Verkehrsmittelsymbole (Hilfe und Katalog)
+
+| Schritt | Erwartung |
+| --- | --- |
+| Menü **Hilfe → Verkehrsmittelsymbole…** (oder F1) | Dialog listet alle Modi; weißes Piktogramm auf schwarzem Kreis; Nase nach rechts |
+| Camper Van und Camper in der Hilfe | zeigen nach rechts wie Auto, Bus und Bahn (nicht nach links) |
+| Transfer-Zeile und Ausgangslinie: Combobox Verkehrsmittel | dasselbe Badge vor dem Namen; „Pfeil“ zeigt das Richtungssymbol |
+| Karte: Linie nach Osten mit Auto, dann Camper | beide Nasen zur Folgeposition; nach Westen Räder/Kiel unten, Nase weiter in Fahrtrichtung |
+
 ---
 
 ## 8. Manuelle Fälle ab Phase 8 (Vorschau)
@@ -911,6 +923,7 @@ Diese Fälle werden mit der jeweiligen Phase verbindlich.
 | Undo / Redo | `test_timeline_history.py`, `tests/test_edit_history.py`, Menü in `tests/test_gui_smoke.py`, manuell MT-24 |
 | Hilfsskript JSON → GPX | `tests/test_json_routes_to_gpx.py`; Aufruf im README |
 | Karte / Leiste / Kreis-Detail | `test_maps.py`, `tests/test_gui_smoke.py` (Map-Fälle), manuell MT-12 |
+| Verbindungslinien / Symbole | `test_transfer_links.py`, `test_symbols.py`, `test_maps.py` (outbound), `tests/test_gui_smoke.py` (Transfer-Zeile), manuell MT-12, MT-13, MT-25 |
 | Inspektor / Drehung / Register | `test_orientation.py`, `tests/test_gui_smoke.py`, manuell MT-18–MT-21 |
 | Windows-Paket (`packaging/`) | manuell MT-22 (kein pytest) |
 | UI-Importliste | MT-04, MT-23 |
@@ -924,7 +937,8 @@ Ein Phasenabschluss ohne grüne Automatisierung gilt als nicht abgenommen.
 
 | Datum | Kommando | Ergebnis |
 | --- | --- | --- |
-| 29.08.2026 | `python -m pytest` (`test_timeline_history`, `test_edit_history`, `test_main_window_starts`) im Projekt-venv | 12 bestanden; gesamt 375 Tests (R2.0.0, inkl. Undo/Redo) |
+| 29.08.2026 | `python -m pytest` im Projekt-venv | 393 bestanden (R2.1.0; Verbindungslinien, Ausgangslinie, Verkehrssymbole) |
+| 29.08.2026 | `python -m pytest` (`test_timeline_history`, `test_edit_history`, `test_main_window_starts`) im Projekt-venv | 12 bestanden; damals 375 Tests (R2.0.0, inkl. Undo/Redo) |
 | 28.08.2026 | `python -m pytest` im Projekt-venv | 364 bestanden (R2.0.0) |
 | 27.08.2026 | `python -m pytest` im Projekt-venv | 264 bestanden |
 | 26.08.2026 | `python -m pytest` im Projekt-venv | 222 bestanden |

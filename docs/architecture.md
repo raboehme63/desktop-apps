@@ -2,7 +2,7 @@
 
 Produktanforderungen: [pflichtenheft.md](pflichtenheft.md). Leitkonzept: [konzept.md](konzept.md). Tests: [testdokumentation.md](testdokumentation.md). Windows-Paket: [packaging/README.md](../packaging/README.md).
 
-Stand: **Phase 7**, Software **R2.0.0** (29. August 2026). Journal-Modell nach Design-Review.
+Stand: **Phase 7**, Software **R2.1.0** (29. August 2026). Journal-Modell nach Design-Review; Verbindungslinien und Verkehrssymbole.
 
 ## Prinzip
 
@@ -32,7 +32,7 @@ und ändert die JSON-Datei nicht.
 | Use Cases | `travelcore.media`, `gps`, `timeline`, `geolocation`, `maps`, `export` | Import, Zuordnung, Timeline, Karte, Export |
 | Persistenz | `travelcore.database` | SQLAlchemy-Modelle, Alembic, Projektordner |
 
-## Module in travelcore (Phase 7, R2.0.0)
+## Module in travelcore (Phase 7, R2.1.0)
 
 | Paket | Inhalt |
 | --- | --- |
@@ -85,7 +85,7 @@ Originaldateien nicht.
 
 Zuletzt geöffnete Projekte stehen unter
 `%LOCALAPPDATA%\TravelJournal\recent.json` (max. 10). Die Oberfläche listet
-sie in R2.0.0 noch nicht. Der Fenstertitel lautet `Reisetagebuch R{Version}`
+sie in R2.1.0 noch nicht. Der Fenstertitel lautet `Reisetagebuch R{Version}`
 bzw. `Reisetagebuch R{Version} - {Projekttitel}`. Das Medienregister
 (Timeline und Medienseite) steht in `%LOCALAPPDATA%\TravelJournal\config.json` (`timeline_media_tab`),
 ebenso die eingeklappte linke Navigation (`sidebar_collapsed`), der Medienpool
@@ -406,10 +406,10 @@ macOS ist kein Ziel (WIC-Vorschauen, AppData-Pfade).
 4. GPX und GPS-Zuordnung
 5. Thumbnail-Galerie
 6. Karte
-7. Timeline und manuelle Bearbeitung  ← aktueller Stand, Software R2.0.0
+7. Timeline und manuelle Bearbeitung  ← aktueller Stand, Software R2.1.0
    (Tag/Aufenthalt/Transfer als Abschnitte, Medienpool, Journal-Zeit,
-    Design-Review-UI, Bewertungen, Inspektor, Track-Vorschauen, Anzeigedrehung,
-    Rückgängig/Wiederherstellen)
+    Verbindungslinien und Verkehrssymbole, Design-Review-UI, Bewertungen,
+    Inspektor, Track-Vorschauen, Anzeigedrehung, Rückgängig/Wiederherstellen)
    Windows-Endnutzerpaket: `packaging/` (keine eigene Fachphase)
 8. HTML-Export
 9. Qualitätsanalyse
