@@ -3,15 +3,30 @@
 from __future__ import annotations
 
 import io
+from collections import OrderedDict
 from dataclasses import replace
 from pathlib import Path
 
 from PIL import Image
-from PySide6.QtCore import QEvent, QPointF, QRect, QRectF, QSize, QSizeF, Qt, QTimer, Signal
+from PySide6.QtCore import (
+    QEvent,
+    QObject,
+    QPointF,
+    QRect,
+    QRectF,
+    QRunnable,
+    QSize,
+    QSizeF,
+    Qt,
+    QThreadPool,
+    QTimer,
+    Signal,
+)
 from PySide6.QtGui import (
     QCloseEvent,
     QColor,
     QHoverEvent,
+    QImage,
     QKeyEvent,
     QMouseEvent,
     QPainter,
@@ -43,13 +58,16 @@ from travelcore.media.gallery import (
     GalleryItem,
     effective_sort_status,
 )
-from travelcore.media.heic_win import decode_windows_thumbnail
+from travelcore.media.heic_win import decode_windows_full, decode_windows_thumbnail
+from travelcore.media.heif_items import extract_heif_jpeg_item
 from travelcore.media.orientation import can_rotate_media, normalize_rotation_degrees, orient_image
 from travelcore.media.types import PHOTO_EXTENSIONS, VIDEO_EXTENSIONS
 from traveljournal.services.workspace import Workspace
 
 _MAX_EDGE = 1920
 _INSPECTOR_EDGE = 6000
+_DISPLAY_BUCKETS = (1280, 1600, 1920, 2560)
+_CACHE_LIMIT = 8
 _DIRECT = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"}
 _RATING_BUTTONS = (
     (SORT_FAVORITE, "★ Favorit"),
@@ -68,11 +86,80 @@ INSPECTOR_MIN_SIZE = (520, 400)
 INSPECTOR_MAX_SIZE = (8000, 8000)
 
 
+class _PixmapCache:
+    """Small LRU of decoded inspector images, keyed by file, rotation, and decode edge."""
+
+    def __init__(self, limit: int = _CACHE_LIMIT) -> None:
+        self._items: OrderedDict[tuple[int, int, int], QPixmap] = OrderedDict()
+        self._limit = limit
+
+    def get(self, key: tuple[int, int, int]) -> QPixmap | None:
+        pixmap = self._items.get(key)
+        if pixmap is None:
+            return None
+        self._items.move_to_end(key)
+        return pixmap
+
+    def covering(self, source_file_id: int, rotation: int, edge: int) -> QPixmap | None:
+        enough = [
+            (key[2], pixmap)
+            for key, pixmap in self._items.items()
+            if key[0] == source_file_id and key[1] == rotation and key[2] >= edge
+        ]
+        if not enough:
+            return None
+        found_edge, pixmap = min(enough, key=lambda item: item[0])
+        self.get((source_file_id, rotation, found_edge))
+        return pixmap
+
+    def nearest(self, source_file_id: int, rotation: int) -> QPixmap | None:
+        matches = [
+            (key[2], pixmap)
+            for key, pixmap in self._items.items()
+            if key[0] == source_file_id and key[1] == rotation
+        ]
+        if not matches:
+            return None
+        return max(matches, key=lambda item: item[0])[1]
+
+    def put(self, key: tuple[int, int, int], pixmap: QPixmap) -> None:
+        if pixmap.isNull():
+            return
+        self._items[key] = pixmap
+        self._items.move_to_end(key)
+        while len(self._items) > self._limit:
+            self._items.popitem(last=False)
+
+
+class _DecodeSignals(QObject):
+    finished = Signal(int, int, int, object)
+    failed = Signal(int, int, int)
+
+
+class _DecodeRunnable(QRunnable):
+    def __init__(self, item: GalleryItem, max_edge: int, host: QObject) -> None:
+        super().__init__()
+        self._item = item
+        self._max_edge = max_edge
+        self.signals = _DecodeSignals(host)
+        self.setAutoDelete(True)
+
+    def run(self) -> None:
+        rotation = normalize_rotation_degrees(self._item.rotation_degrees)
+        try:
+            image = load_media_qimage(self._item, max_edge=self._max_edge)
+        except Exception:  # noqa: BLE001 - decode failures must not kill the pool thread
+            self.signals.failed.emit(self._item.source_file_id, rotation, self._max_edge)
+            return
+        self.signals.finished.emit(self._item.source_file_id, rotation, self._max_edge, image)
+
+
 class PhotoCanvas(QWidget):
     """Fitted photo with hover arrows, wheel-zoom, and double-click to reset."""
 
     side_clicked = Signal(int)
     double_activated = Signal()
+    zoom_changed = Signal(float)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -103,8 +190,12 @@ class PhotoCanvas(QWidget):
             self._hover_side = 0
         self.update()
 
-    def set_source(self, pixmap: QPixmap) -> None:
+    def set_source(self, pixmap: QPixmap, *, keep_view: bool = False) -> None:
         self._source = pixmap
+        if keep_view:
+            self._clamp_offset()
+            self.update()
+            return
         self.reset_view()
 
     def reset_view(self) -> None:
@@ -130,6 +221,7 @@ class PhotoCanvas(QWidget):
         self._clamp_offset()
         self._refresh_cursor()
         self.update()
+        self.zoom_changed.emit(self._zoom)
 
     def nav_side_at(self, x: float) -> int:
         if not self._browse:
@@ -348,10 +440,18 @@ class MediaInspectorWindow(QWidget):
             width, height = workspace.inspector_size()
             self._restore_maximized = workspace.inspector_maximized()
         self.resize(width, height)
+        self._closed = False
+        self._cache = _PixmapCache()
+        self._inflight: set[tuple[int, int, int]] = set()
+        self._pool = QThreadPool.globalInstance()
         self._persist_timer = QTimer(self)
         self._persist_timer.setSingleShot(True)
         self._persist_timer.setInterval(250)
         self._persist_timer.timeout.connect(self._persist_geometry)
+        self._decode_timer = QTimer(self)
+        self._decode_timer.setSingleShot(True)
+        self._decode_timer.setInterval(150)
+        self._decode_timer.timeout.connect(self._refresh_display_decode)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
@@ -361,6 +461,7 @@ class MediaInspectorWindow(QWidget):
         self._image = PhotoCanvas(self)
         self._image.side_clicked.connect(self.step)
         self._image.double_activated.connect(self._on_photo_double_click)
+        self._image.zoom_changed.connect(self._on_zoom_changed)
         split.addWidget(self._image)
         self.extra_host = QWidget(self)
         self.extra_host.setObjectName("inspectorExtra")
@@ -468,6 +569,8 @@ class MediaInspectorWindow(QWidget):
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
         super().resizeEvent(event)
+        if self.isVisible() and self._wants_original():
+            self._decode_timer.start()
         if self.workspace is None or not self.isVisible():
             return
         if self.isMaximized() or self.isFullScreen():
@@ -475,7 +578,9 @@ class MediaInspectorWindow(QWidget):
         self._persist_timer.start()
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        self._closed = True
         self._persist_timer.stop()
+        self._decode_timer.stop()
         self._persist_geometry()
         super().closeEvent(event)
 
@@ -615,11 +720,10 @@ class MediaInspectorWindow(QWidget):
             title = f"{title} · Vorschau"
         self.setWindowTitle(title)
         self._image.set_browse_enabled(len(self._items) >= 2)
-        if self._thumbnail_first and not self._showing_original:
-            pixmap = load_thumbnail_pixmap(item)
+        if self._wants_original():
+            self._present_original(item)
         else:
-            pixmap = load_media_pixmap(item, max_edge=_INSPECTOR_EDGE)
-        self._image.set_source(pixmap)
+            self._image.set_source(load_thumbnail_pixmap(item))
         meta = media_meta_text(item)
         if self._thumbnail_first and not self._showing_original:
             hint = "Vorschau · Doppelklick für Original"
@@ -636,6 +740,113 @@ class MediaInspectorWindow(QWidget):
             button.setEnabled(can_rate and self.workspace is not None)
         self._sync_rating_buttons()
         self._sync_pool_button()
+
+    def _wants_original(self) -> bool:
+        return not (self._thumbnail_first and not self._showing_original)
+
+    def _rotation_key(self, item: GalleryItem) -> int:
+        return normalize_rotation_degrees(item.rotation_degrees)
+
+    def _display_edge(self) -> int:
+        width = self._image.width() or self.width() or INSPECTOR_DEFAULT_SIZE[0]
+        height = self._image.height() or self.height() or INSPECTOR_DEFAULT_SIZE[1]
+        return inspector_display_edge(width, height, self.devicePixelRatioF())
+
+    def _wanted_edge(self) -> int:
+        if self._image.zoom > 1.01:
+            return _INSPECTOR_EDGE
+        return self._display_edge()
+
+    def _keep_zoom(self) -> bool:
+        return self._image.zoom > 1.01
+
+    def _cache_key(self, item: GalleryItem, max_edge: int) -> tuple[int, int, int]:
+        return (item.source_file_id, self._rotation_key(item), max_edge)
+
+    def _present_original(self, item: GalleryItem) -> None:
+        edge = self._wanted_edge()
+        rotation = self._rotation_key(item)
+        covering = self._cache.covering(item.source_file_id, rotation, edge)
+        if covering is not None:
+            self._image.set_source(covering, keep_view=self._keep_zoom())
+            self._prefetch_neighbors()
+            return
+        placeholder = self._cache.nearest(item.source_file_id, rotation)
+        if placeholder is None or placeholder.isNull():
+            placeholder = try_thumbnail_pixmap(item)
+        if placeholder.isNull():
+            pixmap = load_media_pixmap(item, max_edge=edge)
+            if not pixmap.isNull():
+                self._cache.put(self._cache_key(item, edge), pixmap)
+            self._image.set_source(pixmap, keep_view=self._keep_zoom())
+        else:
+            self._image.set_source(placeholder, keep_view=self._keep_zoom())
+            self._request_decode(item, edge)
+        self._prefetch_neighbors()
+
+    def _refresh_display_decode(self) -> None:
+        if self._closed or not self._wants_original():
+            return
+        self._request_decode(self.item(), self._wanted_edge())
+
+    def _on_zoom_changed(self, zoom: float) -> None:
+        if self._closed or not self._wants_original() or zoom <= 1.01:
+            return
+        self._apply_or_request_full(self.item())
+
+    def _apply_or_request_full(self, item: GalleryItem) -> None:
+        cached = self._cache.covering(item.source_file_id, self._rotation_key(item), _INSPECTOR_EDGE)
+        if cached is not None:
+            self._image.set_source(cached, keep_view=True)
+            return
+        self._request_decode(item, _INSPECTOR_EDGE)
+
+    def _prefetch_neighbors(self) -> None:
+        if len(self._items) < 2:
+            return
+        edge = self._display_edge()
+        for delta in (-1, 1):
+            self._request_decode(self._items[(self._index + delta) % len(self._items)], edge)
+
+    def _request_decode(self, item: GalleryItem, max_edge: int) -> None:
+        if self._closed:
+            return
+        key = self._cache_key(item, max_edge)
+        if self._cache.covering(item.source_file_id, key[1], max_edge) is not None:
+            return
+        if key in self._inflight:
+            return
+        self._inflight.add(key)
+        job = _DecodeRunnable(item, max_edge, self)
+        job.signals.finished.connect(self._on_decoded)
+        job.signals.failed.connect(self._on_decode_failed)
+        self._pool.start(job)
+
+    def _on_decoded(self, source_file_id: int, rotation: int, max_edge: int, image: object) -> None:
+        self._inflight.discard((source_file_id, rotation, max_edge))
+        if self._closed or not isinstance(image, QImage) or image.isNull():
+            return
+        pixmap = QPixmap.fromImage(image.copy())
+        self._cache.put((source_file_id, rotation, max_edge), pixmap)
+        if not self._wants_original():
+            return
+        current = self.item()
+        if current.source_file_id != source_file_id or self._rotation_key(current) != rotation:
+            return
+        full = max_edge >= _INSPECTOR_EDGE
+        if not full and self._keep_zoom():
+            if self._cache.covering(source_file_id, rotation, _INSPECTOR_EDGE) is not None:
+                return
+            if (source_file_id, rotation, _INSPECTOR_EDGE) in self._inflight:
+                return
+        shown = self._image.source()
+        if not full and not shown.isNull():
+            if max(pixmap.width(), pixmap.height()) < max(shown.width(), shown.height()):
+                return
+        self._image.set_source(pixmap, keep_view=self._keep_zoom())
+
+    def _on_decode_failed(self, source_file_id: int, rotation: int, max_edge: int) -> None:
+        self._inflight.discard((source_file_id, rotation, max_edge))
 
     def _sync_rating_buttons(self) -> None:
         current_item = self.item()
@@ -765,54 +976,128 @@ def _window_title(item: GalleryItem, index: int, total: int) -> str:
     return f"{item.filename} · {index + 1} von {total}"
 
 
-def load_thumbnail_pixmap(item: GalleryItem) -> QPixmap:
-    """Cached thumbnail only; never opens the original file."""
+def inspector_display_edge(width: int, height: int, device_pixel_ratio: float = 1.0) -> int:
+    """Snap the on-screen decode size so resize does not thrash the cache."""
+
+    raw = max(int(max(width, height) * max(device_pixel_ratio, 1.0)), _DISPLAY_BUCKETS[0])
+    for bucket in _DISPLAY_BUCKETS:
+        if raw <= bucket:
+            return bucket
+    return _DISPLAY_BUCKETS[-1]
+
+
+def wait_inspector_decodes(*, timeout_ms: int = 3000) -> None:
+    """Block until queued inspector decodes finish. Used by tests."""
+
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    pool = QThreadPool.globalInstance()
+    remaining = max(timeout_ms, 0)
+    while remaining >= 0:
+        if app is not None:
+            app.processEvents()
+        if pool.waitForDone(50):
+            if app is not None:
+                app.processEvents()
+            if pool.activeThreadCount() == 0:
+                return
+        remaining -= 50
+
+
+def try_thumbnail_pixmap(item: GalleryItem) -> QPixmap:
+    """Cached thumbnail file only. Does not open the original."""
 
     path = item.thumbnail_path
     if path.is_file():
         pixmap = QPixmap(str(path))
         if not pixmap.isNull():
             return pixmap
+    return QPixmap()
+
+
+def load_thumbnail_pixmap(item: GalleryItem) -> QPixmap:
+    """Cached thumbnail only; never opens the original file."""
+
+    pixmap = try_thumbnail_pixmap(item)
+    if not pixmap.isNull():
+        return pixmap
     return load_media_pixmap(item, max_edge=_MAX_EDGE)
 
 
 def load_media_pixmap(item: GalleryItem, *, max_edge: int = _MAX_EDGE) -> QPixmap:
     """Best available preview of the original. Never writes the source file."""
 
+    return QPixmap.fromImage(load_media_qimage(item, max_edge=max_edge))
+
+
+def load_media_qimage(item: GalleryItem, *, max_edge: int = _MAX_EDGE) -> QImage:
+    """Decode a display image on any thread. Never writes the source file."""
+
     source = Path(item.path)
     suffix = source.suffix.lower()
-    pixmap = QPixmap()
+    full = max_edge >= _INSPECTOR_EDGE
+    image = QImage()
     rotated = False
     if suffix in _DIRECT and source.is_file():
         try:
             with Image.open(source) as opened:
+                if not full:
+                    _apply_draft(opened, max_edge)
                 working = orient_image(opened, rotation_degrees=item.rotation_degrees)
-                pixmap = _pixmap_from_pil(working)
+                image = _qimage_from_pil(working)
                 rotated = True
         except (OSError, ValueError, SyntaxError, Image.DecompressionBombError):
-            pixmap = QPixmap()
-    if pixmap.isNull() and source.is_file() and suffix in PHOTO_EXTENSIONS | VIDEO_EXTENSIONS:
-        decoded = decode_windows_thumbnail(source, size=max_edge)
+            image = QImage()
+    if image.isNull() and source.is_file() and suffix in PHOTO_EXTENSIONS | VIDEO_EXTENSIONS:
+        decoded = _decode_non_direct(source, max_edge=max_edge, full=full)
         if decoded is not None:
-            pixmap = _pixmap_from_pil(orient_image(decoded, rotation_degrees=item.rotation_degrees))
+            image = _qimage_from_pil(orient_image(decoded, rotation_degrees=item.rotation_degrees))
             rotated = True
-    if pixmap.isNull() and item.thumbnail_path.is_file():
-        pixmap = QPixmap(str(item.thumbnail_path))
+    if image.isNull() and item.thumbnail_path.is_file():
+        image = QImage(str(item.thumbnail_path))
         rotated = True
-    if pixmap.isNull():
-        empty = QPixmap(320, 240)
-        empty.fill(Qt.GlobalColor.darkGray)
+    if image.isNull():
+        empty = QImage(320, 240, QImage.Format.Format_RGB32)
+        empty.fill(QColor(Qt.GlobalColor.darkGray))
         return empty
     if not rotated:
-        pixmap = _rotate_pixmap(pixmap, item.rotation_degrees)
-    if max_edge and (pixmap.width() > max_edge or pixmap.height() > max_edge):
-        pixmap = pixmap.scaled(
+        image = _rotate_qimage(image, item.rotation_degrees)
+    if max_edge and (image.width() > max_edge or image.height() > max_edge):
+        image = image.scaled(
             max_edge,
             max_edge,
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
-    return pixmap
+    return image
+
+
+def _decode_non_direct(source: Path, *, max_edge: int, full: bool) -> Image.Image | None:
+    if full:
+        jpeg = _embedded_heif_jpeg(source)
+        if jpeg is not None:
+            return jpeg
+        decoded = decode_windows_full(source)
+        if decoded is not None:
+            return decoded
+    return decode_windows_thumbnail(source, size=max_edge)
+
+
+def _embedded_heif_jpeg(source: Path) -> Image.Image | None:
+    if source.suffix.lower() not in {".heic", ".heif"}:
+        return None
+    try:
+        payload = extract_heif_jpeg_item(source.read_bytes())
+    except OSError:
+        return None
+    if payload is None:
+        return None
+    try:
+        with Image.open(io.BytesIO(payload)) as opened:
+            return opened.convert("RGB").copy()
+    except (OSError, ValueError, SyntaxError, Image.DecompressionBombError):
+        return None
 
 
 def media_meta_text(item: GalleryItem) -> str:
@@ -845,19 +1130,27 @@ def _can_rate(_item: GalleryItem) -> bool:
     return True
 
 
-def _rotate_pixmap(pixmap: QPixmap, degrees: int | None) -> QPixmap:
+def _apply_draft(opened: Image.Image, max_edge: int) -> None:
+    if max_edge <= 0:
+        return
+    try:
+        opened.draft("RGB", (max_edge, max_edge))
+    except (ValueError, OSError, AttributeError):
+        return
+
+
+def _rotate_qimage(image: QImage, degrees: int | None) -> QImage:
     snapped = normalize_rotation_degrees(degrees)
-    if not snapped or pixmap.isNull():
-        return pixmap
-    return pixmap.transformed(
+    if not snapped or image.isNull():
+        return image
+    return image.transformed(
         QTransform().rotate(snapped),
         Qt.TransformationMode.SmoothTransformation,
     )
 
 
-def _pixmap_from_pil(image: Image.Image) -> QPixmap:
-    buffer = io.BytesIO()
-    image.convert("RGB").save(buffer, format="JPEG", quality=88)
-    pixmap = QPixmap()
-    pixmap.loadFromData(buffer.getvalue(), "JPEG")
-    return pixmap
+def _qimage_from_pil(image: Image.Image) -> QImage:
+    rgb = image.convert("RGB")
+    width, height = rgb.size
+    qimage = QImage(rgb.tobytes(), width, height, width * 3, QImage.Format.Format_RGB888)
+    return qimage.copy()

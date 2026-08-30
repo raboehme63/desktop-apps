@@ -3062,13 +3062,54 @@ def test_media_inspector_zoom_arrows_and_fit(tmp_path: Path) -> None:
     _ = app
 
 
+def test_inspector_zoom_loads_full_original(tmp_path: Path) -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from jpeg_fixtures import write_plain_jpeg
+    from PySide6.QtCore import QPointF
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.widgets.media_inspector import MediaInspectorWindow, wait_inspector_decodes
+
+    app = QApplication.instance() or QApplication([])
+    original = write_plain_jpeg(tmp_path / "foto.jpg", size=(2400, 1800))
+    thumb = write_plain_jpeg(tmp_path / "thumb.jpg", size=(40, 30))
+    item = GalleryItem(
+        source_file_id=1,
+        path=str(original),
+        filename="foto.jpg",
+        extension=".jpg",
+        captured_at=None,
+        timezone_unknown=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        camera=None,
+        is_favorite=False,
+        used_in_journal=False,
+        thumbnail_path=thumb,
+        sort_status=None,
+    )
+    window = MediaInspectorWindow(item)
+    window._image.resize(640, 480)
+    wait_inspector_decodes()
+    fitted = window._image.source()
+    assert max(fitted.width(), fitted.height()) <= 1920
+    assert max(fitted.width(), fitted.height()) < 2400
+    window._image.zoom_at(2.0, QPointF(320, 240))
+    wait_inspector_decodes()
+    assert window._image.zoom == 2.0
+    full = window._image.source()
+    assert max(full.width(), full.height()) == 2400
+    _ = app
+
+
 def test_inspector_map_opens_thumbnail_then_original_on_double_click(tmp_path: Path) -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from jpeg_fixtures import write_plain_jpeg
     from PySide6.QtWidgets import QApplication
 
     from travelcore.media.gallery import GalleryItem
-    from traveljournal.widgets.media_inspector import MediaInspectorWindow
+    from traveljournal.widgets.media_inspector import MediaInspectorWindow, wait_inspector_decodes
 
     app = QApplication.instance() or QApplication([])
     original = write_plain_jpeg(tmp_path / "foto.jpg", size=(200, 150))
@@ -3095,7 +3136,126 @@ def test_inspector_map_opens_thumbnail_then_original_on_double_click(tmp_path: P
     window._on_photo_double_click()
     assert window.showing_original()
     assert "Vorschau" not in window.windowTitle()
+    wait_inspector_decodes()
     assert window._image.source().width() == 200
+    _ = app
+
+
+def test_inspector_display_edge_snaps_to_window_size() -> None:
+    from traveljournal.widgets.media_inspector import inspector_display_edge
+
+    assert inspector_display_edge(800, 600) == 1280
+    assert inspector_display_edge(1600, 900) == 1600
+    assert inspector_display_edge(1920, 1080) == 1920
+    assert inspector_display_edge(1921, 1080) == 2560
+    assert inspector_display_edge(3000, 2000) == 2560
+    assert inspector_display_edge(960, 720, 2.0) == 1920
+
+
+def test_load_media_pixmap_respects_max_edge(tmp_path: Path) -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from jpeg_fixtures import write_plain_jpeg
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.widgets.media_inspector import load_media_pixmap
+
+    app = QApplication.instance() or QApplication([])
+    jpeg = write_plain_jpeg(tmp_path / "foto.jpg", size=(400, 300))
+    item = GalleryItem(
+        source_file_id=1,
+        path=str(jpeg),
+        filename="foto.jpg",
+        extension=".jpg",
+        captured_at=None,
+        timezone_unknown=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        camera=None,
+        is_favorite=False,
+        used_in_journal=False,
+        thumbnail_path=Path("."),
+        sort_status=None,
+    )
+    pixmap = load_media_pixmap(item, max_edge=80)
+    assert max(pixmap.width(), pixmap.height()) <= 80
+    assert pixmap.width() > 0
+    _ = app
+
+
+def test_inspector_shows_thumb_then_loads_original(tmp_path: Path) -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from jpeg_fixtures import write_plain_jpeg
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.widgets.media_inspector import MediaInspectorWindow, wait_inspector_decodes
+
+    app = QApplication.instance() or QApplication([])
+    original = write_plain_jpeg(tmp_path / "foto.jpg", size=(200, 150))
+    thumb = write_plain_jpeg(tmp_path / "thumb.jpg", size=(40, 30))
+    item = GalleryItem(
+        source_file_id=1,
+        path=str(original),
+        filename="foto.jpg",
+        extension=".jpg",
+        captured_at=None,
+        timezone_unknown=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        camera=None,
+        is_favorite=False,
+        used_in_journal=False,
+        thumbnail_path=thumb,
+        sort_status=None,
+    )
+    window = MediaInspectorWindow(item)
+    assert window.showing_original()
+    assert window._image.source().width() == 40
+    wait_inspector_decodes()
+    assert window._image.source().width() == 200
+    _ = app
+
+
+def test_inspector_prefetches_neighbor_original(tmp_path: Path) -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from jpeg_fixtures import write_plain_jpeg
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.widgets.media_inspector import MediaInspectorWindow, wait_inspector_decodes
+
+    app = QApplication.instance() or QApplication([])
+    first_path = write_plain_jpeg(tmp_path / "eins.jpg", size=(200, 150))
+    second_path = write_plain_jpeg(tmp_path / "zwei.jpg", size=(180, 120))
+    first_thumb = write_plain_jpeg(tmp_path / "eins_t.jpg", size=(40, 30))
+    second_thumb = write_plain_jpeg(tmp_path / "zwei_t.jpg", size=(36, 24))
+
+    def make_item(source_file_id: int, path: Path, filename: str, thumb: Path) -> GalleryItem:
+        return GalleryItem(
+            source_file_id=source_file_id,
+            path=str(path),
+            filename=filename,
+            extension=".jpg",
+            captured_at=None,
+            timezone_unknown=False,
+            gps_latitude=None,
+            gps_longitude=None,
+            camera=None,
+            is_favorite=False,
+            used_in_journal=False,
+            thumbnail_path=thumb,
+            sort_status=None,
+        )
+
+    first = make_item(1, first_path, "eins.jpg", first_thumb)
+    second = make_item(2, second_path, "zwei.jpg", second_thumb)
+    window = MediaInspectorWindow(first, items=[first, second])
+    wait_inspector_decodes()
+    assert window._cache.covering(2, 0, 1280) is not None
+    window.step(1)
+    assert window.item().filename == "zwei.jpg"
+    assert window._image.source().width() == 180
     _ = app
 
 

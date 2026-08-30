@@ -103,6 +103,18 @@ def decode_windows_thumbnail(path: Path, *, size: int = DEFAULT_THUMBNAIL_SIZE) 
         return None
 
 
+def decode_windows_full(path: Path) -> Image.Image | None:
+    """Decode the first WIC frame, not the Explorer thumbnail."""
+
+    if sys.platform != "win32":
+        return None
+    try:
+        return _wic_frame(path, embedded_thumb=False)
+    except Exception:  # noqa: BLE001 - Shell/WIC failures must not abort import
+        logger.debug("Windows full decode failed for %s", path.name, exc_info=True)
+        return None
+
+
 def _com_func(obj: c_void_p, index: int, restype, *argtypes):
     vptr = ctypes.cast(obj, POINTER(c_void_p))[0]
     slot = ctypes.cast(vptr, POINTER(c_void_p))[index]
@@ -202,7 +214,7 @@ def _hbitmap_to_image(handle: HBITMAP) -> Image.Image | None:
         ctypes.windll.user32.ReleaseDC(None, hdc)
 
 
-def _wic_frame(path: Path) -> Image.Image | None:
+def _wic_frame(path: Path, *, embedded_thumb: bool = True) -> Image.Image | None:
     _ensure_com()
     ole32 = ctypes.windll.ole32
     ole32.CoCreateInstance.restype = HRESULT
@@ -246,9 +258,12 @@ def _wic_frame(path: Path) -> Image.Image | None:
         )
         if status < 0 or not decoder:
             return None
-        get_thumb = _com_func(decoder, 9, HRESULT, POINTER(c_void_p))
-        status = get_thumb(decoder, byref(source))
-        if status < 0 or not source:
+        if embedded_thumb:
+            get_thumb = _com_func(decoder, 9, HRESULT, POINTER(c_void_p))
+            status = get_thumb(decoder, byref(source))
+            if status < 0:
+                source = c_void_p()
+        if not source:
             frame = c_void_p()
             get_frame = _com_func(decoder, 11, HRESULT, ctypes.c_uint, POINTER(c_void_p))
             status = get_frame(decoder, 0, byref(frame))
