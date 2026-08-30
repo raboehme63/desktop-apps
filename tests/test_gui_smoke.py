@@ -18,7 +18,7 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
 
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
-    assert window.windowTitle() == "Reisetagebuch R2.1.1"
+    assert window.windowTitle() == "Reisetagebuch R2.2.0"
     assert window.stack.count() == 6
     titles = [action.text() for action in window.menuBar().actions()]
     assert "Projekt" in titles
@@ -130,9 +130,9 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
 def test_app_window_title_includes_version() -> None:
     from traveljournal.__about__ import app_window_title
 
-    assert app_window_title() == "Reisetagebuch R2.1.1"
-    assert app_window_title("Alpen 2025") == "Reisetagebuch R2.1.1 - Alpen 2025"
-    assert app_window_title("  ") == "Reisetagebuch R2.1.1"
+    assert app_window_title() == "Reisetagebuch R2.2.0"
+    assert app_window_title("Alpen 2025") == "Reisetagebuch R2.2.0 - Alpen 2025"
+    assert app_window_title("  ") == "Reisetagebuch R2.2.0"
 
 
 def test_new_project_dialog_preview_and_values(tmp_path: Path) -> None:
@@ -1229,6 +1229,80 @@ def test_focus_group_media_opens_section_detail_and_photo() -> None:
     _ = app
 
 
+def test_refresh_reuses_live_map_without_rebuild() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from pathlib import Path
+
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.maps.cache import MapRenderResult
+    from travelcore.maps.groups import MapTimelineCard
+    from travelcore.timeline.sections import KIND_STAY
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.map_view import MapView
+
+    app = QApplication.instance() or QApplication([])
+    view = MapView(Workspace())
+    view._stack.setCurrentWidget(view._web_host)
+    view._timeline.set_cards(
+        (
+            MapTimelineCard(
+                group_key="section:7",
+                title="Sieben",
+                time_label="am 02.05.2025",
+                latitude=47.0,
+                longitude=12.0,
+                card_kind=KIND_STAY,
+            ),
+        )
+    )
+    view.resize(800, 500)
+    view.show()
+    app.processEvents()
+    view._loaded_seq = 4
+    view._desired_seq = 4
+    view._page_ready = lambda: True  # type: ignore[method-assign]
+    view.workspace.load_cached_map = lambda: MapRenderResult(  # type: ignore[method-assign]
+        html_path=Path("cache/map.html"),
+        empty=False,
+        from_cache=True,
+        render_seq=4,
+    )
+    rebuilt: list[object] = []
+    view._apply_result = rebuilt.append  # type: ignore[method-assign]
+    prepared: list[object] = []
+    view._show_cached_or_prepare = lambda **kwargs: prepared.append(kwargs)  # type: ignore[method-assign]
+    view.focus_group_media("section:7", 9)
+    view.refresh()
+    assert rebuilt == []
+    assert prepared == []
+    _ = app
+
+
+def test_section_detail_payload_is_cached() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.map_view import MapView
+
+    app = QApplication.instance() or QApplication([])
+    view = MapView(Workspace())
+    calls: list[str] = []
+
+    def detail(key: str) -> dict[str, object]:
+        calls.append(key)
+        return {"group_key": key, "markers": []}
+
+    view.workspace.map_group_detail = detail  # type: ignore[method-assign]
+    first = view._section_detail_payload("section:7", 9)
+    second = view._section_detail_payload("section:7", 9)
+    assert calls == ["section:7"]
+    assert first["focus_source_id"] == 9
+    assert second["focus_source_id"] == 9
+    _ = app
+
+
 def test_strip_set_cards_can_keep_requested_section() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication
@@ -1378,8 +1452,9 @@ def test_strip_click_closes_detail_and_zooms_cover() -> None:
     view._detail_group_key = "section:7"
     scripts.clear()
     view._on_timeline_focus("section:7")
-    assert view._last_expand_key == ""
-    assert any("traveljournalZoomToCover" in script for script in scripts)
+    assert view._last_expand_key == "section:7"
+    assert view._detail_group_key == "section:7"
+    assert not any("traveljournalZoomToCover" in script for script in scripts)
     _ = app
 
 

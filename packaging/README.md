@@ -14,8 +14,8 @@ liegen unter `%LOCALAPPDATA%\TravelJournal`.
 | Artefakt | Pfad | Zweck |
 | --- | --- | --- |
 | Ordner | `dist/Reisetagebuch/` | Gestartete App (`Reisetagebuch.exe`) |
-| Zip | `dist/Reisetagebuch-2.1.1-windows.zip` | Portable Weitergabe |
-| Setup | `dist/Reisetagebuch-2.1.1-setup.exe` | Installer (Startmenü, optional Desktop), nur mit Inno Setup |
+| Zip | `dist/Reisetagebuch-2.2.0-windows.zip` | Portable Weitergabe |
+| Setup | `dist/Reisetagebuch-2.2.0-setup.exe` | Installer (Startmenü, optional Desktop), nur mit Inno Setup |
 
 Die Installation erfolgt **pro Benutzer** nach `%LOCALAPPDATA%\Programs\Reisetagebuch`
 (kein Administratorrecht). Projektdaten bleiben eigene Ordner; App-Einstellungen

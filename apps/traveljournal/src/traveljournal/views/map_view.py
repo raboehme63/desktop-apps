@@ -803,6 +803,7 @@ class MapView(QWidget):
         self._wanted_detail_media = 0
         self._media_focus_lock = False
         self._media_focus_gen = 0
+        self._detail_payload_cache: tuple[str, dict[str, object]] | None = None
         self._notes_group_key = ""
         self._notes_title = ""
         self._notes_baseline = ""
@@ -921,7 +922,27 @@ class MapView(QWidget):
         root.addWidget(self._stack, 1)
 
     def refresh(self, *, force: bool = False) -> None:
+        if not force and self._reuse_live_map():
+            return
         self._show_cached_or_prepare(force=force)
+
+    def _reuse_live_map(self) -> bool:
+        """Keep the loaded WebView; only apply a pending strip/detail focus."""
+
+        if not self._page_ready():
+            return False
+        cached = self.workspace.load_cached_map()
+        if cached is None or cached.empty or cached.render_seq != self._loaded_seq:
+            return False
+        self._apply_live_focus()
+        return True
+
+    def _apply_live_focus(self) -> None:
+        if self._restore_view is not None:
+            self._restore_placed_view()
+            return
+        if self._requested_focus or self._wanted_detail_key or self._pending_detail_key:
+            self._finish_requested_focus()
 
     def focus_group(self, group_key: str) -> None:
         """Zoom the map to the section cover after the map is shown (from Timeline)."""
@@ -993,6 +1014,7 @@ class MapView(QWidget):
         self._wanted_detail_media = 0
         self._media_focus_lock = False
         self._media_focus_gen = 0
+        self._detail_payload_cache = None
         self._clear_entry_panel()
         self._timeline.set_cards(())
         self._timeline.setVisible(False)
@@ -1047,6 +1069,8 @@ class MapView(QWidget):
         self._generation += 1
         generation = self._generation
         self._preparing = True
+        if force:
+            self._detail_payload_cache = None
         worker = MapRenderRunnable(opened, force=force, host=self)
         directory = opened.directory
         worker.signals.finished.connect(lambda result: self._on_prepared(generation, directory, result))
@@ -1107,16 +1131,15 @@ class MapView(QWidget):
         self._stack.setCurrentWidget(self._web_host)
         if already_loaded:
             self._install_page_hooks()
-            self._reload_timeline(arm_focus=not self._fit_overview_on_load)
-            self._schedule_invalidate()
             if self._restore_view is not None:
                 QTimer.singleShot(50, self._restore_placed_view)
                 QTimer.singleShot(280, self._restore_placed_view)
                 QTimer.singleShot(400, self._finish_restore_view)
             elif self._requested_focus or self._wanted_detail_key or self._pending_detail_key:
-                QTimer.singleShot(0, self._apply_requested_focus)
-                QTimer.singleShot(80, self._finish_requested_focus)
-                QTimer.singleShot(280, self._open_pending_detail)
+                self._finish_requested_focus()
+            else:
+                self._reload_timeline(arm_focus=not self._fit_overview_on_load)
+                self._schedule_invalidate()
         else:
             self._fit_overview_on_load = (
                 not bool(self._requested_focus or self._wanted_detail_key)
@@ -1199,9 +1222,7 @@ class MapView(QWidget):
             return
         if self._requested_focus or self._wanted_detail_key or self._pending_detail_key:
             QTimer.singleShot(50, self._apply_requested_focus)
-            QTimer.singleShot(280, self._apply_requested_focus)
-            QTimer.singleShot(400, self._finish_requested_focus)
-            QTimer.singleShot(700, self._open_pending_detail)
+            QTimer.singleShot(180, self._finish_requested_focus)
             return
         if self._pipeline_view is not None:
             QTimer.singleShot(50, self._restore_pipeline_view)
@@ -1706,19 +1727,28 @@ class MapView(QWidget):
             return
         self._zoom_to_cover(group_key)
 
+    def _section_detail_payload(self, group_key: str, source_file_id: int = 0) -> dict[str, object]:
+        cached = self._detail_payload_cache
+        if cached is not None and cached[0] == group_key:
+            payload = cached[1]
+        else:
+            payload = self.workspace.map_group_detail(group_key)
+            self._detail_payload_cache = (group_key, payload)
+        if source_file_id:
+            return {**payload, "focus_source_id": int(source_file_id)}
+        return payload
+
     def _push_section_detail(self, group_key: str, source_file_id: int = 0) -> bool:
         if not group_key or not self._page_ready():
             return False
         try:
-            payload = self.workspace.map_group_detail(group_key)
+            payload = self._section_detail_payload(group_key, source_file_id)
         except Exception as exc:  # noqa: BLE001 - show load errors in the status bar
             self.status_message.emit(f"Karte: {exc}")
             return False
         self._detail_group_key = group_key
         self._detail_items = []
         self._last_expand_key = group_key
-        if source_file_id:
-            payload["focus_source_id"] = int(source_file_id)
         encoded = json.dumps(payload, ensure_ascii=True)
         return self._run_js(f"if (window.traveljournalShowDetail) traveljournalShowDetail({encoded});")
 
@@ -1743,12 +1773,14 @@ class MapView(QWidget):
     def _schedule_media_focus(self, group_key: str, source_file_id: int) -> None:
         generation = self._media_focus_gen
         self._media_focus_lock = True
-        self._retry_wanted_detail(generation)
-        QTimer.singleShot(0, lambda g=generation: self._retry_wanted_detail(g))
+        self._ensure_strip_focus(group_key, generation)
+        if self._page_ready():
+            self._focus_detail_media(source_file_id, generation)
+            QTimer.singleShot(150, lambda g=generation: self._unlock_media_focus(g))
+            return
         QTimer.singleShot(80, lambda g=generation: self._retry_wanted_detail(g))
-        QTimer.singleShot(200, lambda g=generation: self._retry_wanted_detail(g))
-        QTimer.singleShot(480, lambda g=generation: self._retry_wanted_detail(g))
-        QTimer.singleShot(800, lambda g=generation: self._unlock_media_focus(g))
+        QTimer.singleShot(280, lambda g=generation: self._retry_wanted_detail(g))
+        QTimer.singleShot(400, lambda g=generation: self._unlock_media_focus(g))
 
     def _retry_wanted_detail(self, generation: int) -> None:
         if generation != self._media_focus_gen:

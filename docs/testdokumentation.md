@@ -2,9 +2,9 @@
 
 | Feld | Inhalt |
 | --- | --- |
-| Version | 2.1 |
+| Version | 2.2 |
 | Stand | 30. August 2026 |
-| Bezugsversion Software | Phase 7, Software **R2.1.1** |
+| Bezugsversion Software | Phase 7, Software **R2.2.0** |
 | Bezug | [pflichtenheft.md](pflichtenheft.md), [konzept.md](konzept.md), [packaging/README.md](../packaging/README.md) |
 
 Diese Dokumentation beschreibt **Teststrategie, Automatisierung, manuelle Prüfung und Abdeckungslücken**. Sie ist die Testdoku zum Pflichtenheft, kein Ersatz für pytest-Ausgaben.
@@ -207,7 +207,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_project_survives_close_and_reopen` | `tests/integration/test_project_lifecycle.py` | Index überlebt Re-Open |
 | `test_exporters_share_interface` | `test_interfaces.py` | HTML/PDF/LaTeX/CEWE sind `Exporter` |
 | `test_protocols_are_importable` | `test_interfaces.py` | `MetadataProvider`, `RankingStrategy`, `MapBackend` |
-| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R2.1.1, Menü **Bearbeiten** mit Strg+Z/Strg+Y, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren** |
+| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R2.2.0, Menü **Bearbeiten** mit Strg+Z/Strg+Y, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren** |
 
 ### 4.7 GPX und zeitliche Zuordnung — FA-040 bis FA-042
 
@@ -340,7 +340,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_publish_map_display_writes_unique_file` | `tests/test_gui_smoke.py` | WebEngine lädt eine neue HTML-Kopie nach Rebuild |
 | `test_map_view_applies_prepared_result_when_shown` | `tests/test_gui_smoke.py` | Hintergrund-Karte wird beim Öffnen der Seite übernommen |
 | `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Leiste zentriert; Transfer-Sechseck; Zähler; Plus; Rechtsklick Platzieren/Verschieben/Zentrieren; Cursor folgt der Karte |
-| `test_strip_click_closes_detail_and_zooms_cover` | `tests/test_gui_smoke.py` | Detail-Leistenklick schließt Detail und `ZoomToCover` |
+| `test_strip_click_closes_detail_and_zooms_cover` | `tests/test_gui_smoke.py` | andere Leistenkarte schließt Detail und `ZoomToCover`; dieselbe Karte bleibt im Detail |
 | `test_inspector_map_opens_thumbnail_then_original_on_double_click` | `tests/test_gui_smoke.py` | Inspektor: Vorschau, Doppelklick Original |
 
 ### 4.10 Timeline — FA-014, FA-060 bis FA-063, FA-080 bis FA-082
@@ -456,7 +456,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 
 | Test | Datei | Prüft |
 | --- | --- | --- |
-| `test_app_window_title_includes_version` | `tests/test_gui_smoke.py` | `Reisetagebuch R2.1.1` |
+| `test_app_window_title_includes_version` | `tests/test_gui_smoke.py` | `Reisetagebuch R2.2.0` |
 | `test_source_sync_dialog_defaults_to_timeline` | `tests/test_gui_smoke.py` | Sync-Dialog: Timeline vorausgewählt, Pool wählbar |
 | `test_source_sync_dialog_hides_destination_without_new_files` | `tests/test_gui_smoke.py` | ohne neue Dateien keine Timeline/Pool-Wahl |
 | `test_entry_widget_separates_tracks_from_media` | `tests/test_gui_smoke.py` | getrennte Galerien |
@@ -471,6 +471,8 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_focus_group_media_last_press_wins_strip` | `tests/test_gui_smoke.py` | letzter Zur-Karte-Klick gewinnt Leiste und Foto |
 | `test_focus_group_media_centers_image_section_and_keeps_detail` | `tests/test_gui_smoke.py` | Zur Karte: Abschnittskarte des Bildes, Detail bleibt |
 | `test_focus_group_media_opens_section_detail_and_photo` | `tests/test_gui_smoke.py` | Zur Karte: Detailmodus und Foto nach Leistenfokus |
+| `test_refresh_reuses_live_map_without_rebuild` | `tests/test_gui_smoke.py` | Zur Karte bei geladener Karte ohne HTML-Neuaufbau |
+| `test_section_detail_payload_is_cached` | `tests/test_gui_smoke.py` | Abschnittsdetail nur einmal aus der Datenbank |
 | `test_strip_set_cards_can_keep_requested_section` | `tests/test_gui_smoke.py` | Leiste zentriert gewünschte Karte ohne Folgefokus |
 | `test_map_view_focus_group_centers_section_card` | `tests/test_gui_smoke.py` | MapView fokussiert die Abschnittskarte; Tagebuchtext rechts, YouTube-Thumbs unten rechts auf der Karte |
 | `test_map_notes_edit_shows_save_cancel_discard` | `tests/test_gui_smoke.py` | Nach Edit Speichern, Abbrechen, Verwerfen |
@@ -525,7 +527,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_publish_map_display_writes_unique_file` | `tests/test_gui_smoke.py` | WebEngine lädt eine neue HTML-Kopie nach Rebuild |
 | `test_map_view_applies_prepared_result_when_shown` | `tests/test_gui_smoke.py` | Hintergrund-Karte wird beim Öffnen der Seite übernommen |
 | `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Timeline-Leiste zentriert; Zähler Fotos/Tracks/IGC/YouTube, Reserve-Schalter, Plus zwischen Karten |
-| `test_strip_click_closes_detail_and_zooms_cover` | `tests/test_gui_smoke.py` | Leistenklick im Detail schließt und zoomt auf den Cover-Kreis |
+| `test_strip_click_closes_detail_and_zooms_cover` | `tests/test_gui_smoke.py` | andere Leistenkarte schließt Detail und zoomt; dieselbe bleibt |
 | `test_inspector_map_opens_thumbnail_then_original_on_double_click` | `tests/test_gui_smoke.py` | Vorschau, dann Original |
 | `test_thumb_zoom_persists` | `tests/test_workspace.py` | `timeline_thumb_zoom` und `map_thumb_zoom` in `config.json` |
 | `test_normalize_timeline_media_tab` | `tests/test_workspace.py` | gültige Tab-Namen |
@@ -560,7 +562,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 
 ## 5. Abdeckung gegen das Pflichtenheft
 
-### 5.1 Gut abgedeckt (Phase 7, R2.1.1)
+### 5.1 Gut abgedeckt (Phase 7, R2.2.0)
 
 - Dateiklassifikation und rekursiver Scan
 - SHA-256 und Skip unveränderter Dateien
@@ -584,7 +586,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 - Reiseabschnitte, Pending-Vorschau, Eintrags-Titelbild (Foto und Track, YouTube-Fallback)
 - YouTube- und DHV-Leonardo-URL-Normalisierung
 - Anzeigedrehung (Index, Cachepfad, Re-Import, Inspektor ohne Originalschreiben)
-- GUI-Rauch: Fenstertitel mit Version R2.1.1, Menü **Bearbeiten** (Strg+Z/Strg+Y), Pipeline Import→Medien→Timeline, Pool-Spalte, getrennte Medien/Tracks, Register nur per Klick (auch Tracks), Inspektor Blättern/Zoom/Drehen/Pool/Track-Bewertung, Thumbnail-Schieber
+- GUI-Rauch: Fenstertitel mit Version R2.2.0, Menü **Bearbeiten** (Strg+Z/Strg+Y), Pipeline Import→Medien→Timeline, Pool-Spalte, getrennte Medien/Tracks, Register nur per Klick (auch Tracks), Inspektor Blättern/Zoom/Drehen/Pool/Zur Karte (letzter Klick, geladene Karte ohne Neuaufbau), Thumbnail-Schieber
 - Export- und Provider-*Verträge* existieren
 
 ### 5.2 Bewusst noch ohne Automatisierung
@@ -630,7 +632,7 @@ Schweregrade für manuelle Funde:
 
 ---
 
-## 7. Manuelle Testfälle (Phase 3 bis 7, Software R2.1.1, inkl. Windows-Paket und Undo/Redo)
+## 7. Manuelle Testfälle (Phase 3 bis 7, Software R2.2.0, inkl. Windows-Paket und Undo/Redo)
 
 Voraussetzung: App starten mit
 
@@ -772,7 +774,8 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Noch ein Klick auf denselben Kreis | Detailansicht: Fotos, Videos und Tracks dieses Eintrags, Ausschnitt angepasst; **Reiseabschnitt schließen** rechts neben dem Zoom-Plus stellt Zoom und Ausschnitt der Übersicht wieder her |
 | Klick auf das Verkehrssymbol eines Transfers | dieselbe Detailansicht wie der zweite Klick auf den Transfer-Kreis |
 | Freie Karte: offene Hand (Verschieben); über einem Kreis: Zeiger (Auswahl) | der Kreis-Klick zoomt bzw. öffnet das Detail, startet kein Mausrad-Zoomen |
-| In der Detailansicht eine Leistenkarte anklicken | Detail schließt; Zoom auf den Cover-Kreis dieses Abschnitts; der Mauszeiger steht über der Kartenmitte |
+| In der Detailansicht eine **andere** Leistenkarte anklicken | Detail schließt; Zoom auf den Cover-Kreis dieses Abschnitts; der Mauszeiger steht über der Kartenmitte |
+| In der Detailansicht die **aktuelle** Leistenkarte anklicken | Detail bleibt (wie nach **Zur Karte**) |
 | Klick auf ein einzelnes viereckiges Foto-Symbol im Detail | Thumbnail-Popup nur an der zentrierten Stelle (großes Bild + kleines Kartenbild + Datum); nicht zuerst am alten Marker |
 | Thumbnail-Schieber der Kartenseite | nur die große Popup-Vorschau wächst/schrumpft (50–200 %); Cover-Kreise und kleine Marker bleiben |
 | Pfeile am Popup oder Pfeiltasten | nächstes/vorheriges Foto, Wrap-around; Thumbnail-Modus bleibt; Klick in die freie Karte beendet ihn |
@@ -820,8 +823,8 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Chip **T** auf Foto und auf Track | Cover in der Kartenüberschrift; Video hat kein T |
 | Ohne Chip T | Fallback: erstes Foto, sonst erstes Track-Thumbnail, sonst erstes YouTube-Vorschaubild |
 | **Zur Karte** an einem gespeicherten Reiseabschnitt oder Tag | Seite **Karte**, passende Leistenkarte fokussiert |
-| Rechtsklick auf ein Thumbnail, **Zur Karte…** | Seite **Karte**, Detailansicht des Abschnitts, Ausschnitt auf der Position des Bildes (nur mit Kartenposition, gespeicherter Eintrag) |
-| Original-Ansicht: **Zur Karte** | wie der Thumbnail-Menüpunkt; ohne Ort oder im Pool deaktiviert; mehrere Fenster möglich, letzter Klick gewinnt (Detail, Foto, Leistenkarte mittig) |
+| Rechtsklick auf ein Thumbnail, **Zur Karte…** | Seite **Karte**, Detailansicht, Foto an der Position, Leistenkarte des Bildes mittig (nur mit Kartenposition, gespeicherter Eintrag) |
+| Original-Ansicht: **Zur Karte** | wie der Thumbnail-Menüpunkt; ohne Ort oder im Pool deaktiviert; mehrere Fenster möglich, letzter Klick gewinnt (Detail, Foto, Leistenkarte mittig). Ist die Karte schon geladen, kein Neuaufbau — Detail und Foto sofort |
 | **In den Pool** auf markierten Medien | Medien verschwinden aus Tag/Transfer/Aufenthalt; die rechte **Pool**-Spalte öffnet sich und zeigt sie |
 | Pool-Spalte: Auswahl, **Zurück in die Timeline** | Medien liegen wieder auf einem Tag nach Journal-/Aufnahmezeit |
 | Pfeil rechts außen in der Timeline oder auf **Medien** | klappt die Pool-Spalte ein und aus, wie die Navigation; keine Abschnittskarte |
@@ -852,7 +855,9 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Seite **Medien**: Doppelklick | dieselbe Sequenz wie die aktuelle Galerie |
 | **In den Pool** im Inspektor (Timeline, Medien oder Karte) | Medium liegt im Pool; nächstes Foto (letztes bleibt); Button wird **Zurückholen**; Originale unverändert |
 | **Zurückholen** im Inspektor | Medium wieder in Timeline und Galerie |
-| **Zur Karte** bei einem Medium mit Ort | Seite **Karte**, Detailansicht, Ausschnitt auf der Position des Bildes; ohne Ort oder im Pool deaktiviert |
+| **Zur Karte** bei einem Medium mit Ort | Seite **Karte**, Detailansicht, Foto-Popup, zugehörige Leistenkarte mittig; ohne Ort oder im Pool deaktiviert |
+| Zweites Original-Fenster, **Zur Karte** im zweiten | versetzt; letzter Klick gewinnt Detail, Foto und Leistenkarte |
+| **Zur Karte**, Karte war in der Sitzung schon offen | sofort Detail und Foto, kein langes Neuzeichnen |
 
 ### MT-19 Anzeigedrehung
 
@@ -873,8 +878,8 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| App ohne Projekt | Titelleiste `Reisetagebuch R2.1.1` |
-| Projekt öffnen | `Reisetagebuch R2.1.1 - {Projekttitel}` |
+| App ohne Projekt | Titelleiste `Reisetagebuch R2.2.0` |
+| Projekt öffnen | `Reisetagebuch R2.2.0 - {Projekttitel}` |
 
 ### MT-22 Windows-Paket (FA-140–FA-144)
 
@@ -882,7 +887,7 @@ Voraussetzung: `packaging/build.ps1` erfolgreich; optional Inno Setup 6 für die
 
 | Schritt | Erwartung |
 | --- | --- |
-| `dist/Reisetagebuch/Reisetagebuch.exe` starten (ohne venv, ohne `python` auf dem PATH) | Fenster `Reisetagebuch R2.1.1`; kein Python-Fehlerdialog |
+| `dist/Reisetagebuch/Reisetagebuch.exe` starten (ohne venv, ohne `python` auf dem PATH) | Fenster `Reisetagebuch R2.2.0`; kein Python-Fehlerdialog |
 | Neues Projekt anlegen, JPEG-Ordner importieren | Index und Thumbnails wie in der Entwicklungsumgebung; Originale unverändert |
 | Seite **Karte** | WebEngine zeigt die Karte (nicht nur den HTML-Pfad) |
 | `%LOCALAPPDATA%\TravelJournal` | `config.json` / `recent.json` wie bisher, nicht im Programmordner |
@@ -946,7 +951,7 @@ Diese Fälle werden mit der jeweiligen Phase verbindlich.
 | Hilfsskript JSON → GPX | `tests/test_json_routes_to_gpx.py`; Aufruf im README |
 | Karte / Leiste / Kreis-Detail | `test_maps.py`, `tests/test_gui_smoke.py` (Map-Fälle), manuell MT-12 |
 | Verbindungslinien / Symbole | `test_transfer_links.py`, `test_symbols.py`, `test_maps.py` (outbound), `tests/test_gui_smoke.py` (Transfer-Zeile), manuell MT-12, MT-13, MT-25 |
-| Inspektor / Drehung / Register | `test_orientation.py`, `tests/test_gui_smoke.py`, manuell MT-18–MT-21 |
+| Inspektor / Drehung / Register / Zur Karte | `test_orientation.py`, `tests/test_gui_smoke.py`, manuell MT-18–MT-21 |
 | Windows-Paket (`packaging/`) | manuell MT-22 (kein pytest) |
 | UI-Importliste | MT-04, MT-23 |
 | Vor Phasenabschluss | pytest grün + manuelle Fälle der Phase + Ruff |
@@ -959,6 +964,7 @@ Ein Phasenabschluss ohne grüne Automatisierung gilt als nicht abgenommen.
 
 | Datum | Kommando | Ergebnis |
 | --- | --- | --- |
+| 30.08.2026 | `python -m pytest` im Projekt-venv | 415 bestanden (R2.2.0; Zur Karte letzter Klick, Detail+Foto, geladene Karte ohne Neuaufbau) |
 | 30.08.2026 | `python -m pytest` im Projekt-venv | 400 bestanden (R2.1.1; Cover-Zoom, Foto-Popup, Track-Bewertung, Thumbnail-Schieber) |
 | 29.08.2026 | `python -m pytest` im Projekt-venv | 393 bestanden (R2.1.0; Verbindungslinien, Ausgangslinie, Verkehrssymbole) |
 | 29.08.2026 | `python -m pytest` (`test_timeline_history`, `test_edit_history`, `test_main_window_starts`) im Projekt-venv | 12 bestanden; damals 375 Tests (R2.0.0, inkl. Undo/Redo) |
