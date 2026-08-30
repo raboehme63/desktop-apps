@@ -218,6 +218,85 @@ MAP_PAGE_SETUP_JS = """
     console.warn('traveljournal:expand:' + key);
   }
   window.traveljournalExpand = expandKey;
+  window.traveljournalCoverActivate = function(key, detail) {
+    if (!key || window._tjPlaceMode) {
+      return;
+    }
+    var now = Date.now();
+    if (detail) {
+      if (window._tjCoverTimer) {
+        clearTimeout(window._tjCoverTimer);
+        window._tjCoverTimer = null;
+      }
+      window._tjCoverAt = 0;
+      window._tjCoverKey = '';
+      expandKey(key);
+      return;
+    }
+    if (window._tjCoverKey === key && now - (window._tjCoverPulse || 0) < 50) {
+      return;
+    }
+    window._tjCoverPulse = now;
+    if (window._tjCoverKey === key && now - (window._tjCoverAt || 0) < 350) {
+      if (window._tjCoverTimer) {
+        clearTimeout(window._tjCoverTimer);
+        window._tjCoverTimer = null;
+      }
+      window._tjCoverAt = 0;
+      window._tjCoverKey = '';
+      expandKey(key);
+      return;
+    }
+    window._tjCoverKey = key;
+    window._tjCoverAt = now;
+    if (window._tjCoverTimer) {
+      clearTimeout(window._tjCoverTimer);
+    }
+    window._tjCoverTimer = setTimeout(function() {
+      window._tjCoverTimer = null;
+      if (window.traveljournalCenterCover) {
+        window.traveljournalCenterCover(key);
+      }
+    }, 280);
+  };
+  window.traveljournalCenterCover = function(key) {
+    if (!key) {
+      return;
+    }
+    if (window.traveljournalFitCoverPack && window.traveljournalFitCoverPack(key)) {
+      return;
+    }
+    var map = findMap();
+    if (!map) {
+      return;
+    }
+    window.traveljournalKeepFocus = true;
+    var safe = String(key).replace(/"/g, '');
+    var ll = null;
+    if (map.eachLayer) {
+      map.eachLayer(function(layer) {
+        if (ll || !layer.getLatLng) {
+          return;
+        }
+        var el = (layer.getElement && layer.getElement()) || layer._icon;
+        var node = el && el.querySelector
+          ? el.querySelector('.tj-cover[data-group-key="' + safe + '"]')
+          : null;
+        if (node) {
+          ll = layer.getLatLng();
+        }
+      });
+    }
+    if (!ll) {
+      return;
+    }
+    var zoom = Math.max(map.getZoom() || 0, 14);
+    if (window.traveljournalZoomToCover) {
+      window.traveljournalZoomToCover(ll.lat, ll.lng, key, zoom);
+      return;
+    }
+    map.setView(ll, zoom, {animate: true, pan: {animate: true}, zoom: {animate: false}});
+  };
   function coverNode(event) {
     var target = event.target;
     if (!target || !target.closest) {
@@ -271,7 +350,16 @@ MAP_PAGE_SETUP_JS = """
       }
       event.preventDefault();
       event.stopPropagation();
-      expandKey(key);
+      window.traveljournalCoverActivate(key, false);
+    }, true);
+    document.addEventListener('dblclick', function(event) {
+      var node = coverNode(event);
+      if (!node) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      window.traveljournalCoverActivate(node.getAttribute('data-group-key'), true);
     }, true);
   }
   function wrapFocus() {
@@ -1354,10 +1442,19 @@ class MapView(QWidget):
             return
         if not self._map_focus_armed:
             return
-        if not group_key or group_key == self._last_expand_key:
+        if not group_key:
+            return
+        if self._last_expand_key:
+            self._close_detail_and_zoom(group_key)
             return
         self._pending_focus = group_key
         self._apply_pending_focus()
+
+    def _close_detail_and_zoom(self, group_key: str) -> None:
+        self._last_expand_key = ""
+        self._detail_group_key = ""
+        self._detail_items = []
+        self._zoom_to_cover(group_key)
 
     def _clear_entry_panel(self) -> None:
         self._notes_group_key = ""

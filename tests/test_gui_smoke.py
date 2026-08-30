@@ -1093,6 +1093,56 @@ def test_map_view_focus_group_centers_section_card() -> None:
     _ = app
 
 
+def test_strip_click_closes_detail_and_zooms_cover() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.maps.groups import MapTimelineCard
+    from travelcore.timeline.sections import KIND_STAY
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.map_view import MapView
+
+    app = QApplication.instance() or QApplication([])
+    view = MapView(Workspace())
+    view._timeline.set_cards(
+        (
+            MapTimelineCard(
+                group_key="section:1",
+                title="Eins",
+                time_label="am 01.05.2025",
+                latitude=46.0,
+                longitude=11.0,
+                card_kind=KIND_STAY,
+            ),
+            MapTimelineCard(
+                group_key="section:7",
+                title="Sieben",
+                time_label="am 02.05.2025",
+                latitude=47.0,
+                longitude=12.0,
+                card_kind=KIND_STAY,
+            ),
+        )
+    )
+    view._map_focus_armed = True
+    view._last_expand_key = "section:1"
+    view._detail_group_key = "section:1"
+    scripts: list[str] = []
+    view._run_js = scripts.append  # type: ignore[method-assign]
+    view._on_timeline_focus("section:7")
+    assert view._last_expand_key == ""
+    assert view._detail_group_key == ""
+    assert view._timeline.focused_key() == "section:7"
+    assert any("traveljournalZoomToCover" in script for script in scripts)
+    view._last_expand_key = "section:7"
+    view._detail_group_key = "section:7"
+    scripts.clear()
+    view._on_timeline_focus("section:7")
+    assert view._last_expand_key == ""
+    assert any("traveljournalZoomToCover" in script for script in scripts)
+    _ = app
+
+
 def test_map_notes_edit_shows_save_cancel_discard() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication
@@ -3086,6 +3136,11 @@ def test_parse_map_bridge_url_reads_group_key() -> None:
     assert "traveljournalCaptureView" in MAP_PAGE_SETUP_JS
     assert "traveljournalRestoreView" in MAP_PAGE_SETUP_JS
     assert "pointerup" in MAP_PAGE_SETUP_JS
+    assert "traveljournalCoverActivate" in MAP_PAGE_SETUP_JS
+    assert "traveljournalCenterCover" in MAP_PAGE_SETUP_JS
+    assert "traveljournalFitCoverPack" in MAP_PAGE_SETUP_JS
+    assert "getBoundingClientRect" not in MAP_PAGE_SETUP_JS
+    assert "layer.getLatLng" in MAP_PAGE_SETUP_JS
     assert "zoom: {animate: false}" in MAP_PAGE_SETUP_JS
 
 
@@ -3218,7 +3273,7 @@ def test_map_timeline_strip_centers_first_card() -> None:
     from datetime import UTC, date, datetime
 
     from PySide6.QtCore import QEvent, QPointF, QRectF, Qt
-    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtGui import QCursor, QMouseEvent
     from PySide6.QtWidgets import QApplication
 
     from travelcore.maps.groups import MapTimelineCard
@@ -3229,6 +3284,7 @@ def test_map_timeline_strip_centers_first_card() -> None:
         CARD_WIDTH,
         MapTimelineStrip,
         cover_dest_rect,
+        cursor_on_card_global,
         hexagon_cut,
         nearest_card_index,
         section_card_menu_items,
@@ -3386,6 +3442,23 @@ def test_map_timeline_strip_centers_first_card() -> None:
         )
     )
     assert opened == ["section:1"]
+    card = strip._widgets[2]
+    local = QPointF(card.width() / 2, card.height() / 2)
+    card.mouseReleaseEvent(
+        QMouseEvent(
+            QEvent.Type.MouseButtonRelease,
+            local,
+            local,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    app.processEvents()
+    expected = cursor_on_card_global(card, 0.5, 0.5)
+    cursor = QCursor.pos()
+    assert abs(cursor.x() - expected.x()) <= 2
+    assert abs(cursor.y() - expected.y()) <= 2
     _ = app
 
 

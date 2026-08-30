@@ -7,6 +7,7 @@ from dataclasses import replace
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
+    QCursor,
     QFont,
     QFontMetrics,
     QLinearGradient,
@@ -75,6 +76,22 @@ def cover_dest_rect(target: QRectF, pixmap_width: float, pixmap_height: float) -
         width,
         height,
     )
+
+
+def cursor_on_card_global(widget: QWidget, fraction_x: float, fraction_y: float) -> QPoint:
+    """Global pixel under the same relative point on ``widget`` after it moved."""
+
+    x = int(round(max(0.0, min(1.0, fraction_x)) * max(1, widget.width() - 1)))
+    y = int(round(max(0.0, min(1.0, fraction_y)) * max(1, widget.height() - 1)))
+    return widget.mapToGlobal(QPoint(x, y))
+
+
+def snap_cursor_to_card(widget: QWidget, fraction_x: float, fraction_y: float) -> QPoint:
+    """Move the pointer so it stays on the card after the strip recenters."""
+
+    target = cursor_on_card_global(widget, fraction_x, fraction_y)
+    QCursor.setPos(target)
+    return target
 
 
 def nearest_card_index(centers: list[int], viewport_center: int) -> int | None:
@@ -275,7 +292,11 @@ class _CardWidget(QFrame):
             self._press = None
             self._dragged = False
             if not dragged:
+                pos = event.position()
+                frac_x = pos.x() / max(1, self.width())
+                frac_y = pos.y() / max(1, self.height())
                 self.clicked.emit(self.card.group_key)
+                snap_cursor_to_card(self, frac_x, frac_y)
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -459,6 +480,9 @@ class MapTimelineStrip(QScrollArea):
         if widget is None:
             return
         self._apply_focus(group_key, force=True, emit=emit)
+        layout = self._inner.layout()
+        if layout is not None:
+            layout.activate()
         self._scroll_widget_to_center(widget)
 
     def sizeHint(self) -> QSize:  # noqa: N802

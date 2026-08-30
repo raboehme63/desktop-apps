@@ -185,6 +185,26 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
     assert "traveljournalSetThumbZoom" in text
     assert "traveljournalPopupStep" in text
     assert "(index + delta + list.length) % list.length" in text
+    assert "popupBrowseIndex" in text
+    assert "popupStepGen" in text
+    assert "browseLock" in text
+    assert "focusPhoto(next.id, true)" in text
+    assert "centerBrowseView" in text
+    assert "estimatePopupHeight" in text
+    thumb_at = text.find("function openPhotoThumbnail")
+    click_at = text.find("function onPhotoMarkerClick", thumb_at)
+    thumb_open = text[thumb_at:click_at]
+    assert "centerBrowseView(entry)" in thumb_open
+    assert thumb_open.find("centerBrowseView(entry)") < thumb_open.find("openPopup")
+    entry_at = text.find("function openEntryPopup")
+    assert entry_at > 0
+    assert "openPhotoThumbnail(entry)" in text[entry_at : entry_at + 80]
+    assert "revealEntryMarker" in text
+    assert "stackPhase === 'solo' || stackPhase === 'fan' || map._popup" in text
+    assert "autoPan: false" in text
+    assert "isThumbBrowse" in text
+    assert "thumbKeyGuard" in text
+    assert "addEventListener('keydown'" in text
     assert "bindPopupChrome" in text
     assert "tj-popup-arrow" in text
     assert "leaflet-popup-content:has(.tj-popup)" in text
@@ -203,6 +223,11 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
     assert "traveljournalFocusMedia" in text
     assert "covers.eachLayer" in text
     assert "window.traveljournalExpand(key)" in text
+    assert "traveljournalCoverActivate" in text
+    assert "traveljournalCenterCover" in text
+    assert "traveljournalFitCoverPack" in text
+    assert "overlapCoverPack" in text
+    assert "maxZoom: 13" in text
     assert "layerKey" in text
     assert "group_key" in text
     assert "getLayers().length" in text
@@ -221,6 +246,8 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
     assert "traveljournalFitOverview" in text
     assert "doubleClickZoom.disable" in text
     assert "covers.getBounds" in text
+    assert "tj-fit-trip" in text
+    assert "Zoom auf die gesamte Reise" in text
     assert "traveljournalMarkCover" in text
     assert "traveljournalFocusCover" in text
     assert "traveljournalZoomToCover" in text

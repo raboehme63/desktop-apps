@@ -70,6 +70,13 @@ _LAYERS_ICON_SVG = (
 )
 
 
+_FIT_TRIP_ICON_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" '
+    'fill="none" stroke="#333" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" '
+    'aria-hidden="true">'
+    '<path d="M8 3H3v5"/><path d="M16 3h5v5"/><path d="M8 21H3v-5"/><path d="M16 21h5v-5"/>'
+    "</svg>"
+)
 _GEAR_ICON_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" '
     'fill="none" stroke="#333" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" '
@@ -317,6 +324,7 @@ def _map_settings_js() -> str:
     """Uses ``map`` from the enclosing script. Optional ``traveljournalApplyMapSettings``."""
 
     icon = json.dumps(_GEAR_ICON_SVG, ensure_ascii=True)
+    fit_icon = json.dumps(_FIT_TRIP_ICON_SVG, ensure_ascii=True)
     return f"""
     window.traveljournalMapFlags = window.traveljournalMapFlags || {{
       cones: false, reserve: false, satLabels: false, satStreets: false
@@ -399,6 +407,34 @@ def _map_settings_js() -> str:
         return;
       }}
       window.traveljournalMapSettingsReady = true;
+      var fitCtl = L.control({{position: 'topleft'}});
+      fitCtl.onAdd = function() {{
+        var box = L.DomUtil.create('div', 'leaflet-bar tj-fit-trip');
+        var btn = L.DomUtil.create('a', '', box);
+        btn.href = '#';
+        btn.title = 'Zoom auf die gesamte Reise';
+        btn.setAttribute('aria-label', 'Zoom auf die gesamte Reise');
+        btn.innerHTML = {fit_icon};
+        L.DomEvent.disableClickPropagation(box);
+        L.DomEvent.on(btn, 'click', function(event) {{
+          L.DomEvent.stop(event);
+          if (window.traveljournalFitOverview) {{
+            window.traveljournalFitOverview();
+            return;
+          }}
+          var pts = [];
+          map.eachLayer(function(layer) {{
+            if (layer.getLatLng) {{
+              pts.push(layer.getLatLng());
+            }}
+          }});
+          if (pts.length) {{
+            map.fitBounds(L.latLngBounds(pts), {{padding: [56, 56], maxZoom: 13}});
+          }}
+        }});
+        return box;
+      }};
+      fitCtl.addTo(map);
       var ctl = L.control({{position: 'topleft'}});
       ctl.onAdd = function() {{
         var box = L.DomUtil.create('div', 'leaflet-bar tj-settings');
@@ -472,6 +508,8 @@ def _photo_cone_js() -> str:
     var stackPhase = 'idle';
     var fannedIds = {{}};
     var photoClickGuard = 0;
+    var thumbCentering = false;
+    var thumbPlaceTimer = 0;
     var CONE_MIN_ZOOM = {PHOTO_CONE_MIN_ZOOM};
     var CONE_RANGE_M = 80;
     var DEFAULT_FOV = {DEFAULT_PHOTO_FOV_DEGREES};
@@ -560,33 +598,50 @@ def _photo_cone_js() -> str:
       }}
     }};
     map.on('zoomstart', function() {{
+      if (thumbCentering || stackPhase === 'solo' || stackPhase === 'fan') {{
+        return;
+      }}
       snapEntriesHome();
     }});
     map.on('zoomend', function() {{
-      if (map.getZoom() < {PHOTO_STACK_DISABLE_ZOOM}) {{
+      if (map.getZoom() < {PHOTO_STACK_DISABLE_ZOOM}
+          && stackPhase !== 'solo' && stackPhase !== 'fan' && !map._popup) {{
         stackPhase = 'idle';
         fannedIds = {{}};
         focusedPhotoId = null;
       }}
-      syncPhotoStack();
-    }});
-    map.on('moveend', function() {{
-      if (savedView) {{
+      if (!thumbCentering) {{
         syncPhotoStack();
       }}
     }});
+    map.on('moveend', function() {{
+      if (savedView && !thumbCentering) {{
+        syncPhotoStack();
+      }}
+    }});
+    var thumbKeyGuard = 0;
+    function isThumbBrowse() {{
+      return !!(map._popup || stackPhase === 'solo');
+    }}
     map.on('click', function(event) {{
       if (!savedView || stackPhase === 'idle') {{
         return;
       }}
-      var orig = event.originalEvent && event.originalEvent.target;
-      if (orig && orig.closest && orig.closest(
-        '.leaflet-popup, .leaflet-control, .tj-close-section, .tj-settings, '
+      var orig = event.originalEvent;
+      var target = orig && orig.target;
+      if (target && target.closest && target.closest(
+        '.leaflet-popup, .leaflet-control, .tj-close-section, .tj-settings, .tj-fit-trip, '
         + '.tj-cover-icon, .tj-thumb, .tj-stack, .tj-stack-icon'
       )) {{
         return;
       }}
-      if ((Date.now() - photoClickGuard) < 400) {{
+      if (!orig || (orig.button != null && orig.button !== 0)) {{
+        return;
+      }}
+      if (orig.detail === 0 && !orig.pointerType) {{
+        return;
+      }}
+      if ((Date.now() - photoClickGuard) < 400 || (Date.now() - thumbKeyGuard) < 400) {{
         return;
       }}
       resetPhotoFan();
@@ -603,7 +658,7 @@ def _photo_cone_js() -> str:
     }}
     function overlapPhotoGroups() {{
       var n = photoEntries.length;
-      if (n < 2 || map.getZoom() < {PHOTO_STACK_DISABLE_ZOOM}) {{
+      if (n < 2) {{
         return [];
       }}
       var pts = [];
@@ -719,6 +774,16 @@ def _photo_cone_js() -> str:
     }}
     function clearSpiderOffset(entry) {{
       setSpiderOffset(entry, 0, 0);
+    }}
+    function revealEntryMarker(entry) {{
+      if (!entry || !entry.marker) {{
+        return;
+      }}
+      parkSpiderMarker(entry);
+      clearSpiderOffset(entry);
+      entry.spiderLatLng = null;
+      entry.marker.setLatLng(entryOrigin(entry));
+      setEntryVisible(entry, true);
     }}
     function parkSpiderMarker(entry) {{
       var cluster = window._tjPhotoCluster;
@@ -869,12 +934,13 @@ def _photo_cone_js() -> str:
       applySpiderLayout();
       updatePhotoCones();
     }}
-    function isolatePhoto(entry) {{
+    function isolatePhoto(entry, keepPopup) {{
       stackPhase = 'solo';
       focusedPhotoId = entry.id;
-      if (map.closePopup) {{
+      if (!keepPopup && map.closePopup) {{
         map.closePopup();
       }}
+      revealEntryMarker(entry);
       applySoloLayout();
       updatePhotoCones();
     }}
@@ -888,8 +954,62 @@ def _photo_cone_js() -> str:
       snapEntriesHome();
       updatePhotoCones();
     }}
+    function estimatePopupHeight(entry) {{
+      var width = 180;
+      if (typeof popupThumbWidth === 'function') {{
+        width = popupThumbWidth();
+      }}
+      var chrome = 130;
+      var ratio = 0.75;
+      var node = markerNode(entry && entry.marker);
+      var img = node && node.querySelector ? node.querySelector('img') : null;
+      if (img && img.naturalWidth > 1 && img.naturalHeight > 1) {{
+        ratio = img.naturalHeight / img.naturalWidth;
+      }}
+      return Math.max(140, width * ratio + chrome);
+    }}
+    function centerBrowseView(entry) {{
+      var marker = entry && entry.marker;
+      var ll = marker && marker.getLatLng && marker.getLatLng();
+      if (!ll) {{
+        return;
+      }}
+      var zoom = map.getZoom() || 0;
+      var size = map.getSize && map.getSize();
+      if (!size || size.x < 2 || size.y < 2) {{
+        return;
+      }}
+      var pad = 20;
+      var popupH = estimatePopupHeight(entry);
+      var thumbH = PHOTO_THUMB_PX;
+      var groupH = popupH + thumbH;
+      var markerY = size.y / 2 + groupH / 2 - thumbH / 2;
+      if (markerY - popupH < pad) {{
+        markerY = pad + popupH;
+      }}
+      thumbCentering = true;
+      window.traveljournalKeepFocus = true;
+      try {{
+        if (map.stop) {{
+          map.stop();
+        }}
+        var pt = map.project(ll, zoom);
+        var center = map.unproject(L.point(pt.x, pt.y - (markerY - size.y / 2)), zoom);
+        map.setView(center, zoom, {{animate: false}});
+      }} catch (err) {{}}
+      thumbCentering = false;
+    }}
     function openPhotoThumbnail(entry) {{
-      if (entry.marker && entry.marker.openPopup) {{
+      if (!entry || !entry.marker) {{
+        return;
+      }}
+      revealEntryMarker(entry);
+      var popup = entry.marker.getPopup && entry.marker.getPopup();
+      if (popup && popup.options) {{
+        popup.options.autoPan = false;
+      }}
+      centerBrowseView(entry);
+      if (entry.marker.openPopup) {{
         entry.marker.openPopup();
       }}
     }}
@@ -929,6 +1049,12 @@ def _photo_cone_js() -> str:
       spiderLock = true;
       try {{
         if (map.getZoom() < {PHOTO_STACK_DISABLE_ZOOM}) {{
+          if (stackPhase === 'solo' || stackPhase === 'fan' || map._popup) {{
+            if (stackPhase === 'solo') {{
+              applySoloLayout();
+            }}
+            return;
+          }}
           stackPhase = 'idle';
           fannedIds = {{}};
           focusedPhotoId = null;
@@ -948,25 +1074,21 @@ def _photo_cone_js() -> str:
         updatePhotoCones();
       }}
     }}
-    function focusPhoto(entryId) {{
+    function focusPhoto(entryId, keepPopup) {{
       var entry = entryById(entryId);
       if (!entry) {{
         return;
       }}
       var group = groupForEntry(entry);
+      fannedIds = {{}};
       if (group && group.length > 1) {{
-        fannedIds = {{}};
         group.forEach(function(item) {{
           fannedIds[item.id] = true;
         }});
-        isolatePhoto(entry);
-        return;
+      }} else {{
+        fannedIds[entry.id] = true;
       }}
-      stackPhase = 'idle';
-      focusedPhotoId = null;
-      fannedIds = {{}};
-      snapEntriesHome();
-      updatePhotoCones();
+      isolatePhoto(entry, keepPopup);
     }}
 """
 
@@ -1143,6 +1265,17 @@ _BASEMAP_RULES = """
 .tj-basemap-menu a.tj-basemap-on {
   background: #2eb8a0 !important;
   color: #fff !important;
+}
+.tj-fit-trip a {
+  width: 26px !important;
+  height: 26px !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  line-height: 26px !important;
+}
+.tj-fit-trip svg {
+  display: block;
 }
 .tj-settings {
   position: relative;
@@ -1874,6 +2007,177 @@ def _overview_script(
       }}
       console.warn('traveljournal:expand:' + key);
     }};
+    function overlapCoverPack(key) {{
+      var layers = [];
+      covers.eachLayer(function(layer) {{
+        if (layer.getLatLng && layerKey(layer)) {{
+          layers.push(layer);
+        }}
+      }});
+      var n = layers.length;
+      if (n < 2) {{
+        return [];
+      }}
+      var pts = [];
+      var parent = [];
+      var i;
+      var j;
+      for (i = 0; i < n; i++) {{
+        pts.push(map.latLngToContainerPoint(layers[i].getLatLng()));
+        parent[i] = i;
+      }}
+      function find(x) {{
+        while (parent[x] !== x) {{
+          parent[x] = parent[parent[x]];
+          x = parent[x];
+        }}
+        return x;
+      }}
+      var r2 = COVER_PX * COVER_PX;
+      for (i = 0; i < n; i++) {{
+        for (j = i + 1; j < n; j++) {{
+          var dx = pts[i].x - pts[j].x;
+          var dy = pts[i].y - pts[j].y;
+          if ((dx * dx) + (dy * dy) <= r2) {{
+            parent[find(i)] = find(j);
+          }}
+        }}
+      }}
+      var start = -1;
+      for (i = 0; i < n; i++) {{
+        if (layerKey(layers[i]) === key) {{
+          start = i;
+          break;
+        }}
+      }}
+      if (start < 0) {{
+        return [];
+      }}
+      var root = find(start);
+      var pack = [];
+      for (i = 0; i < n; i++) {{
+        if (find(i) === root) {{
+          pack.push(layers[i]);
+        }}
+      }}
+      return pack;
+    }}
+    window.traveljournalFitCoverPack = function(key) {{
+      if (!key || savedView) {{
+        return false;
+      }}
+      var pack = overlapCoverPack(key);
+      if (pack.length < 2) {{
+        return false;
+      }}
+      var bounds = L.latLngBounds(pack.map(function(layer) {{
+        return layer.getLatLng();
+      }}));
+      if (!bounds || !bounds.isValid()) {{
+        return false;
+      }}
+      var overlay = window.traveljournalOverlayPad || 0;
+      var pad = L.point(56, 56 + overlay);
+      var wanted = map.getBoundsZoom ? map.getBoundsZoom(bounds, false, pad) : 13;
+      if (typeof wanted !== 'number') {{
+        return false;
+      }}
+      wanted = Math.min(wanted, 13);
+      if (wanted <= (map.getZoom() || 0) + 0.25) {{
+        return false;
+      }}
+      window.traveljournalKeepFocus = true;
+      try {{
+        if (map.stop) {{
+          map.stop();
+        }}
+        map.fitBounds(bounds, {{
+          paddingTopLeft: [56, 56],
+          paddingBottomRight: [56, 56 + overlay],
+          maxZoom: 13,
+          animate: true,
+          pan: {{animate: true}},
+          zoom: {{animate: false}}
+        }});
+        if (window.traveljournalMarkCover) {{
+          window.traveljournalMarkCover(key);
+        }}
+      }} catch (err) {{
+        return false;
+      }}
+      return true;
+    }};
+    window.traveljournalCenterCover = function(key) {{
+      if (!key) {{
+        return;
+      }}
+      if (window.traveljournalFitCoverPack && window.traveljournalFitCoverPack(key)) {{
+        return;
+      }}
+      var target = null;
+      covers.eachLayer(function(layer) {{
+        if (!target && layerKey(layer) === key) {{
+          target = layer;
+        }}
+      }});
+      var ll = target && target.getLatLng && target.getLatLng();
+      if (!ll) {{
+        return;
+      }}
+      var zoom = Math.max(map.getZoom() || 0, 14);
+      if (window.traveljournalZoomToCover) {{
+        window.traveljournalZoomToCover(ll.lat, ll.lng, key, zoom);
+        return;
+      }}
+      window.traveljournalKeepFocus = true;
+      map.setView(ll, zoom, {{
+        animate: true,
+        pan: {{animate: true}},
+        zoom: {{animate: false}}
+      }});
+      if (window.traveljournalMarkCover) {{
+        window.traveljournalMarkCover(key);
+      }}
+    }};
+    if (!window.traveljournalCoverActivate) {{
+      window.traveljournalCoverActivate = function(key, detail) {{
+        if (!key) {{
+          return;
+        }}
+        var now = Date.now();
+        if (detail) {{
+          if (window._tjCoverTimer) {{
+            clearTimeout(window._tjCoverTimer);
+            window._tjCoverTimer = null;
+          }}
+          window.traveljournalExpand(key);
+          return;
+        }}
+        if (window._tjCoverKey === key && now - (window._tjCoverPulse || 0) < 50) {{
+          return;
+        }}
+        window._tjCoverPulse = now;
+        if (window._tjCoverKey === key && now - (window._tjCoverAt || 0) < 350) {{
+          if (window._tjCoverTimer) {{
+            clearTimeout(window._tjCoverTimer);
+            window._tjCoverTimer = null;
+          }}
+          window._tjCoverAt = 0;
+          window._tjCoverKey = '';
+          window.traveljournalExpand(key);
+          return;
+        }}
+        window._tjCoverKey = key;
+        window._tjCoverAt = now;
+        if (window._tjCoverTimer) {{
+          clearTimeout(window._tjCoverTimer);
+        }}
+        window._tjCoverTimer = setTimeout(function() {{
+          window._tjCoverTimer = null;
+          window.traveljournalCenterCover(key);
+        }}, 280);
+      }};
+    }}
     window.traveljournalOpenMedia = function(sourceId) {{
       var id = parseInt(sourceId, 10);
       if (!id) {{
@@ -1985,6 +2289,7 @@ def _overview_script(
       }}
       popup.options.maxWidth = Math.max(260, width + 48);
       popup.options.minWidth = width;
+      popup.options.autoPan = false;
       if (popup.update) {{
         popup.update();
       }}
@@ -2034,6 +2339,9 @@ def _overview_script(
       var rate = document.querySelector('.leaflet-popup .tj-rate[data-source-id]');
       return rate ? rate.getAttribute('data-source-id') : null;
     }}
+    var popupBrowseIndex = -1;
+    var popupStepGen = 0;
+    var browseLock = false;
     function currentPopupIndex(list) {{
       var sid = currentPopupSourceId();
       var i;
@@ -2051,6 +2359,15 @@ def _overview_script(
         }}
       }}
       return -1;
+    }}
+    function rememberBrowseIndex() {{
+      if (browseLock) {{
+        return;
+      }}
+      var idx = currentPopupIndex(popupBrowseList());
+      if (idx >= 0) {{
+        popupBrowseIndex = idx;
+      }}
     }}
     function syncPopupArrows(root) {{
       var list = popupBrowseList();
@@ -2076,6 +2393,7 @@ def _overview_script(
           window.traveljournalOpenMedia(img.getAttribute('data-source-id'));
         }});
       }}
+      rememberBrowseIndex();
       syncPopupArrows(root);
       var arrows = root.querySelectorAll('.tj-popup-arrow');
       for (var a = 0; a < arrows.length; a++) {{
@@ -2111,56 +2429,35 @@ def _overview_script(
       }}
     }}
     function openEntryPopup(entry) {{
-      if (entry && entry.marker && entry.marker.openPopup) {{
-        entry.marker.openPopup();
-      }}
+      openPhotoThumbnail(entry);
     }}
     window.traveljournalPopupStep = function(delta) {{
       var list = popupBrowseList();
-      if (list.length < 2) {{
+      if (list.length < 2 || !delta) {{
         return;
       }}
-      var index = currentPopupIndex(list);
-      if (index < 0) {{
-        return;
+      var index = popupBrowseIndex;
+      if (index < 0 || index >= list.length) {{
+        index = currentPopupIndex(list);
       }}
-      var next = list[(index + delta + list.length) % list.length];
+      if (index < 0 || index >= list.length) {{
+        index = 0;
+      }}
+      var nextIndex = (index + delta + list.length) % list.length;
+      var next = list[nextIndex];
       if (!next) {{
         return;
       }}
+      popupBrowseIndex = nextIndex;
+      popupStepGen += 1;
+      browseLock = true;
       window.traveljournalKeepFocus = true;
-      var ll = next.marker && next.marker.getLatLng && next.marker.getLatLng();
-      var needMove = false;
-      if (ll && map.getBounds && map.getZoom) {{
-        try {{
-          needMove = !map.getBounds().contains(ll)
-            || (map.getZoom() || 0) < {PHOTO_STACK_DISABLE_ZOOM};
-        }} catch (err) {{
-          needMove = true;
-        }}
-      }}
       if (typeof focusPhoto === 'function') {{
-        focusPhoto(next.id);
-      }}
-      if (needMove && ll) {{
-        var zoom = Math.max(map.getZoom() || 0, {PHOTO_STACK_DISABLE_ZOOM});
-        if (map.stop) {{
-          map.stop();
-        }}
-        map.once('moveend', function() {{
-          openEntryPopup(next);
-        }});
-        map.setView(ll, zoom, {{
-          animate: true,
-          pan: {{animate: true}},
-          zoom: {{animate: false}}
-        }});
-        setTimeout(function() {{
-          openEntryPopup(next);
-        }}, 420);
-        return;
+        focusPhoto(next.id, true);
       }}
       openEntryPopup(next);
+      applyPopupLayout(next.marker && next.marker.getPopup && next.marker.getPopup());
+      browseLock = false;
     }};
     window.traveljournalSetThumbZoom = function(percent) {{
       var n = parseInt(percent, 10);
@@ -2308,7 +2605,7 @@ def _overview_script(
         map.setView(L.latLng(lat, lon), targetZoom, {{
           animate: true,
           pan: {{animate: true}},
-          zoom: {{animate: true}}
+          zoom: {{animate: false}}
         }});
         window.traveljournalMarkCover(key);
       }} catch (err) {{}}
@@ -2329,22 +2626,9 @@ def _overview_script(
         }}
       }});
       if (target && target.marker && target.marker.getLatLng) {{
-        var ll = target.marker.getLatLng();
-        var zoom = Math.max(map.getZoom() || 0, {PHOTO_STACK_DISABLE_ZOOM});
-        if (map.stop) {{
-          map.stop();
-        }}
-        map.setView(ll, zoom, {{
-          animate: true,
-          pan: {{animate: true}},
-          zoom: {{animate: false}}
-        }});
-        focusPhoto(id);
-        setTimeout(function() {{
-          if (target.marker.openPopup) {{
-            target.marker.openPopup();
-          }}
-        }}, 80);
+        focusPhoto(id, true);
+        openEntryPopup(target);
+        applyPopupLayout(target.marker.getPopup && target.marker.getPopup());
         return;
       }}
       var lines = (lastDetailPayload && lastDetailPayload.polylines) || [];
@@ -2430,7 +2714,8 @@ def _overview_script(
         if (item.popup_html) {{
           marker.bindPopup(item.popup_html, {{
             maxWidth: Math.max(260, popupThumbWidth() + 48),
-            minWidth: popupThumbWidth()
+            minWidth: popupThumbWidth(),
+            autoPan: false
           }});
         }}
         if (item.source_file_id) {{
@@ -2595,25 +2880,26 @@ def _overview_script(
         bindPopupChrome(open.getElement && open.getElement());
       }}
     }});
-    L.DomEvent.on(document, 'keydown', function(ev) {{
-      if (!map._popup) {{
+    document.addEventListener('keydown', function(ev) {{
+      if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight') {{
         return;
       }}
-      if (ev.key === 'ArrowLeft') {{
-        L.DomEvent.stop(ev);
-        window.traveljournalPopupStep(-1);
+      if (!isThumbBrowse()) {{
         return;
       }}
-      if (ev.key === 'ArrowRight') {{
-        L.DomEvent.stop(ev);
-        window.traveljournalPopupStep(1);
+      thumbKeyGuard = Date.now();
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (ev.stopImmediatePropagation) {{
+        ev.stopImmediatePropagation();
       }}
-    }});
+      window.traveljournalPopupStep(ev.key === 'ArrowLeft' ? -1 : 1);
+    }}, true);
     map.on('dblclick', function(event) {{
       var target = event.originalEvent && event.originalEvent.target;
       if (target && target.closest && target.closest(
         '.tj-cover, .tj-cover-icon, .tj-thumb, .tj-popup-thumb, .leaflet-popup, '
-        + '.tj-stack-icon, .tj-stack, .tj-photo-cone, .tj-settings, .tj-rate, '
+        + '.tj-stack-icon, .tj-stack, .tj-photo-cone, .tj-settings, .tj-fit-trip, .tj-rate, '
         + '.tj-popup-arrow, .tj-close-section'
       )) {{
         L.DomEvent.stop(event);
@@ -2627,16 +2913,19 @@ def _overview_script(
         return;
       }}
       layer._tjBound = true;
-      function openCover(event) {{
+      function activateCover(event, detail) {{
         L.DomEvent.stop(event);
         var key = layerKey(layer);
-        if (key) {{
-          window.traveljournalExpand(key);
+        if (key && window.traveljournalCoverActivate) {{
+          var clicks = event.originalEvent && event.originalEvent.detail;
+          window.traveljournalCoverActivate(key, !!detail || clicks >= 2);
         }}
       }}
-      layer.on('click', openCover);
+      layer.on('click', function(event) {{
+        activateCover(event, false);
+      }});
       layer.on('dblclick', function(event) {{
-        L.DomEvent.stop(event);
+        activateCover(event, true);
       }});
       layer.on('mouseover', function() {{
         if (map.dragging) {{
@@ -2653,8 +2942,15 @@ def _overview_script(
         }}
         el._tjBound = true;
         el.style.cursor = 'pointer';
-        L.DomEvent.on(el, 'click', openCover);
-        L.DomEvent.on(el, 'pointerup', openCover);
+        L.DomEvent.on(el, 'click', function(event) {{
+          activateCover(event, false);
+        }});
+        L.DomEvent.on(el, 'dblclick', function(event) {{
+          activateCover(event, true);
+        }});
+        L.DomEvent.on(el, 'pointerup', function(event) {{
+          activateCover(event, false);
+        }});
       }}
       bindIcon();
       layer.on('add', bindIcon);
@@ -2681,7 +2977,7 @@ def _overview_script(
         }}
         event.preventDefault();
         event.stopPropagation();
-        window.traveljournalExpand(node.getAttribute('data-group-key'));
+        window.traveljournalCoverActivate(node.getAttribute('data-group-key'), false);
       }}, true);
       mapEl.addEventListener('click', function(event) {{
         var node = coverNodeFromEvent(event);
@@ -2689,7 +2985,16 @@ def _overview_script(
           return;
         }}
         event.stopPropagation();
-        window.traveljournalExpand(node.getAttribute('data-group-key'));
+        window.traveljournalCoverActivate(node.getAttribute('data-group-key'), event.detail >= 2);
+      }}, true);
+      mapEl.addEventListener('dblclick', function(event) {{
+        var node = coverNodeFromEvent(event);
+        if (!node) {{
+          return;
+        }}
+        event.preventDefault();
+        event.stopPropagation();
+        window.traveljournalCoverActivate(node.getAttribute('data-group-key'), true);
       }}, true);
     }}
     map.on('click', function(event) {{
@@ -2720,7 +3025,8 @@ def _overview_script(
       }});
       if (bestKey) {{
         L.DomEvent.stop(event);
-        window.traveljournalExpand(bestKey);
+        var clicks = event.originalEvent && event.originalEvent.detail;
+        window.traveljournalCoverActivate(bestKey, clicks >= 2);
       }}
     }});
     {basemap_boot}
