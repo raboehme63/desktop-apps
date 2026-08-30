@@ -21,6 +21,18 @@ class SimilarityMethod(StrEnum):
     DHASH = "dhash"
     PHASH = "phash"
     CLIP = "clip"
+    MANUAL = "manual"
+
+
+class ClusterType(StrEnum):
+    STACK = "stack"
+    GROUP = "group"
+
+
+class ClusterStatus(StrEnum):
+    SUGGESTED = "suggested"
+    ACCEPTED = "accepted"
+    DISMISSED = "dismissed"
 
 
 @dataclass(frozen=True, slots=True)

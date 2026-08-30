@@ -86,7 +86,7 @@ Das Grundgerüst entsteht **automatisch nach dem Import**, nicht als zweite Wahr
 - **Reiseabschnitte** legt der Benutzer in der Timeline an: aus einer Mehrfachauswahl (Aufenthalt oder Transfer), ohne Auswahl als leeren Abschnitt (**Neuen Reiseabschnitt erstellen**: Tag mit **Am**, Aufenthalt/Transfer mit **Von Datum** / **Bis Datum**) oder über **+** auf der Linie zwischen zwei Karten bzw. zwischen den Leistenkarten auf der Karte (derselbe Dialog, Datum der Lücke vorausgefüllt). ⋯ **Datum…** bzw. **Zeitraum…** ändert die Spanne später; die Karte rutscht in der Timeline an die passende Stelle. Dateien ohne Abschnitt liegen im **Medienpool**. Der Typ (Tag, Transfer, Aufenthalt) ist an jeder Timeline-Karte änderbar. **Löschen** im ⋯-Menü legt alle Medien in den Medienpool. Neu angelegte Abschnitte existieren nur im Speicher, bis Timeline-**Speichern**. **Zur Karte** an einem gespeicherten Abschnitt oder Tag öffnet die Karte und fokussiert die passende Karte in der Leiste. Rechtsklick auf ein Thumbnail mit Ort öffnet **Zur Karte…** in der Detailansicht an der Position des Bildes (Leistenkarte des Bildes in der Mitte). Ist die Karte schon geladen, bleibt das HTML.
 - **Der Reisetitel** steht oben in der Timeline. Zuerst gilt der Projektname; nach Timeline-**Speichern** ist er manuell und überlebt den erneuten Abgleich.
 - **Speichern in der Timeline** schreibt neue Abschnitte, Reisetitel, Titel/Texte und YouTube. Der Button ist nur dann aktiv. **Timeline aktualisieren** schreibt geänderte Texte und den Reisetitel mit, persistiert aber keine Abschnitte und kein YouTube. Bewertungen, Eintrags-Titelbild an gespeicherten Einträgen und DHV-Leonardo an gespeicherten Einträgen speichern sofort und lassen **Speichern** inaktiv. Verlassen der Seite fragt bei ungespeicherten Abschnitten (Speichern / Verwerfen / Abbrechen) und bei nur ungespeicherten YouTube-Links (Verwerfen / Abbrechen); nur geänderte Texte oder nur ein geänderter Reisetitel erzeugen keine Rückfrage (Schließen des Fensters verwirft sie).
-- **Zwei Uhren:** Die Aufnahmezeit (`captured_at`) bleibt unverändert. Die Journal-Zeit (`journal_at` an der Mitgliedschaft) bestimmt die Position auf der Timeline. **Journal-Zeit…** verschiebt Clips; überschreitet die Uhr Mitternacht, wechselt der Clip den Tag. **Originalzeit** kopiert die Aufnahmezeit zurück. Im Pool entfällt die Journal-Zeit.
+- **Zwei Uhren (R2.2.0):** Die Aufnahmezeit (`captured_at`) bleibt unverändert. Die Journal-Zeit (`journal_at` an der Mitgliedschaft) bestimmt die Position auf der Timeline. **Journal-Zeit…** verschiebt Clips; überschreitet die Uhr Mitternacht, wechselt der Clip den Tag. **Originalzeit** kopiert die Aufnahmezeit zurück. Im Pool entfällt die Journal-Zeit. Die Medien-Anzeigezeit (`media_at`, auch im Pool) folgt in der Medien-Pipeline, Abschnitt 9.1.
 - **Ortsvorschläge** entstehen aus GPS-Fotos desselben Tages: greedy Cluster mit Haversine, Radius 150 m (`stay_radius_meters`). Sie bleiben unbestätigt (`origin=auto`), bis der Benutzer sie benennt, bestätigt oder löscht. Hat ein Tag bereits Orte, legt der Abgleich keine zweiten Auto-Orte an. Medien ohne GPS erben eine Anzeigeposition vom Abschnitt (Aufenthalt: Ort/Cover live; Tag: Cover-Pin als Snapshot; Transfer: Track bei Journal-Zeit), ohne Original-GPS zu überschreiben. Beim Verschieben auf einen Abschnitt (aus dem Pool oder von einer anderen Karte) fragt die Timeline, ob vorhandenes GPS auf der Karte bleiben soll oder die Abschnittsposition gilt (mehrere Medien leicht versetzt). Die Journal-Zeit übernimmt das Datum bzw. die Spanne des Zielabschnitts. Ziehen auf den Pool parkt. Am Fenster- bzw. Spaltenrand scrollt die Timeline während des Ziehens.
 - **Rückgängig / Wiederherstellen** gilt für die Journal-Redaktion, nicht für den Import. **Bearbeiten → Rückgängig** (**Strg+Z**) und **Wiederherstellen** (**Strg+Y**) nehmen Zuordnen, Parken, Bewerten, Drehen, Abschnitt anlegen/löschen/auflösen, Typ, Datum, Kartenposition, Journal-Zeit, Titel, Tagebucheintrag, Reisetitel und Eintrags-Titelbild zurück. In einem fokussierten Textfeld gilt zuerst die Widget-Historie (Zeichen für Zeichen); erst danach der Anwendungsstack. Import, Synchronisieren, Timeline aktualisieren, Projekt öffnen/schließen und Einstellungen leeren den Stack — sie sind Batch-Operationen, keine invertierbaren Einzeledits. YouTube, DHV-Leonardo und Orte bleiben außerhalb.
 - **Manuelle Daten überleben den Re-Sync:** Titel, Tagesetext, bestätigte Orte, Favoriten, Sortierstatus, Titelbild und `used_in_journal` tragen `origin=manual`. Die Automatik überschreibt sie nicht. Anzeigedrehung (`rotation_degrees`) überlebt den Re-Import.
@@ -107,7 +107,7 @@ Linke Navigation, rechts der Arbeitsbereich. Die Pipeline (Projekt, Import, Medi
 | --- | --- |
 | **Projekt** | Behälter: Name, Ordner, Öffnen/Anlegen. Keine Medienbearbeitung. |
 | **Import** | Brücke zur Außenwelt. Einzige Stelle, die das Quellverzeichnis scannt. Analyse ergänzt; Synchronisieren entfernt Fehlende und fragt Timeline oder Pool für Neue. |
-| **Medien** | Medienarbeit vor der Chronik: links Reise-Galerie, rechts Medienpool, jeweils Register Alle/Favoriten/Reserve/Aussortiert, Filter, Bewertungen, Inspektor. Qualität und Dubletten folgen später. |
+| **Medien** | Vorauswahl und Vorbereitung vor der Chronik: links Reise-Galerie, rechts Medienpool, Register Alle/Favoriten/Reserve/Aussortiert, Filter, Bewertungen, Inspektor. Geplant: Aktionen zu Dubletten, Qualität und Gruppierung (**Stapel** / **Gruppe**, nur Schlüsselfotos sichtbar). Siehe Abschnitt 9. |
 | **Timeline** | Chronologische und narrative Bearbeitung: Reisetitel, Tage, Transfers und Aufenthalte, einblendbare Pool-Spalte rechts über die volle Höhe (eigenes Bewertungsregister), Typwahl, Titel/Text, Bewertungen, Eintrags-Titelbild, YouTube/DHV-Leonardo, **Speichern** nur bei ungespeicherten Abschnitten/Texten/Reisetitel/YouTube, **Rückgängig / Wiederherstellen** (Strg+Z / Strg+Y), Medieninspektor. |
 | **Karte** | Geografische Wahrheit: ein runder Kreis je Tag, Transfer oder Aufenthalt; zwischen Tag- und Aufenthaltskreisen Verbindungslinien in Timeline-Reihenfolge (Transfer-Liste oder Ausgangslinie, Symbolspitze zum Folgekreis, ausgeblendet, wenn sich die Kreise überdecken). Der Transfer-Kreis hängt mit einer dünnen Linie am Verkehrssymbol. Erster Klick auf einen Kreis zoomt darauf (überlappende Kreise zuerst als Gruppe); zweiter Klick zeigt Fotos, Videos, Tracks und Orte. **Ganze Reise** passt alle Kreise ein. Die Leiste unter der Karte folgt dem Reiseverlauf — Einfachklick in der Übersicht zentriert bei gleichem Zoom, in der Detailansicht schließt er das Detail und zoomt auf den Abschnitt; Doppelklick öffnet die Timeline. Ohne Eintrags-Titelbild das erste Foto, sonst das erste Track-Thumbnail, sonst das erste YouTube-Vorschaubild. Abschnitte ohne Position haben in der Leiste einen roten Rand; Rechtsklick **Platzieren**, **Verschieben** (Fadenkreuz, Zoom und Fokus bleiben) oder **Zentrieren** (schwenkt und zoomt auf den Kreis). Backend austauschbar. |
 | **Export** | Ausgabe, keine Analyse. Phase 8: HTML. |
@@ -154,9 +154,11 @@ Gespeichert werden:
 
 Dateisystemzeit ist letzter Fallback, nie stillschweigend als Aufnahmezeit ausgegeben ohne Kennzeichnung.
 
+Geplant (Medien-Pipeline): eine dritte Uhr **`media_at`** (Medien-Anzeigezeit) am Medium, auch im Pool. Sie steuert die Timeline-Zuordnung. `captured_at` bleibt das Original. `journal_at` an der Mitgliedschaft wird daraus initialisiert und bleibt die Feinjustierung auf der Karte. Siehe Abschnitt 9.1.
+
 ### 5.4 Projektordner
 
-SQLite ist die Arbeitsdatei, nicht das Archiv der Bilder. Thumbnails und Analyseergebnisse liegen neben der Datenbank, damit das Projekt kopierbar bleibt. Die Quellwurzel der Originale steht in `settings.toml` (Projekt → Einstellungen), zusammen mit GPS-Zeitfenster, Standardzeitzone, Kartenanbieter (`leaflet` / `offline`) und der Farbe der Verbindungslinien auf der Karte (Standard weiß). Wird der Ordner verschoben, setzt man den neuen Pfad; der Index wird umgeschrieben, die Originaldateien nicht. Zuletzt geöffnete Projekte merkt die App unter `%LOCALAPPDATA%\TravelJournal\recent.json`; die Liste erscheint noch nicht in der Oberfläche. Das Medienregister (`timeline_media_tab`, Timeline und Medienseite), die Thumbnail-Schieber (`timeline_thumb_zoom`, `map_thumb_zoom`), die eingeklappte Navigation (`sidebar_collapsed`), der Medienpool (`timeline_pool_visible`, `pool_width`), die Inspektor-Fenstergröße (`inspector_width`, `inspector_height`, `inspector_maximized`) und der Projekte-Stammordner liegen in `config.json`. Der Fenstertitel zeigt die Softwareversion (`Reisetagebuch R2.2.0` bzw. mit Projekttitel).
+SQLite ist die Arbeitsdatei, nicht das Archiv der Bilder. Thumbnails und Analyseergebnisse liegen neben der Datenbank, damit das Projekt kopierbar bleibt. Die Quellwurzel der Originale steht in `settings.toml` (Projekt → Einstellungen), zusammen mit GPS-Zeitfenster, Standardzeitzone, Kartenanbieter (`leaflet` / `offline`) und der Farbe der Verbindungslinien auf der Karte (Standard weiß). Wird der Ordner verschoben, setzt man den neuen Pfad; der Index wird umgeschrieben, die Originaldateien nicht. Zuletzt geöffnete Projekte merkt die App unter `%LOCALAPPDATA%\TravelJournal\recent.json`; die Liste erscheint noch nicht in der Oberfläche. Das Medienregister (`timeline_media_tab`, Timeline und Medienseite), die Thumbnail-Schieber (`timeline_thumb_zoom`, `map_thumb_zoom`, `media_thumb_zoom`), die eingeklappte Navigation (`sidebar_collapsed`), der Medienpool (`timeline_pool_visible`, `pool_width`), die Inspektor-Fenstergröße (`inspector_width`, `inspector_height`, `inspector_maximized`) und der Projekte-Stammordner liegen in `config.json`. Der Fenstertitel zeigt die Softwareversion (`Reisetagebuch R2.2.0` bzw. mit Projekttitel).
 
 ---
 
@@ -241,16 +243,69 @@ Export ist eine **Abbildung des bearbeiteten Tagebuchs**, nicht des Rohimports.
 
 ---
 
-## 9. Qualität, Ähnlichkeit, Ranking
+## 9. Medien-Pipeline: Vorbereitung, Qualität, Stapel und Gruppe
 
-Technische Qualität ist eine **Empfehlung**. Sie entscheidet nie über Löschen.
+Die Seite **Medien** ist die Vorauswahl-Station zwischen Import und Chronik. Import indexiert; Medien bereitet vor und verdichtet; Timeline, Karte und Export erzählen den redigierten Bestand. Analyse und Gruppierung liegen in `travelcore` (Phasen 9/10), nicht in den Widgets. Originale werden weder geändert noch gelöscht. „Nur ein Medium behalten“ bedeutet: im Tagebuch gilt der Vertreter, die Datei bleibt im Index.
 
-Ähnlichkeit ist eine eigene, GUI-freie Komponente:
+### 9.1 Vorbereitung und Medien-Anzeigezeit
 
-- exakt: SHA-256
-- visuell: dHash/pHash (später optionale Embeddings)
+In Medien können Medien vor der Chronik gerichtet werden. Aktionen laufen ausdrücklich (Knopf), nicht still nach dem Import — Ausnahme: echte SHA-256-Dubletten (Aktion 1) erzeugen sofort einen akzeptierten Stapel.
 
-Ranking aggregiert Qualität, Schärfe, Auflösung, Einzigartigkeit und eine Dublettenstrafe. Die Formel ist eine Strategy, damit PhotoInspector und das Tagebuch unterschiedliche Gewichte nutzen können, ohne die Datenhaltung zu spalten.
+Drei Uhren:
+
+| Uhr | Wo | Rolle |
+| --- | --- | --- |
+| `captured_at` | Medium | Original-Aufnahmezeit, unveränderlich |
+| `media_at` | Medium, **auch im Pool** | Medien-Anzeigezeit. Steuert die **Timeline-Zuordnung** (welcher Tag / ob „Ohne Datum“). Initial gleich `captured_at`. In Medien setzbar. |
+| `journal_at` | Mitgliedschaft | Feinjustierung auf der Timeline-Karte; wird beim Zuordnen aus `media_at` initialisiert. **Journal-Zeit…** und **Originalzeit** bleiben. |
+
+Drehung und Bewertung bleiben Vorbereitung wie bisher.
+
+### 9.2 Aktionen
+
+| Aktion | Zweck | Ergebnis | Übernahme |
+| --- | --- | --- | --- |
+| 1 Echte Dubletten | Gleicher Dateiinhalt (SHA-256, bereits im Index) | **Stapel**, ein Schlüsselfoto | **sofort akzeptiert** |
+| 2 Unechte Dubletten | Visuell dasselbe Bild bei anderem Hash (WhatsApp, andere Auflösung/Metadaten/Name) | ebenfalls **Stapel** | vorschlagen, dann bestätigen |
+| 3 Qualität | Unscharf, verkehrt belichtet, sehr geringe Auflösung | **Ampel** am Medium (grün / gelb / rot) | nur Kennzeichen, kein Aussortieren, kein Löschen |
+| 4 Ähnliche gruppieren | Zeit, Ort, Blickwinkel, ähnlicher Ausschnitt — nicht dasselbe Bild | **Gruppe** mit einem oder mehreren Schlüsselfotos | Dialog, dann bestätigen |
+| 5 Auswahl gruppieren | Vom Benutzer gewählte Fotos | **Gruppe**, ohne Schlüsselfoto | Inspektor, dann Schlüsselfotos wählen |
+
+Lange Läufe nutzen dieselben Worker und den Process-Pool wie der Import; SQLite bleibt ein Schreiber.
+
+Die Ampel ist eine abgeleitete Empfehlung aus `technical_quality` (Schwellen bei der Umsetzung). Sie ändert `sort_status` nicht und überstimmt weder Favorit noch Titelbild.
+
+### 9.3 Stapel und Gruppe
+
+Zwei Cluster-Typen. Aktion-1-Stapel sind sofort akzeptiert. Übrige Vorschläge tragen `origin=auto`, bis der Benutzer sie bestätigt (`origin=manual`). Ein Medium liegt in höchstens einem Stapel. Ein Stapel (über sein Schlüsselfoto) oder ein Einzelbild darf in einer Gruppe liegen.
+
+**Stapel** — vermeintlich dasselbe Bild (echte und unechte Dubletten):
+
+- Genau **ein** Schlüsselfoto, automatisch das beste Exemplar per Ranking (Auflösung, Schärfe, vorhandene Original-Metadaten; WhatsApp-Kopien weichen dem Original).
+- Der Schlüssel ist später wechselbar (Stapel öffnen, anderes Mitglied wählen).
+- **Versteckte Mitglieder bleiben im Stapel.** Sie werden weder aus dem Index genommen noch auf Aussortiert gesetzt noch in den Pool verschoben. Bewertung und Abschnittszugehörigkeit bleiben.
+- In Galerie, Timeline, Karte und Export erscheint nur das Schlüsselfoto, mit einem Kennzeichen (z. B. Stapelzahl).
+- **Klick auf das Stapel-Kennzeichen** öffnet den Original-Inspektor mit allen Mitgliedern. Pfeile blättern; **Schlüsselfoto** setzt das eine Schlüsselbild.
+
+**Gruppe** — sehr ähnliche, aber nicht identische Bilder (Serie, leichter Schwenk, gleicher Ort/Zeit/Ausschnitt):
+
+- Darf **mehrere Schlüsselfotos** haben.
+- Die Schlüsselfotos wählt der Benutzer im **Original-Inspektor** (nicht automatisch allein): Pfeile blättern durch die Gruppe, **Schlüsselfoto** schaltet das aktuelle Bild ein oder aus (mehrere möglich). Öffnen legt kein Schlüsselfoto fest.
+- Sind Schlüsselfotos gewählt, ist das **Gruppen-Kennzeichen grün**. Ohne Schlüssel trägt jede Gruppe eine eigene Farbe, damit die Mitglieder in der Galerie zusammengehören.
+- Nach der Auswahl bleiben **nur die Schlüsselfotos** sichtbar, jedes mit dem Kennzeichen.
+- Nicht gewählte Mitglieder bleiben im Index und in der Gruppe, sind aber in der normalen Galerie, Timeline, Karte und im Export unsichtbar, bis die Gruppe wieder geöffnet wird.
+
+```
+Gruppe „Marktplatz 14:02“   (Dialog: zwei Schlüssel gewählt)
+ ├── Schlüssel 1  [Kennzeichen Gruppe]     ← sichtbar
+ ├── Schlüssel 2  [Kennzeichen Gruppe]     ← sichtbar
+ ├── Stapel A     (ein Schlüssel, ×3)      ← nur sichtbar, falls als Schlüssel gewählt
+ └── übrige Serienfotos                    ← verborgen, bleiben in der Gruppe
+```
+
+**Klick auf das Gruppen-Kennzeichen** öffnet denselben Original-Inspektor erneut (alle Mitglieder, auch die verborgenen).
+
+Technische Ähnlichkeit bleibt GUI-frei: exakt SHA-256, visuell dHash/pHash, später optionale Embeddings. Ranking (Qualität, Schärfe, Auflösung, Einzigartigkeit, Dublettenstrafe) ist eine Strategy — PhotoInspector und Tagebuch können andere Gewichte nutzen. Das Schlüsselfoto eines Stapels folgt diesem Ranking, bis es im Inspektor gewechselt wird. Eine manuelle Auswahl-Gruppe hat zunächst kein Schlüsselfoto; die Schlüssel setzt nur der Inspektor.
 
 ---
 
@@ -275,6 +330,6 @@ Nicht das ganze Polarsteps-Abbild auf einmal. Jede Phase bleibt startbar und tes
 | 6 | Die Reise wird räumlich erzählbar. |
 | 7 | Der Mensch übernimmt die Redaktion (Tag/Aufenthalt/Transfer, Pool, Journal-Zeit, Bewertungen, Inspektor, Rückgängig/Wiederherstellen). |
 | 8 | Die Reise verlässt die App. |
-| 9–10 | Die Auswahl wird begründet (Qualität, Dubletten). |
+| 9–10 | Die Auswahl wird begründet (Qualität, Dubletten, Stapel/Gruppe mit Schlüsselfotos). |
 
 Aktueller Konzeptstand: **Phase 7**, Software **R2.2.0** (Journal-Modell nach Design-Review plus Verbindungslinien; Kartenbedienung: Cover-Zoom, Fit-Reise, vorab zentriertes Foto-Popup mit Blättern und Schieber-Zoom; **Zur Karte** letzter Klick gewinnt, geladene Karte ohne Neuaufbau; Track-Bewertung wie Medien; Timeline, Inspektor, Track-Vorschauen, Karten-Leiste, Rückgängig/Wiederherstellen). Windows-Endnutzerpaket (onedir/Zip, optional Inno-Setup) ist baubar und keine eigene Fachphase. HTML-Export folgt in Phase 8.

@@ -349,8 +349,13 @@ class SimilarityGroup(Base):
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
     kind: Mapped[str] = mapped_column(String(32), nullable=False)
     method: Mapped[str] = mapped_column(String(64), nullable=False)
+    cluster_type: Mapped[str] = mapped_column(String(16), nullable=False, default="stack")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="accepted")
+    origin: Mapped[str] = mapped_column(String(16), nullable=False, default="auto")
 
-    members: Mapped[list[SimilarityGroupMember]] = relationship(back_populates="group")
+    members: Mapped[list[SimilarityGroupMember]] = relationship(
+        back_populates="group", cascade="all, delete-orphan"
+    )
 
 
 class SimilarityGroupMember(Base):
@@ -360,6 +365,7 @@ class SimilarityGroupMember(Base):
     group_id: Mapped[int] = mapped_column(ForeignKey("similarity_groups.id"), nullable=False, index=True)
     source_file_id: Mapped[int] = mapped_column(ForeignKey("source_files.id"), nullable=False)
     distance: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_key: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     group: Mapped[SimilarityGroup] = relationship(back_populates="members")
 

@@ -171,14 +171,19 @@ def test_thumb_zoom_persists(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN0
     workspace = Workspace()
     assert workspace.timeline_thumb_zoom() == DEFAULT_THUMB_ZOOM
     assert workspace.map_thumb_zoom() == DEFAULT_THUMB_ZOOM
+    assert workspace.media_thumb_zoom() == DEFAULT_THUMB_ZOOM
     workspace.set_timeline_thumb_zoom(150)
     workspace.set_map_thumb_zoom(75)
+    workspace.set_media_thumb_zoom(125)
     assert workspace.timeline_thumb_zoom() == 150
     assert workspace.map_thumb_zoom() == 75
+    assert workspace.media_thumb_zoom() == 125
     workspace.set_timeline_thumb_zoom(12)
     assert workspace.timeline_thumb_zoom() == clamp_thumb_zoom(12)
     workspace.set_map_thumb_zoom("nope")
     assert workspace.map_thumb_zoom() == DEFAULT_THUMB_ZOOM
+    workspace.set_media_thumb_zoom("nope")
+    assert workspace.media_thumb_zoom() == DEFAULT_THUMB_ZOOM
 
 
 def test_show_rejected_in_all_persists(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001

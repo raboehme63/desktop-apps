@@ -15,6 +15,7 @@ from travelcore.database.models import Photo, SourceFile
 from travelcore.media.orientation import normalize_rotation_degrees
 from travelcore.media.thumbnails import cached_thumbnail_path
 from travelcore.media.types import FileKind
+from travelcore.similarity.clusters import load_cluster_overlay
 
 SORT_FAVORITE = "favorite"
 SORT_RESERVE = "reserve"
@@ -51,6 +52,13 @@ class GalleryItem:
     journal_at: datetime | None = None
     display_latitude: float | None = None
     display_longitude: float | None = None
+    stack_id: int | None = None
+    stack_size: int = 0
+    is_stack_key: bool = False
+    group_id: int | None = None
+    group_size: int = 0
+    is_group_key: bool = False
+    group_status: str | None = None
 
 
 def list_gallery_items(
@@ -60,6 +68,7 @@ def list_gallery_items(
     *,
     size: int = DEFAULT_THUMBNAIL_SIZE,
     source_file_ids: Sequence[int] | None = None,
+    hide_cluster_hidden: bool = True,
 ) -> list[GalleryItem]:
     """Return photos, videos, and tracks in capture-time order with cache paths."""
 
@@ -77,9 +86,13 @@ def list_gallery_items(
     if source_file_ids is not None:
         query = query.where(SourceFile.id.in_(tuple(source_file_ids)))
     rows = session.execute(query)
+    overlay = load_cluster_overlay(session, project_id)
     items: list[GalleryItem] = []
     for source, photo in rows:
+        if hide_cluster_hidden and overlay.is_hidden(source.id):
+            continue
         rotation = normalize_rotation_degrees(source.rotation_degrees)
+        marks = overlay.for_source(source.id)
         items.append(
             GalleryItem(
                 source_file_id=source.id,
@@ -107,6 +120,13 @@ def list_gallery_items(
                 ),
                 rotation_degrees=rotation,
                 parked=bool(source.parked),
+                stack_id=marks.stack_id,
+                stack_size=marks.stack_size,
+                is_stack_key=marks.is_stack_key,
+                group_id=marks.group_id,
+                group_size=marks.group_size,
+                is_group_key=marks.is_group_key,
+                group_status=marks.group_status,
             )
         )
     return items

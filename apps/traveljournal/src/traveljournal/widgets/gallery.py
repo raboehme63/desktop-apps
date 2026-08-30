@@ -48,6 +48,7 @@ from travelcore.media.gallery import (
     effective_sort_status,
 )
 from travelcore.media.types import GPS_EXTENSIONS, PHOTO_EXTENSIONS
+from travelcore.similarity.types import ClusterStatus
 from travelcore.timeline.sections import format_scroll_date
 from traveljournal.widgets.scroll_date import ScrollDateChip
 from traveljournal.widgets.thumb_zoom import (
@@ -73,6 +74,20 @@ _CHIP_ACTIVE = {
     SORT_RESERVE: QColor("#5b8def"),
     SORT_REJECTED: QColor("#c45c6a"),
 }
+_STACK_CHIP = QColor("#d4a017")
+_GROUP_CHIP_READY = QColor("#2eb8a0")
+_GROUP_CHIP_PALETTE = (
+    QColor("#6b8cce"),
+    QColor("#c47ac0"),
+    QColor("#e07a4a"),
+    QColor("#3cb8c9"),
+    QColor("#8b6fc7"),
+    QColor("#e07090"),
+    QColor("#4a9fd4"),
+    QColor("#d48a5a"),
+)
+_GROUP_TEXT_DARK = QColor("#0e1628")
+_GROUP_TEXT_READY = QColor("#06231e")
 
 
 def rating_hotspots(
@@ -110,6 +125,72 @@ def cover_hotspot(cell: QRect, *, chip: int | None = None) -> QRect:
 
 def hit_cover(cell: QRect, pos: QPoint, *, chip: int | None = None) -> bool:
     return cover_hotspot(cell, chip=chip).contains(pos)
+
+
+def shows_stack_badge(item: GalleryItem) -> bool:
+    return item.stack_id is not None and item.stack_size >= 2
+
+
+def group_badge_color(item: GalleryItem) -> QColor:
+    if item.group_status == ClusterStatus.ACCEPTED:
+        return _GROUP_CHIP_READY
+    if item.group_id is None:
+        return _GROUP_CHIP_PALETTE[0]
+    return _GROUP_CHIP_PALETTE[item.group_id % len(_GROUP_CHIP_PALETTE)]
+
+
+def group_badge_text_color(item: GalleryItem) -> QColor:
+    if item.group_status == ClusterStatus.ACCEPTED:
+        return _GROUP_TEXT_READY
+    return _GROUP_TEXT_DARK
+
+
+def shows_group_badge(item: GalleryItem) -> bool:
+    if item.group_id is None or item.group_size < 2:
+        return False
+    if item.group_status == ClusterStatus.DISMISSED:
+        return False
+    if item.group_status == ClusterStatus.ACCEPTED:
+        return item.is_group_key
+    return True
+
+
+def cluster_hotspots(
+    cell: QRect,
+    item: GalleryItem,
+    *,
+    chip: int | None = None,
+) -> dict[str, QRect]:
+    """Hit targets for stack/group badges at the top-right of the thumbnail."""
+
+    chip_px = _CHIP if chip is None else chip
+    kinds: list[str] = []
+    if shows_group_badge(item):
+        kinds.append("group")
+    if shows_stack_badge(item):
+        kinds.append("stack")
+    spots: dict[str, QRect] = {}
+    x = cell.x() + cell.width() - 10
+    y = cell.y() + 10
+    for kind in reversed(kinds):
+        width = chip_px + (10 if kind == "stack" else 0)
+        x -= width
+        spots[kind] = QRect(x, y, width, chip_px)
+        x -= _CHIP_GAP
+    return spots
+
+
+def hit_cluster(
+    cell: QRect,
+    item: GalleryItem,
+    pos: QPoint,
+    *,
+    chip: int | None = None,
+) -> str | None:
+    for kind, rect in cluster_hotspots(cell, item, chip=chip).items():
+        if rect.contains(pos):
+            return kind
+    return None
 
 
 def can_be_cover(item: GalleryItem) -> bool:
@@ -275,6 +356,23 @@ class GalleryDelegate(QStyledItemDelegate):
                 QRect(x, rect.y() + 8, thumb.width(), thumb.height()),
                 QColor(18, 21, 28, 140),
             )
+        clusters = cluster_hotspots(rect, item, chip=self._chip)
+        if clusters:
+            painter.setFont(QFont("Segoe UI", 9, QFont.Weight.DemiBold))
+            if "stack" in clusters:
+                chip = clusters["stack"]
+                painter.setBrush(_STACK_CHIP)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawRoundedRect(chip, 6, 6)
+                painter.setPen(QColor("#2a2108"))
+                painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, f"×{item.stack_size}")
+            if "group" in clusters:
+                chip = clusters["group"]
+                painter.setBrush(group_badge_color(item))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawRoundedRect(chip, 6, 6)
+                painter.setPen(group_badge_text_color(item))
+                painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, "G")
         if self.show_cover and can_be_cover(item):
             chip = cover_hotspot(rect, chip=self._chip)
             active = item.is_entry_cover
@@ -309,6 +407,8 @@ class GalleryView(QListView):
     items_dropped = Signal(list)
     drop_hover = Signal(bool)
     map_requested = Signal(object)
+    stack_requested = Signal(object)
+    group_requested = Signal(object)
     drag_started = Signal()
     drag_finished = Signal()
 
@@ -482,6 +582,15 @@ class GalleryView(QListView):
                     self.cover_chosen.emit(item)
                     event.accept()
                     return
+                cluster = hit_cluster(cell, item, pos, chip=chip)
+                if cluster == "stack":
+                    self.stack_requested.emit(item)
+                    event.accept()
+                    return
+                if cluster == "group":
+                    self.group_requested.emit(item)
+                    event.accept()
+                    return
                 if self._show_ratings:
                     status = hit_rating(cell, pos, icon=icon, chip=chip)
                     if status is not None:
@@ -499,6 +608,9 @@ class GalleryView(QListView):
                 cell = self.visualRect(index)
                 icon, chip = self._thumb_metrics()
                 if self._show_cover and can_be_cover(item) and hit_cover(cell, pos, chip=chip):
+                    event.accept()
+                    return
+                if hit_cluster(cell, item, pos, chip=chip):
                     event.accept()
                     return
                 if self._show_ratings and hit_rating(cell, pos, icon=icon, chip=chip):

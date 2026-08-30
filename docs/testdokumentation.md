@@ -529,7 +529,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Timeline-Leiste zentriert; Zähler Fotos/Tracks/IGC/YouTube, Reserve-Schalter, Plus zwischen Karten |
 | `test_strip_click_closes_detail_and_zooms_cover` | `tests/test_gui_smoke.py` | andere Leistenkarte schließt Detail und zoomt; dieselbe bleibt |
 | `test_inspector_map_opens_thumbnail_then_original_on_double_click` | `tests/test_gui_smoke.py` | Vorschau, dann Original |
-| `test_thumb_zoom_persists` | `tests/test_workspace.py` | `timeline_thumb_zoom` und `map_thumb_zoom` in `config.json` |
+| `test_thumb_zoom_persists` | `tests/test_workspace.py` | `timeline_thumb_zoom`, `map_thumb_zoom` und `media_thumb_zoom` in `config.json` |
 | `test_normalize_timeline_media_tab` | `tests/test_workspace.py` | gültige Tab-Namen |
 | `test_timeline_media_tab_persists` | `tests/test_workspace.py` | `config.json` hält das Register |
 | `test_sidebar_collapsed_persists` | `tests/test_workspace.py` | `config.json` hält die eingeklappte Navigation |

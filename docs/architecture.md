@@ -88,7 +88,7 @@ Zuletzt geöffnete Projekte stehen unter
 sie in R2.2.0 noch nicht. Der Fenstertitel lautet `Reisetagebuch R{Version}`
 bzw. `Reisetagebuch R{Version} - {Projekttitel}`. Das Medienregister
 (Timeline und Medienseite) steht in `%LOCALAPPDATA%\TravelJournal\config.json` (`timeline_media_tab`),
-ebenso die Thumbnail-Schieber (`timeline_thumb_zoom`, `map_thumb_zoom`), die
+ebenso die Thumbnail-Schieber (`timeline_thumb_zoom`, `map_thumb_zoom`, `media_thumb_zoom`), die
 eingeklappte linke Navigation (`sidebar_collapsed`), der Medienpool
 (`timeline_pool_visible`, `pool_width`, `inspector_width` / `inspector_height` / `inspector_maximized`).
 
@@ -386,6 +386,7 @@ SQLAlchemy 2, Alembic, eine SQLite-Datei je Projekt. Migrationen:
 - `015_section_pin` – manuelle Kreisposition
 - `016_transfer_links` – Transfer-Verbindungslinien
 - `017_section_outbound` – Ausgangslinie an Tag/Aufenthalt
+- `018_media_clusters` – Stapel/Gruppe: `cluster_type`, `status`, `origin`, Mitglied `is_key`
 
 ## Windows-Paketierung
 

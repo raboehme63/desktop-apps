@@ -68,6 +68,7 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     assert window.timeline_view._media_tabs.tabText(1) == "Favoriten"
     assert window.timeline_view._thumb_zoom.value() == 100
     assert window.map_view._thumb_zoom.value() == 100
+    assert window.photos_view._thumb_zoom.value() == 100
     assert window.timeline_view._pool_toggle.isCheckable()
     assert not window.timeline_view._pool_toggle.isChecked()
     assert window.timeline_view._pool_toggle.objectName() == "poolCollapse"
@@ -116,6 +117,13 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     assert window.photos_view._media_tabs.count() == 4
     assert window.photos_view._media_tabs.tabText(0) == "Alle"
     assert window.photos_view._media_tabs.tabText(3) == "Aussortiert"
+    from PySide6.QtWidgets import QPushButton
+
+    photo_buttons = [child.text() for child in window.photos_view.findChildren(QPushButton)]
+    assert "Dubletten stapeln" in photo_buttons
+    assert "Ähnliche gruppieren" in photo_buttons
+    assert "Auswahl gruppieren" in photo_buttons
+    assert not window.photos_view._group_selected_btn.isEnabled()
     assert window.photos_view._pool_pane._tabs.count() == 4
     assert window.photos_view._pool_pane._tabs.tabText(1) == "Favoriten"
     assert not window.photos_view._show_rejected.isHidden()
@@ -446,6 +454,114 @@ def test_section_span_dialog_tag_vs_range() -> None:
     assert "Zeitraum…" not in tag_labels
     assert "Zeitraum…" in stay_labels
     assert "Datum…" not in stay_labels
+    _ = app
+
+
+def test_gallery_cluster_hotspots() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from pathlib import Path
+
+    from PySide6.QtCore import QPoint, QRect
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.widgets.gallery import cluster_hotspots, hit_cluster
+
+    app = QApplication.instance() or QApplication([])
+    item = GalleryItem(
+        source_file_id=1,
+        path="foto.jpg",
+        filename="foto.jpg",
+        extension=".jpg",
+        captured_at=None,
+        timezone_unknown=True,
+        gps_latitude=None,
+        gps_longitude=None,
+        camera=None,
+        is_favorite=False,
+        used_in_journal=False,
+        thumbnail_path=Path("missing.jpg"),
+        stack_id=4,
+        stack_size=3,
+        is_stack_key=True,
+        group_id=8,
+        group_size=5,
+        is_group_key=True,
+        group_status="accepted",
+    )
+    cell = QRect(0, 0, 184, 214)
+    spots = cluster_hotspots(cell, item)
+    assert set(spots) == {"stack", "group"}
+    assert hit_cluster(cell, item, spots["stack"].center()) == "stack"
+    assert hit_cluster(cell, item, spots["group"].center()) == "group"
+    assert hit_cluster(cell, item, QPoint(8, 80)) is None
+    from dataclasses import replace
+
+    from traveljournal.widgets.gallery import group_badge_color
+
+    suggested = replace(item, source_file_id=2, group_status="suggested", is_group_key=False)
+    other = replace(suggested, source_file_id=3, group_id=9, group_size=2)
+    assert group_badge_color(item).name() == "#2eb8a0"
+    assert group_badge_color(suggested).name() == group_badge_color(
+        replace(suggested, source_file_id=4)
+    ).name()
+    assert group_badge_color(suggested).name() != group_badge_color(other).name()
+    _ = app
+
+
+def test_cluster_inspector_browses_group() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from pathlib import Path
+
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.widgets.media_inspector import MediaInspectorWindow
+
+    app = QApplication.instance() or QApplication([])
+
+    def _item(source_id: int, name: str) -> GalleryItem:
+        return GalleryItem(
+            source_file_id=source_id,
+            path=name,
+            filename=name,
+            extension=".jpg",
+            captured_at=None,
+            timezone_unknown=True,
+            gps_latitude=None,
+            gps_longitude=None,
+            camera=None,
+            is_favorite=False,
+            used_in_journal=False,
+            thumbnail_path=Path("missing.jpg"),
+            group_id=8,
+            group_size=2,
+        )
+
+    from unittest.mock import MagicMock
+
+    first = _item(1, "a.jpg")
+    second = _item(2, "b.jpg")
+    workspace = MagicMock()
+    workspace.inspector_size.return_value = (800, 600)
+    workspace.inspector_maximized.return_value = False
+    window = MediaInspectorWindow(
+        first,
+        items=[first, second],
+        workspace=workspace,
+        cluster_type="group",
+        cluster_id=8,
+    )
+    assert window.windowTitle().startswith("Gruppe")
+    assert "1 von 2" in window.windowTitle()
+    assert not window._key_button.isChecked()
+    assert "kein Schlüsselfoto" in window._cluster_hint.text()
+    window._key_button.click()
+    workspace.set_group_keys.assert_not_called()
+    window.step(1)
+    assert "b.jpg" in window.windowTitle()
+    assert not window._key_button.isChecked()
+    window.close()
     _ = app
 
 
@@ -2284,8 +2400,14 @@ def test_photos_view_multi_select_and_pool_drag(tmp_path: Path, monkeypatch) -> 
     assert view.gallery.dragEnabled()
     assert view.gallery.acceptDrops()
     assert view._pool_pane.acceptDrops()
+    assert not view._group_selected_btn.isEnabled()
     view.gallery.select_by_source_ids({1, 3})
     assert {row.source_file_id for row in view.gallery.selected_items()} == {1, 2, 3}
+    assert view._group_selected_btn.isEnabled()
+    default = view.gallery.gridSize()
+    view._on_thumb_zoom(50)
+    assert view.gallery.gridSize().width() < default.width()
+    assert view._pool_pane.gallery.gridSize().width() == view.gallery.gridSize().width()
 
     parked: list[list[int]] = []
     unparked: list[list[int]] = []

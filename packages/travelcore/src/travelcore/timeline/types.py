@@ -28,6 +28,13 @@ class TimelinePhoto:
     display_latitude: float | None = None
     display_longitude: float | None = None
     position_inherited: bool = False
+    stack_id: int | None = None
+    stack_size: int = 0
+    is_stack_key: bool = False
+    group_id: int | None = None
+    group_size: int = 0
+    is_group_key: bool = False
+    group_status: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

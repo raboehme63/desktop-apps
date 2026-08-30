@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 from dataclasses import replace
 
 from PySide6.QtCore import Qt, QThreadPool, Signal
@@ -20,12 +21,19 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from travelcore.exceptions import ProjectError
 from travelcore.media.gallery import SORT_FAVORITE, GalleryItem, effective_sort_status
+from travelcore.media.types import PHOTO_EXTENSIONS
+from travelcore.similarity.types import ClusterType
 from travelcore.timeline.sections import expand_range_selection
 from traveljournal.services.workers import ThumbnailRunnable
 from traveljournal.services.workspace import Workspace
 from traveljournal.widgets.gallery import GalleryView
-from traveljournal.widgets.media_inspector import MediaInspectorWindow, cascade_inspector
+from traveljournal.widgets.media_inspector import (
+    MediaInspectorWindow,
+    cascade_inspector,
+    open_cluster_inspector,
+)
 from traveljournal.widgets.media_tabs import (
     RATING_TABS,
     ClickTabBar,
@@ -37,6 +45,7 @@ from traveljournal.widgets.media_tabs import (
     sync_show_rejected_check,
 )
 from traveljournal.widgets.pool_pane import PoolCollapse, PoolPane
+from traveljournal.widgets.thumb_zoom import ThumbZoomSlider, clamp_thumb_zoom
 
 _JPEG = {".jpg", ".jpeg"}
 _HEIC = {".heic", ".heif"}
@@ -120,9 +129,13 @@ class PhotosView(QWidget):
         self._media_tabs.currentChanged.connect(self._on_media_tab)
         self._show_rejected = ShowRejectedCheck(self)
         self._show_rejected.toggled.connect(self._on_show_rejected)
+        self._thumb_zoom = ThumbZoomSlider(self, value=self.workspace.media_thumb_zoom())
+        self._thumb_zoom.zoom_changed.connect(self._on_thumb_zoom)
         tabs.addWidget(tab_label)
         tabs.addWidget(self._media_tabs)
         tabs.addWidget(self._show_rejected)
+        tabs.addSpacing(12)
+        tabs.addWidget(self._thumb_zoom)
         tabs.addStretch(1)
         left_layout.addLayout(tabs)
         self.gallery = GalleryView()
@@ -133,6 +146,8 @@ class PhotosView(QWidget):
         self.gallery.item_activated.connect(self._preview)
         self.gallery.rating_chosen.connect(self._on_rating)
         self.gallery.items_dropped.connect(self._drop_on_gallery)
+        self.gallery.stack_requested.connect(self._open_stack)
+        self.gallery.group_requested.connect(self._open_group)
         gallery_model = self.gallery.selectionModel()
         if gallery_model is not None:
             gallery_model.selectionChanged.connect(self._on_journal_selection)
@@ -148,10 +163,13 @@ class PhotosView(QWidget):
         self._pool_pane.item_rating_changed.connect(self._on_pool_rating)
         self._pool_pane.item_activated.connect(self._preview)
         self._pool_pane.show_rejected_changed.connect(self._on_pool_show_rejected)
+        self._pool_pane.gallery.stack_requested.connect(self._open_stack)
+        self._pool_pane.gallery.group_requested.connect(self._open_group)
         pool_model = self._pool_pane.gallery.selectionModel()
         if pool_model is not None:
             pool_model.selectionChanged.connect(self._on_pool_selection)
         self._sync_show_rejected()
+        self._apply_thumb_zoom(self.workspace.media_thumb_zoom())
 
         self._split = QSplitter(Qt.Orientation.Horizontal)
         self._split.setObjectName("photosSplit")
@@ -169,10 +187,25 @@ class PhotosView(QWidget):
         favorite_btn.clicked.connect(self._toggle_favorite)
         pool_btn = QPushButton("In den Pool")
         pool_btn.clicked.connect(self._park_selected)
+        stacks_btn = QPushButton("Dubletten stapeln")
+        stacks_btn.setToolTip("Echte Kopien (gleicher Dateiinhalt) sofort zu Stapeln zusammenfassen.")
+        stacks_btn.clicked.connect(self._stack_duplicates)
+        groups_btn = QPushButton("Ähnliche gruppieren")
+        groups_btn.setToolTip("Zeitlich nahe Fotos vorschlagen. Schlüsselfotos im Dialog wählen.")
+        groups_btn.clicked.connect(self._group_similar)
+        self._group_selected_btn = QPushButton("Auswahl gruppieren")
+        self._group_selected_btn.setToolTip(
+            "Gewählte Fotos zu einer Gruppe zusammenfassen. Schlüsselfotos danach im Inspektor wählen."
+        )
+        self._group_selected_btn.clicked.connect(self._group_selected)
+        self._group_selected_btn.setEnabled(False)
         self.summary = QLabel("Kein Projekt geöffnet")
         self.summary.setObjectName("pageSubtitle")
         actions.addWidget(favorite_btn)
         actions.addWidget(pool_btn)
+        actions.addWidget(stacks_btn)
+        actions.addWidget(groups_btn)
+        actions.addWidget(self._group_selected_btn)
         actions.addStretch(1)
         actions.addWidget(self.summary)
         root.addLayout(actions)
@@ -184,6 +217,8 @@ class PhotosView(QWidget):
             self._pool_pane.set_items([])
             self.summary.setText("Kein Projekt geöffnet")
             return
+        with suppress(ProjectError):
+            self.workspace.accept_exact_stacks()
         self._items = self.workspace.gallery_items()
         years = sorted({item.captured_at.year for item in self._items if item.captured_at is not None})
         current = self.year.currentText()
@@ -211,6 +246,15 @@ class PhotosView(QWidget):
         self.workspace.set_timeline_media_tab(media_tab_key(index))
         self._sync_show_rejected()
         self._apply_filters()
+
+    def _on_thumb_zoom(self, percent: int) -> None:
+        self.workspace.set_media_thumb_zoom(percent)
+        self._apply_thumb_zoom(percent)
+
+    def _apply_thumb_zoom(self, percent: int) -> None:
+        zoom = clamp_thumb_zoom(percent)
+        self.gallery.set_thumb_zoom(zoom)
+        self._pool_pane.gallery.set_thumb_zoom(zoom)
 
     def _on_show_rejected(self, checked: bool) -> None:
         self.workspace.set_show_rejected_in_all(checked)
@@ -241,6 +285,7 @@ class PhotosView(QWidget):
         self.summary.setText(
             f"{len(shown)} in der Galerie, {len(parked)} im Pool · {len(self._items)} Medien"
         )
+        self._sync_group_button()
 
     def _partition_filtered(self) -> tuple[list[GalleryItem], list[GalleryItem]]:
         query = self.search.text().strip().lower()
@@ -370,11 +415,22 @@ class PhotosView(QWidget):
         self._journal_excluded, self._journal_displayed = self._fill_gallery_range(
             self.gallery, self._journal_excluded, self._journal_displayed
         )
+        self._sync_group_button()
 
     def _on_pool_selection(self, *_args: object) -> None:
         self._pool_excluded, self._pool_displayed = self._fill_gallery_range(
             self._pool_pane.gallery, self._pool_excluded, self._pool_displayed
         )
+        self._sync_group_button()
+
+    def _photos_to_group(self) -> list[GalleryItem]:
+        journal = [item for item in self.gallery.selected_items() if _is_photo(item)]
+        if len(journal) >= 2:
+            return journal
+        return [item for item in self._pool_pane.gallery.selected_items() if _is_photo(item)]
+
+    def _sync_group_button(self) -> None:
+        self._group_selected_btn.setEnabled(len(self._photos_to_group()) >= 2)
 
     def _fill_gallery_range(
         self,
@@ -425,6 +481,77 @@ class PhotosView(QWidget):
             item if existing.source_file_id == item.source_file_id else existing for existing in self._items
         ]
         self.rating_changed.emit(item)
+
+    def _stack_duplicates(self) -> None:
+        if self.workspace.current is None:
+            QMessageBox.information(self, "Medien", "Bitte zuerst ein Projekt öffnen.")
+            return
+        try:
+            count = self.workspace.accept_exact_stacks()
+        except Exception as error:  # noqa: BLE001
+            QMessageBox.warning(self, "Medien", str(error))
+            return
+        self.refresh()
+        self.status_message.emit(
+            f"{count} Stapel angelegt oder ergänzt." if count else "Keine echten Dubletten gefunden."
+        )
+
+    def _group_selected(self) -> None:
+        if self.workspace.current is None:
+            QMessageBox.information(self, "Medien", "Bitte zuerst ein Projekt öffnen.")
+            return
+        items = self._photos_to_group()
+        if len(items) < 2:
+            QMessageBox.information(self, "Medien", "Bitte mindestens zwei Fotos auswählen.")
+            return
+        ids = [item.source_file_id for item in items]
+        try:
+            self.workspace.create_manual_group(ids)
+        except Exception as error:  # noqa: BLE001
+            QMessageBox.warning(self, "Medien", str(error))
+            return
+        self.refresh()
+        self.status_message.emit(
+            f"{len(ids)} Fotos gruppiert. Kennzeichen G öffnet das Original."
+        )
+
+    def _group_similar(self) -> None:
+        if self.workspace.current is None:
+            QMessageBox.information(self, "Medien", "Bitte zuerst ein Projekt öffnen.")
+            return
+        try:
+            count = self.workspace.propose_scene_groups()
+        except Exception as error:  # noqa: BLE001
+            QMessageBox.warning(self, "Medien", str(error))
+            return
+        self.refresh()
+        self.status_message.emit(
+            f"{count} Gruppen vorgeschlagen. Kennzeichen G öffnet das Original."
+            if count
+            else "Keine ähnlichen Serien gefunden."
+        )
+
+    def _open_stack(self, item: object) -> None:
+        self._open_cluster(item, ClusterType.STACK)
+
+    def _open_group(self, item: object) -> None:
+        self._open_cluster(item, ClusterType.GROUP)
+
+    def _open_cluster(self, item: object, cluster_type: str) -> None:
+        if not isinstance(item, GalleryItem):
+            return
+        try:
+            window = open_cluster_inspector(self.workspace, item, cluster_type, self)
+        except Exception as error:  # noqa: BLE001
+            QMessageBox.warning(self, "Medien", str(error))
+            return
+        if window is None:
+            return
+        window.rating_changed.connect(self._on_inspector_rating)
+        window.rotation_changed.connect(self._on_inspector_rating)
+        window.park_changed.connect(self._on_inspector_park)
+        window.cluster_changed.connect(self.refresh)
+        window.open_media_on_map.connect(self.open_media_on_map.emit)
 
     def _preview(self, item: object) -> None:
         if not isinstance(item, GalleryItem):
@@ -494,6 +621,10 @@ class PhotosView(QWidget):
     def _on_thumbs_failed(self, message: str) -> None:
         self._busy = False
         QMessageBox.warning(self, "Medien", message)
+
+
+def _is_photo(item: GalleryItem) -> bool:
+    return item.extension.lower() in PHOTO_EXTENSIONS
 
 
 def _matches_kind(extension: str, kind: str) -> bool:

@@ -29,6 +29,7 @@ from travelcore.media.gallery import SORT_FAVORITE, SORT_STATUSES, effective_sor
 from travelcore.media.orientation import normalize_rotation_degrees
 from travelcore.media.thumbnails import cached_thumbnail_path, ensure_photo_and_video_rows
 from travelcore.media.types import FileKind
+from travelcore.similarity.clusters import ClusterMarks, ClusterOverlay, load_cluster_overlay
 from travelcore.timeline.journal import aware, display_position
 from travelcore.timeline.links import (
     parse_leonardo_urls,
@@ -157,6 +158,7 @@ def load_timeline(
     media = _media_rows(session, project.id)
     by_date = _group_by_date(media)
     track_urls = track_urls_by_source(session, project.id)
+    overlay = load_cluster_overlay(session, project.id)
     snapshot_days: list[TimelineDay] = []
     for day in days:
         key = day.date.date() if day.date is not None else None
@@ -173,14 +175,22 @@ def load_timeline(
                 leonardo_urls=parse_leonardo_urls(day.leonardo_urls),
                 cover_source_file_id=day.cover_source_file_id,
                 photos=tuple(
-                    _photo_view(row, photo, thumbs_dir, size, track_urls.get(row.id))
+                    _photo_view(
+                        row,
+                        photo,
+                        thumbs_dir,
+                        size,
+                        track_urls.get(row.id),
+                        marks=overlay.for_source(row.id),
+                    )
                     for row, photo in day_media
+                    if not overlay.is_hidden(row.id)
                 ),
                 places=tuple(_place_view(item) for item in _places_for_day(session, day.id)),
                 events=tuple(_event_view(item) for item in _events_for_day(session, day.id)),
             )
         )
-    sections = _section_views(session, trip.id, thumbs_dir, size, track_urls)
+    sections = _section_views(session, trip.id, thumbs_dir, size, track_urls, overlay)
     entries = _build_entries(sections)
     ordered_sections = tuple(entry.section for entry in entries if entry.section is not None)
     return TimelineSnapshot(
@@ -587,6 +597,7 @@ def _photo_view(
     display_latitude: float | None = None,
     display_longitude: float | None = None,
     position_inherited: bool = False,
+    marks: ClusterMarks | None = None,
 ) -> TimelinePhoto:
     folder = thumbs_dir if thumbs_dir is not None else Path(".")
     rotation = normalize_rotation_degrees(row.rotation_degrees)
@@ -621,6 +632,13 @@ def _photo_view(
         display_latitude=display_latitude if display_latitude is not None else row.gps_latitude,
         display_longitude=display_longitude if display_longitude is not None else row.gps_longitude,
         position_inherited=position_inherited,
+        stack_id=None if marks is None else marks.stack_id,
+        stack_size=0 if marks is None else marks.stack_size,
+        is_stack_key=False if marks is None else marks.is_stack_key,
+        group_id=None if marks is None else marks.group_id,
+        group_size=0 if marks is None else marks.group_size,
+        is_group_key=False if marks is None else marks.is_group_key,
+        group_status=None if marks is None else marks.group_status,
     )
 
 
@@ -630,6 +648,7 @@ def _section_views(
     thumbs_dir: Path | None,
     size: int,
     track_urls: dict[int, str],
+    overlay: ClusterOverlay | None = None,
 ) -> list[TimelineSection]:
     sections = list(
         session.scalars(
@@ -654,7 +673,10 @@ def _section_views(
         members.sort(key=_member_display_sort_key)
         items = []
         for row, photo, member in members:
+            if overlay is not None and overlay.is_hidden(row.id):
+                continue
             position, inherited = display_position(session, row, member, section, files)
+            marks = None if overlay is None else overlay.for_source(row.id)
             items.append(
                 _photo_view(
                     row,
@@ -667,6 +689,7 @@ def _section_views(
                     display_latitude=position[0] if position is not None else None,
                     display_longitude=position[1] if position is not None else None,
                     position_inherited=inherited,
+                    marks=marks,
                 )
             )
         views.append(

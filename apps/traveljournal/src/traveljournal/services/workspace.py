@@ -37,6 +37,8 @@ from travelcore.project_settings import (
     roots_equal,
     save_project_settings,
 )
+from travelcore.similarity import clusters as media_clusters
+from travelcore.similarity.clusters import ClusterRecord
 from travelcore.timeline import TimelineSnapshot
 from travelcore.timeline import build as timeline_build
 from travelcore.timeline import history as timeline_history
@@ -384,6 +386,59 @@ class Workspace:
             )
         by_id = {item.source_file_id: item for item in found}
         return [by_id[item_id] for item_id in source_ids if item_id in by_id]
+
+    def accept_exact_stacks(self) -> int:
+        opened = self._require_open()
+        with opened.session_factory() as session:
+            count = media_clusters.accept_exact_stacks(session, opened.project_id)
+            session.commit()
+        return count
+
+    def propose_scene_groups(self) -> int:
+        opened = self._require_open()
+        with opened.session_factory() as session:
+            count = media_clusters.propose_scene_groups(session, opened.project_id)
+            session.commit()
+        return count
+
+    def create_manual_group(self, source_file_ids: list[int]) -> int:
+        opened = self._require_open()
+        with opened.session_factory() as session:
+            cluster_id = media_clusters.create_manual_group(
+                session, opened.project_id, source_file_ids
+            )
+            session.commit()
+        return cluster_id
+
+    def cluster_record(self, cluster_id: int) -> ClusterRecord:
+        opened = self._require_open()
+        with opened.session_factory() as session:
+            return media_clusters.load_cluster(session, cluster_id)
+
+    def cluster_items(self, cluster_id: int) -> list[GalleryItem]:
+        record = self.cluster_record(cluster_id)
+        opened = self._require_open()
+        thumbs, size = self._thumbs_and_size()
+        with opened.session_factory() as session:
+            found = list_gallery_items(
+                session,
+                opened.project_id,
+                thumbs,
+                size=size,
+                source_file_ids=record.member_ids,
+                hide_cluster_hidden=False,
+            )
+        by_id = {item.source_file_id: item for item in found}
+        return [by_id[item_id] for item_id in record.member_ids if item_id in by_id]
+
+    def set_stack_key(self, cluster_id: int, source_file_id: int) -> None:
+        self._mutate(lambda session: media_clusters.set_stack_key(session, cluster_id, source_file_id))
+
+    def set_group_keys(self, cluster_id: int, source_file_ids: list[int]) -> None:
+        self._mutate(lambda session: media_clusters.set_group_keys(session, cluster_id, source_file_ids))
+
+    def dismiss_cluster(self, cluster_id: int) -> None:
+        self._mutate(lambda session: media_clusters.dismiss_cluster(session, cluster_id))
 
     def sync_timeline(self) -> TimelineSnapshot:
         opened = self._require_open()
@@ -782,6 +837,21 @@ class Workspace:
         if data.get("timeline_thumb_zoom") == zoom:
             return
         data["timeline_thumb_zoom"] = zoom
+        self._save_ui_config(data)
+
+    def media_thumb_zoom(self) -> int:
+        from traveljournal.widgets.thumb_zoom import clamp_thumb_zoom
+
+        return clamp_thumb_zoom(self._load_ui_config().get("media_thumb_zoom"))
+
+    def set_media_thumb_zoom(self, percent: int) -> None:
+        from traveljournal.widgets.thumb_zoom import clamp_thumb_zoom
+
+        zoom = clamp_thumb_zoom(percent)
+        data = self._load_ui_config()
+        if data.get("media_thumb_zoom") == zoom:
+            return
+        data["media_thumb_zoom"] = zoom
         self._save_ui_config(data)
 
     def map_thumb_zoom(self) -> int:

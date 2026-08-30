@@ -53,6 +53,7 @@ from travelcore.media.gallery import (
 )
 from travelcore.media.types import GPS_EXTENSIONS, PHOTO_EXTENSIONS, FileKind
 from travelcore.project_settings import DEFAULT_STAY_LINK_COLOR
+from travelcore.similarity.types import ClusterType
 from travelcore.timeline.build import apply_pending_sections
 from travelcore.timeline.journal import calendar_key
 from travelcore.timeline.links import (
@@ -99,7 +100,11 @@ from traveljournal.widgets.entry_links import (
 )
 from traveljournal.widgets.gallery import GalleryView, source_ids_from_mime
 from traveljournal.widgets.join_plus import TimelineSpine as TimelineJoin
-from traveljournal.widgets.media_inspector import MediaInspectorWindow, cascade_inspector
+from traveljournal.widgets.media_inspector import (
+    MediaInspectorWindow,
+    cascade_inspector,
+    open_cluster_inspector,
+)
 from traveljournal.widgets.media_tabs import (
     RATING_TABS,
     ClickTabBar,
@@ -397,6 +402,8 @@ class TimelineView(QWidget):
         self._pool_pane.unpark_requested.connect(self._unpark_selected)
         self._pool_pane.item_rating_changed.connect(self._on_item_rating)
         self._pool_pane.gallery.item_activated.connect(self._open_inspector)
+        self._pool_pane.gallery.stack_requested.connect(self._open_stack)
+        self._pool_pane.gallery.group_requested.connect(self._open_group)
         self._pool_pane.show_rejected_changed.connect(self._on_pool_show_rejected)
         self._pool_pane.items_dropped.connect(self._drop_on_timeline_pool)
         self._pool_pane.gallery.set_thumb_zoom(self.workspace.timeline_thumb_zoom())
@@ -630,6 +637,10 @@ class TimelineView(QWidget):
                 block.pool_dropped.connect(lambda ids, widget=block: self._drop_pool_on_entry(widget, ids))
                 block.gallery.item_activated.connect(self._open_inspector)
                 block.track_gallery.item_activated.connect(self._open_inspector)
+                block.gallery.stack_requested.connect(self._open_stack)
+                block.gallery.group_requested.connect(self._open_group)
+                block.track_gallery.stack_requested.connect(self._open_stack)
+                block.track_gallery.group_requested.connect(self._open_group)
                 self._wire_drag_scroll(block.gallery)
                 self._wire_drag_scroll(block.track_gallery)
                 self._blocks.append(block)
@@ -741,6 +752,28 @@ class TimelineView(QWidget):
 
     def _persist_media_tab(self) -> None:
         self.workspace.set_timeline_media_tab(media_tab_key(self._media_tabs.currentIndex()))
+
+    def _open_stack(self, item: object) -> None:
+        self._open_cluster(item, ClusterType.STACK)
+
+    def _open_group(self, item: object) -> None:
+        self._open_cluster(item, ClusterType.GROUP)
+
+    def _open_cluster(self, item: object, cluster_type: str) -> None:
+        if not isinstance(item, GalleryItem):
+            return
+        try:
+            window = open_cluster_inspector(self.workspace, item, cluster_type, self)
+        except Exception as error:  # noqa: BLE001
+            QMessageBox.warning(self, "Timeline", str(error))
+            return
+        if window is None:
+            return
+        window.rating_changed.connect(self._on_item_rating)
+        window.rotation_changed.connect(self._on_item_rating)
+        window.park_changed.connect(self._on_inspector_park)
+        window.cluster_changed.connect(self.refresh)
+        window.open_media_on_map.connect(self.open_media_on_map.emit)
 
     def _open_inspector(self, item: object) -> None:
         if not isinstance(item, GalleryItem):
@@ -2762,6 +2795,13 @@ def _gallery_item(photo: TimelinePhoto, *, cover_id: int | None = None) -> Galle
         journal_at=photo.journal_at,
         display_latitude=photo.display_latitude,
         display_longitude=photo.display_longitude,
+        stack_id=photo.stack_id,
+        stack_size=photo.stack_size,
+        is_stack_key=photo.is_stack_key,
+        group_id=photo.group_id,
+        group_size=photo.group_size,
+        is_group_key=photo.is_group_key,
+        group_status=photo.group_status,
     )
 
 

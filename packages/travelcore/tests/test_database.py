@@ -69,6 +69,12 @@ def test_schema_contains_core_tables(tmp_path: Path) -> None:
     assert "outbound_geometry" in section_columns
     assert "outbound_dash" in section_columns
     assert "outbound_symbol" in section_columns
+    cluster_columns = {column["name"] for column in inspector.get_columns("similarity_groups")}
+    member_columns = {column["name"] for column in inspector.get_columns("similarity_group_members")}
+    assert "cluster_type" in cluster_columns
+    assert "status" in cluster_columns
+    assert "origin" in cluster_columns
+    assert "is_key" in member_columns
 
 
 def test_folder_name_from_project_name_strips_invalid_chars() -> None:
