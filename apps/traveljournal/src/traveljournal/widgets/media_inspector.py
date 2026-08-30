@@ -45,7 +45,7 @@ from travelcore.media.gallery import (
 )
 from travelcore.media.heic_win import decode_windows_thumbnail
 from travelcore.media.orientation import can_rotate_media, normalize_rotation_degrees, orient_image
-from travelcore.media.types import GPS_EXTENSIONS, PHOTO_EXTENSIONS, VIDEO_EXTENSIONS
+from travelcore.media.types import PHOTO_EXTENSIONS, VIDEO_EXTENSIONS
 from traveljournal.services.workspace import Workspace
 
 _MAX_EDGE = 1920
@@ -816,8 +816,8 @@ def media_meta_text(item: GalleryItem) -> str:
     return " · ".join(parts)
 
 
-def _can_rate(item: GalleryItem) -> bool:
-    return item.extension.lower() not in GPS_EXTENSIONS
+def _can_rate(_item: GalleryItem) -> bool:
+    return True
 
 
 def _rotate_pixmap(pixmap: QPixmap, degrees: int | None) -> QPixmap:

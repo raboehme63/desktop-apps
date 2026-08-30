@@ -189,6 +189,7 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
     assert "traveljournalOpenMedia" in text
     assert "dblclick" in text
     assert "bindPopup" in text
+    assert "line.popup_html" in text
     assert "popupopen" in text
     assert "tj-popup-thumb" in text
     assert "traveljournalShowDetail" in text
@@ -419,11 +420,17 @@ def test_leaflet_payload_includes_source_file_id(tmp_path: Path) -> None:
                 name="spur",
                 points=((46.0, 11.0), (46.1, 11.1)),
                 source_file_id=4,
+                sort_status="reserve",
             ),
         ),
         center=(46.0, 11.0),
     )
-    assert leaflet_payload(line_scene, html_path)["polylines"][0]["source_file_id"] == 4
+    line_payload = leaflet_payload(line_scene, html_path)["polylines"][0]
+    assert line_payload["source_file_id"] == 4
+    assert line_payload["sort_status"] == "reserve"
+    assert 'data-source-id="4"' in line_payload["popup_html"]
+    assert "tj-rate" in line_payload["popup_html"]
+    assert "tj-rate-on" in line_payload["popup_html"]
 
 
 def test_interaction_config_is_declarative_payload(tmp_path: Path) -> None:

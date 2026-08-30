@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any
 
 from travelcore.maps.groups import MapTimelineCard
-from travelcore.timeline.symbols import stay_symbol_svg_js
 from travelcore.maps.scene import (
     COVER_ICON_PX,
     COVER_LINE_INSET_PX,
@@ -21,10 +20,12 @@ from travelcore.maps.scene import (
     PHOTO_CONE_MIN_ZOOM,
     PHOTO_STACK_DISABLE_ZOOM,
     MapMarker,
+    MapPolyline,
     MapScene,
     StayLink,
 )
 from travelcore.project_settings import DEFAULT_STAY_LINK_COLOR, normalize_stay_link_color
+from travelcore.timeline.symbols import stay_symbol_svg_js
 
 OSM_LATIN_TILES = "https://tile.openstreetmap.de/{z}/{x}/{y}.png"
 OSM_LATIN_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-Mitwirkende'
@@ -1068,6 +1069,7 @@ def leaflet_payload(scene: MapScene, html_path: Path) -> dict[str, Any]:
             "pilot": line.pilot or "",
             "sort_status": line.sort_status,
             "source_file_id": line.source_file_id,
+            "popup_html": _polyline_popup_html(line),
         }
         for line in scene.polylines
     ]
@@ -2195,22 +2197,8 @@ def _overview_script(
         if (line.name) {{
           layer.bindTooltip(line.name);
         }}
-        var parts = ['<div style="min-width:180px">'];
-        if (line.name) {{
-          parts.push('<strong>' + String(line.name).replace(/</g, '') + '</strong>');
-        }}
-        if (line.pilot) {{
-          parts.push('<div>Pilot: ' + String(line.pilot).replace(/</g, '') + '</div>');
-        }}
-        if (line.external_url) {{
-          parts.push(
-            '<div><a href="' + String(line.external_url).replace(/"/g, '&quot;') +
-            '" target="_blank" rel="noopener">DHV-Leonardo</a></div>'
-          );
-        }}
-        parts.push('</div>');
-        if (parts.length > 2) {{
-          layer.bindPopup(parts.join(''));
+        if (line.popup_html) {{
+          layer.bindPopup(line.popup_html);
         }}
         layer.addTo(detail);
       }});
@@ -2498,11 +2486,32 @@ def _popup_body(marker: MapMarker, html_path: Path) -> str:
     return "<div style='min-width:160px'>" + "".join(parts) + "</div>"
 
 
-def _rating_bar_html(marker: MapMarker) -> str:
-    if not marker.source_file_id or marker.kind == "place":
+def _polyline_popup_html(line: MapPolyline) -> str:
+    parts: list[str] = []
+    if line.name:
+        parts.append(f"<strong>{html.escape(line.name)}</strong>")
+    if line.pilot:
+        parts.append(f"<div>Pilot: {html.escape(line.pilot)}</div>")
+    if line.external_url:
+        href = html.escape(line.external_url, quote=True)
+        parts.append(f'<div><a href="{href}" target="_blank" rel="noopener">DHV-Leonardo</a></div>')
+    rating = _rating_bar_html_for(line.source_file_id, line.sort_status, kind=line.kind)
+    if rating:
+        parts.append(rating)
+    if not parts:
         return ""
-    current = marker.sort_status or ""
-    sid = int(marker.source_file_id)
+    return '<div style="min-width:180px">' + "".join(parts) + "</div>"
+
+
+def _rating_bar_html(marker: MapMarker) -> str:
+    return _rating_bar_html_for(marker.source_file_id, marker.sort_status, kind=marker.kind)
+
+
+def _rating_bar_html_for(source_file_id: int | None, sort_status: str | None, *, kind: str = "") -> str:
+    if not source_file_id or kind == "place":
+        return ""
+    current = sort_status or ""
+    sid = int(source_file_id)
     buttons: list[str] = []
     for status, label, title in _RATE_CHIPS:
         on = " tj-rate-on" if current == status else ""

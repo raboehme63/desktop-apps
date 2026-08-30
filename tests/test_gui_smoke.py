@@ -562,6 +562,10 @@ def test_entry_widget_separates_tracks_from_media() -> None:
     widget = EntryWidget(TimelineEntry(started_at=photo.captured_at, leftover_day=day))
     assert [item.filename for item in widget.gallery.items()] == ["foto.jpg"]
     assert [item.filename for item in widget.track_gallery.items()] == ["flug.igc"]
+    assert widget._track_tabs.count() == 4
+    assert widget._track_tabs.tabText(3) == "Aussortiert"
+    assert not widget._track_tabs.isHidden()
+    assert widget.track_gallery._show_ratings is True
     assert widget.entry_kind() == "day"
     assert widget._kind_combo.currentData() == "day"
     assert not widget._cover_thumb.isHidden()
@@ -1278,6 +1282,73 @@ def test_entry_widget_media_tab_filters_favorites() -> None:
     assert [item.filename for item in widget.gallery.items()] == []
     widget.set_media_tab(media_tab_index("rejected"))
     assert [item.filename for item in widget.gallery.items()] == ["weg.jpg"]
+    _ = app
+
+
+def test_entry_widget_track_tab_filters_and_reactivates() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from dataclasses import replace
+    from datetime import UTC, datetime
+
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import SORT_REJECTED
+    from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelinePhoto
+    from traveljournal.views.timeline_view import EntryWidget, media_tab_index
+
+    app = QApplication.instance() or QApplication([])
+    stamp = datetime(2025, 5, 15, 9, 0, tzinfo=UTC)
+
+    def track(
+        file_id: int,
+        name: str,
+        *,
+        sort_status: str | None = None,
+        favorite: bool = False,
+    ) -> TimelinePhoto:
+        return TimelinePhoto(
+            source_file_id=file_id,
+            filename=name,
+            path=name,
+            thumbnail_path=Path("."),
+            captured_at=stamp,
+            used_in_journal=False,
+            is_cover=False,
+            is_favorite=favorite,
+            gps_latitude=None,
+            gps_longitude=None,
+            file_kind="gps",
+            sort_status=sort_status,
+        )
+
+    day = TimelineDay(
+        id=1,
+        day_index=0,
+        date=stamp.date(),
+        title=None,
+        notes=None,
+        origin="auto",
+        photos=(
+            track(1, "normal.gpx"),
+            track(2, "fav.gpx", sort_status="favorite", favorite=True),
+            track(3, "weg.gpx", sort_status=SORT_REJECTED),
+        ),
+    )
+    widget = EntryWidget(TimelineEntry(started_at=stamp, leftover_day=day))
+    assert widget._media_tabs.isHidden()
+    assert widget._track_tabs.count() == 4
+    assert widget._track_tabs.tabText(3) == "Aussortiert"
+    assert [item.filename for item in widget.track_gallery.items()] == ["normal.gpx", "fav.gpx"]
+    widget.set_media_tab(media_tab_index("favorite"))
+    assert widget._track_tabs.currentIndex() == media_tab_index("favorite")
+    assert [item.filename for item in widget.track_gallery.items()] == ["fav.gpx"]
+    widget.set_media_tab(media_tab_index("rejected"))
+    shown = widget.track_gallery.items()
+    assert [item.filename for item in shown] == ["weg.gpx"]
+    widget.sync_rating(replace(shown[0], sort_status=None, is_favorite=False))
+    assert [item.filename for item in widget.track_gallery.items()] == []
+    widget.set_media_tab(media_tab_index("all"))
+    assert [item.filename for item in widget.track_gallery.items()] == ["normal.gpx", "fav.gpx", "weg.gpx"]
     _ = app
 
 
@@ -2451,6 +2522,36 @@ def test_media_inspector_shows_original_and_ratings(tmp_path: Path) -> None:
     pixmap = load_media_pixmap(item)
     assert not pixmap.isNull()
     assert pixmap.width() >= 40
+    _ = app
+
+
+def test_media_inspector_shows_ratings_for_tracks() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.widgets.media_inspector import MediaInspectorWindow, _can_rate
+
+    app = QApplication.instance() or QApplication([])
+    item = GalleryItem(
+        source_file_id=8,
+        path="flug.igc",
+        filename="flug.igc",
+        extension=".igc",
+        captured_at=None,
+        timezone_unknown=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        camera=None,
+        is_favorite=False,
+        used_in_journal=False,
+        thumbnail_path=Path("."),
+        sort_status=None,
+    )
+    assert _can_rate(item)
+    window = MediaInspectorWindow(item)
+    assert set(window._rating_buttons) == {"favorite", "reserve", "rejected"}
+    assert all(not button.isHidden() for button in window._rating_buttons.values())
     _ = app
 
 

@@ -735,7 +735,7 @@ class TimelineView(QWidget):
                 if sender is parent.gallery:
                     sequence = parent.inspectable_media()
                 elif sender is parent.track_gallery:
-                    sequence = parent.track_gallery.items()
+                    sequence = parent.inspectable_tracks()
             elif isinstance(parent, PoolPane):
                 sequence = parent.gallery.items()
         window = MediaInspectorWindow(item, items=sequence, workspace=self.workspace, parent=self.window())
@@ -1903,6 +1903,7 @@ class EntryWidget(QFrame):
         media_label.setObjectName("fieldCaption")
         media_label.setVisible(media_count > 0 or track_count == 0)
         self._all_gallery = [_gallery_item(photo, cover_id=self._cover_id) for photo in media_items]
+        self._all_tracks = [_gallery_item(photo, cover_id=self._cover_id) for photo in track_items]
         self._media_tabs = ClickTabBar(self)
         self._media_tabs.setObjectName("mediaSortTabs")
         self._media_tabs.setExpanding(False)
@@ -1924,14 +1925,20 @@ class EntryWidget(QFrame):
         track_label = QLabel(f"Tracks ({track_count})", self)
         track_label.setObjectName("fieldCaption")
         track_label.setVisible(track_count > 0)
-        self.track_gallery = GalleryView(self, show_ratings=False, show_cover=True)
+        self._track_tabs = ClickTabBar(self)
+        self._track_tabs.setObjectName("mediaSortTabs")
+        self._track_tabs.setExpanding(False)
+        for label, _status in RATING_TABS:
+            self._track_tabs.addTab(label)
+        self._track_tabs.setVisible(track_count > 0)
+        self.track_gallery = GalleryView(self, show_cover=True)
         self.track_gallery.set_expand_to_fit(True)
         self.track_gallery.set_multi_select(True)
+        self.track_gallery.rating_chosen.connect(self._on_rating)
         self.track_gallery.cover_chosen.connect(self._on_cover)
         self.track_gallery.enable_to_map_menu(self._item_can_open_on_map)
         self.track_gallery.map_requested.connect(self._request_open_item_on_map)
         self.track_gallery.setToolTip(_GALLERY_DRAG_HINT)
-        self.track_gallery.set_items([_gallery_item(photo, cover_id=self._cover_id) for photo in track_items])
         self.track_gallery.setVisible(track_count > 0)
         track_model = self.track_gallery.selectionModel()
         if track_model is not None:
@@ -1948,11 +1955,14 @@ class EntryWidget(QFrame):
         if media_count:
             layout.addWidget(self._media_tabs)
             layout.addWidget(self.gallery)
-            self.set_media_tab(media_tab)
         if track_count:
             layout.addWidget(track_label)
+            layout.addWidget(self._track_tabs)
             layout.addWidget(self.track_gallery)
+        if media_count or track_count:
+            self.set_media_tab(media_tab)
         self._media_tabs.currentChanged.connect(self._on_local_media_tab)
+        self._track_tabs.currentChanged.connect(self._on_local_track_tab)
         self._refresh_cover_thumb()
         self._fit_notes()
         self.setAcceptDrops(True)
@@ -2046,27 +2056,35 @@ class EntryWidget(QFrame):
         return found
 
     def ordered_items(self) -> list[GalleryItem]:
-        return [*self._all_gallery, *self.track_gallery.items()]
+        return [*self._all_gallery, *self._all_tracks]
 
     def inspectable_media(self) -> list[GalleryItem]:
         return list(self.gallery.items())
+
+    def inspectable_tracks(self) -> list[GalleryItem]:
+        return list(self.track_gallery.items())
 
     def select_ids(self, wanted: set[int]) -> None:
         self.gallery.select_by_source_ids(wanted)
         self.track_gallery.select_by_source_ids(wanted)
 
     def set_media_tab(self, index: int) -> None:
-        index = max(0, min(index, self._media_tabs.count() - 1)) if self._media_tabs.count() else 0
-        if self._media_tabs.currentIndex() != index and self._media_tabs.count():
-            self._media_tabs.blockSignals(True)
-            self._media_tabs.setCurrentIndex(index)
-            self._media_tabs.blockSignals(False)
+        index = max(0, min(index, len(RATING_TABS) - 1))
+        for tabs in (self._media_tabs, self._track_tabs):
+            if tabs.count() and tabs.currentIndex() != index:
+                tabs.blockSignals(True)
+                tabs.setCurrentIndex(index)
+                tabs.blockSignals(False)
         self._apply_media_tab()
 
     def sync_rating(self, item: GalleryItem) -> None:
         self._all_gallery = [
             item if existing.source_file_id == item.source_file_id else existing
             for existing in self._all_gallery
+        ]
+        self._all_tracks = [
+            item if existing.source_file_id == item.source_file_id else existing
+            for existing in self._all_tracks
         ]
         self._apply_media_tab()
         if self._cover_id == item.source_file_id:
@@ -2124,18 +2142,39 @@ class EntryWidget(QFrame):
         self._entry_menu.exec(self._menu_button.mapToGlobal(self._menu_button.rect().bottomLeft()))
 
     def _on_local_media_tab(self, index: int) -> None:
+        self._sync_local_tabs(index)
         self._apply_media_tab()
         self.media_tab_changed.emit(index)
+
+    def _on_local_track_tab(self, index: int) -> None:
+        self._sync_local_tabs(index)
+        self._apply_media_tab()
+        self.media_tab_changed.emit(index)
+
+    def _sync_local_tabs(self, index: int) -> None:
+        for tabs in (self._media_tabs, self._track_tabs):
+            if tabs.count() and tabs.currentIndex() != index:
+                tabs.blockSignals(True)
+                tabs.setCurrentIndex(index)
+                tabs.blockSignals(False)
 
     def _apply_media_tab(self) -> None:
         wanted = rating_status_at(self._media_tabs.currentIndex())
         include_rejected = self.workspace is not None and self.workspace.show_rejected_in_all()
-        shown = [
-            item
-            for item in self._all_gallery
-            if matches_rating(item, wanted, include_rejected=include_rejected)
-        ]
-        self.gallery.set_items(shown)
+        self.gallery.set_items(
+            [
+                item
+                for item in self._all_gallery
+                if matches_rating(item, wanted, include_rejected=include_rejected)
+            ]
+        )
+        self.track_gallery.set_items(
+            [
+                item
+                for item in self._all_tracks
+                if matches_rating(item, wanted, include_rejected=include_rejected)
+            ]
+        )
 
     def _on_rating(self, item: object, status: str) -> None:
         if not isinstance(item, GalleryItem):
@@ -2168,17 +2207,15 @@ class EntryWidget(QFrame):
             replace(existing, is_entry_cover=existing.source_file_id == next_id)
             for existing in self._all_gallery
         ]
-        self.track_gallery.set_items(
-            [
-                replace(existing, is_entry_cover=existing.source_file_id == next_id)
-                for existing in self.track_gallery.items()
-            ]
-        )
+        self._all_tracks = [
+            replace(existing, is_entry_cover=existing.source_file_id == next_id)
+            for existing in self._all_tracks
+        ]
         self._apply_media_tab()
         self._refresh_cover_thumb()
 
     def _cover_items(self) -> list[GalleryItem]:
-        return [*self._all_gallery, *self.track_gallery.items()]
+        return [*self._all_gallery, *self._all_tracks]
 
     def _abort_cover_fetch(self) -> None:
         reply = self._cover_reply
@@ -2190,7 +2227,7 @@ class EntryWidget(QFrame):
         for item in self._all_gallery:
             if item.extension.lower() in PHOTO_EXTENSIONS:
                 return item
-        for item in self.track_gallery.items():
+        for item in self._all_tracks:
             if item.extension.lower() in GPS_EXTENSIONS:
                 return item
         return None
