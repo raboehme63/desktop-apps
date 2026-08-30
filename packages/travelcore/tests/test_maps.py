@@ -36,6 +36,7 @@ from travelcore.maps.interaction import stay_link_line_options
 from travelcore.maps.groups import (
     MapTimelineCard,
     count_card_media,
+    map_group_key_for_source,
     parse_group_key,
     pick_cover_item,
     pick_cover_youtube,
@@ -223,6 +224,7 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
     assert "tj-close-section" in text
     assert "traveljournalOpenMedia" in text
     assert "dblclick" in text
+    assert "Math.max(map.getZoom() || 0, 16)" in text
     assert "bindPopup" in text
     assert "line.popup_html" in text
     assert "popupopen" in text
@@ -237,6 +239,8 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
     assert "overlapCoverPack" in text
     assert "maxZoom: 13" in text
     assert "layerKey" in text
+    assert "if (!layer)" in text
+    assert "if (!marker)" in text
     assert "group_key" in text
     assert "getLayers().length" in text
     assert "latLngToContainerPoint" in text
@@ -1134,6 +1138,11 @@ def test_build_map_timeline_cards_from_section(open_project: OpenProject, tmp_pa
     assert card.igc_count == 0
     assert card.youtube_count == 1
     assert card.visible_counts(show_reserve=False) == (2, 0, 0, 1)
+    with open_project.session_factory() as session:
+        source_id = session.scalar(select(SourceFile.id).order_by(SourceFile.id.asc()))
+        assert source_id is not None
+        assert map_group_key_for_source(session, open_project.project_id, source_id) == card.group_key
+        assert map_group_key_for_source(session, open_project.project_id, 0) is None
 
 
 def test_unplaced_section_gets_pin_cover(open_project: OpenProject, tmp_path: Path) -> None:

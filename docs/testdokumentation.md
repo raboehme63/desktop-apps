@@ -312,7 +312,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_pick_cover_youtube_uses_first_link` | `test_maps.py` | YouTube-Cover-URL |
 | `test_youtube_only_section_uses_youtube_cover` | `test_maps.py` | Abschnitt nur mit YouTube als Cover |
 | `test_parse_group_key_accepts_section_day_and_loose` | `test_maps.py` | `section:` / `day:` / `loose:` |
-| `test_build_map_timeline_cards_from_section` | `test_maps.py` | Leistenkarten aus Abschnitt inkl. Text und YouTube |
+| `test_build_map_timeline_cards_from_section` | `test_maps.py` | Leistenkarten aus Abschnitt inkl. Text und YouTube; `map_group_key_for_source` |
 | `test_unplaced_section_gets_pin_cover` | `test_maps.py` | leerer Abschnitt ohne GPS, Pin wird Cover |
 | `test_stay_links_connect_days_and_stays_in_timeline_order` | `test_maps.py` | Linien zwischen Tag- und Aufenthaltskreisen in Timeline-Reihenfolge |
 | `test_stay_links_connect_leftover_days` | `test_maps.py` | Tage mit GPS werden verbunden |
@@ -467,6 +467,11 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_entry_widget_section_has_to_map_button` | `tests/test_gui_smoke.py` | Zur Karte an Abschnitt und Tag |
 | `test_entry_widget_thumbnail_opens_section_detail_on_map` | `tests/test_gui_smoke.py` | Rechtsklick Thumbnail → Zur Karte… öffnet Abschnittsdetail |
 | `test_map_view_focus_group_media_keeps_pending_until_shown` | `tests/test_gui_smoke.py` | Foto-Fokus merkt Abschnitt und Medium bis die Karte sichtbar ist |
+| `test_cascade_inspector_offsets_second_window` | `tests/test_gui_smoke.py` | mehrere Original-Fenster versetzt |
+| `test_focus_group_media_last_press_wins_strip` | `tests/test_gui_smoke.py` | letzter Zur-Karte-Klick gewinnt Leiste und Foto |
+| `test_focus_group_media_centers_image_section_and_keeps_detail` | `tests/test_gui_smoke.py` | Zur Karte: Abschnittskarte des Bildes, Detail bleibt |
+| `test_focus_group_media_opens_section_detail_and_photo` | `tests/test_gui_smoke.py` | Zur Karte: Detailmodus und Foto nach Leistenfokus |
+| `test_strip_set_cards_can_keep_requested_section` | `tests/test_gui_smoke.py` | Leiste zentriert gewünschte Karte ohne Folgefokus |
 | `test_map_view_focus_group_centers_section_card` | `tests/test_gui_smoke.py` | MapView fokussiert die Abschnittskarte; Tagebuchtext rechts, YouTube-Thumbs unten rechts auf der Karte |
 | `test_map_notes_edit_shows_save_cancel_discard` | `tests/test_gui_smoke.py` | Nach Edit Speichern, Abbrechen, Verwerfen |
 | `test_map_notes_switch_card_opens_save_dialog` | `tests/test_gui_smoke.py` | Fokuswechsel bei ungespeichertem Tagebuchtext: Dialog Speichern/Abbrechen/Verwerfen |
@@ -504,6 +509,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_entry_widget_track_tab_filters_and_reactivates` | `tests/test_gui_smoke.py` | Track-Reiter wie Medien-Register |
 | `test_thumb_zoom_slider_marks_default` | `tests/test_gui_smoke.py` | Thumbnail-Schieber 50–200 %, Marke 100 % |
 | `test_media_inspector_parks_and_unparks_from_pool_button` | `tests/test_gui_smoke.py` | Inspektor: In den Pool / Zurückholen |
+| `test_media_inspector_opens_current_item_on_map` | `tests/test_gui_smoke.py` | Inspektor: Zur Karte sendet Abschnitt und Medium |
 | `test_media_inspector_rotates_display_without_writing_original` | `tests/test_gui_smoke.py` | Drehen, Original-mtime gleich |
 | `test_media_inspector_browses_section_sequence` | `tests/test_gui_smoke.py` | Blättern in der Sequenz |
 | `test_media_inspector_rating_advances_to_next_photo` | `tests/test_gui_smoke.py` | Bewertung im Inspektor springt zum nächsten Foto, letztes bleibt |
@@ -815,6 +821,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Ohne Chip T | Fallback: erstes Foto, sonst erstes Track-Thumbnail, sonst erstes YouTube-Vorschaubild |
 | **Zur Karte** an einem gespeicherten Reiseabschnitt oder Tag | Seite **Karte**, passende Leistenkarte fokussiert |
 | Rechtsklick auf ein Thumbnail, **Zur Karte…** | Seite **Karte**, Detailansicht des Abschnitts, Ausschnitt auf der Position des Bildes (nur mit Kartenposition, gespeicherter Eintrag) |
+| Original-Ansicht: **Zur Karte** | wie der Thumbnail-Menüpunkt; ohne Ort oder im Pool deaktiviert; mehrere Fenster möglich, letzter Klick gewinnt (Detail, Foto, Leistenkarte mittig) |
 | **In den Pool** auf markierten Medien | Medien verschwinden aus Tag/Transfer/Aufenthalt; die rechte **Pool**-Spalte öffnet sich und zeigt sie |
 | Pool-Spalte: Auswahl, **Zurück in die Timeline** | Medien liegen wieder auf einem Tag nach Journal-/Aufnahmezeit |
 | Pfeil rechts außen in der Timeline oder auf **Medien** | klappt die Pool-Spalte ein und aus, wie die Navigation; keine Abschnittskarte |
@@ -845,6 +852,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Seite **Medien**: Doppelklick | dieselbe Sequenz wie die aktuelle Galerie |
 | **In den Pool** im Inspektor (Timeline, Medien oder Karte) | Medium liegt im Pool; nächstes Foto (letztes bleibt); Button wird **Zurückholen**; Originale unverändert |
 | **Zurückholen** im Inspektor | Medium wieder in Timeline und Galerie |
+| **Zur Karte** bei einem Medium mit Ort | Seite **Karte**, Detailansicht, Ausschnitt auf der Position des Bildes; ohne Ort oder im Pool deaktiviert |
 
 ### MT-19 Anzeigedrehung
 

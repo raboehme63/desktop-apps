@@ -170,9 +170,10 @@ class PhotoCanvas(QWidget):
         self._browse = False
         self._drag_last: QPointF | None = None
         self._moved = False
+        self._nav_clicked = False
         self.setMinimumSize(400, 300)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self.setCursor(Qt.CursorShape.ArrowCursor)
@@ -249,7 +250,14 @@ class PhotoCanvas(QWidget):
             super().mousePressEvent(event)
             return
         self._moved = False
-        if self._zoom > 1.01 and self.nav_side_at(event.position().x()) == 0:
+        self._nav_clicked = False
+        side = self.nav_side_at(event.position().x())
+        if side:
+            self._nav_clicked = True
+            self.side_clicked.emit(side)
+            event.accept()
+            return
+        if self._zoom > 1.01:
             self._drag_last = event.position()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
         else:
@@ -275,9 +283,11 @@ class PhotoCanvas(QWidget):
             super().mouseReleaseEvent(event)
             return
         dragging = self._drag_last is not None
+        clicked_nav = self._nav_clicked
         self._drag_last = None
+        self._nav_clicked = False
         self._refresh_cursor()
-        if dragging and self._moved:
+        if clicked_nav or (dragging and self._moved):
             event.accept()
             return
         side = self.nav_side_at(event.position().x())
@@ -398,12 +408,25 @@ class _CornerGrip(QWidget):
         event.accept()
 
 
+def cascade_inspector(window: QWidget, host: QWidget | None) -> None:
+    """Offset a new inspector so several originals stay visible at once."""
+
+    if host is None:
+        return
+    others = [child for child in host.findChildren(MediaInspectorWindow) if child is not window]
+    if not others:
+        return
+    last = others[-1]
+    window.move(last.x() + 28, last.y() + 28)
+
+
 class MediaInspectorWindow(QWidget):
     """Shows the original (or best preview) and ratings. ``extra_host`` is for later duplicate tools."""
 
     rating_changed = Signal(object)
     rotation_changed = Signal(object)
     park_changed = Signal(object)
+    open_media_on_map = Signal(str, int)
 
     def __init__(
         self,
@@ -459,7 +482,7 @@ class MediaInspectorWindow(QWidget):
 
         split = QSplitter(Qt.Orientation.Horizontal, self)
         self._image = PhotoCanvas(self)
-        self._image.side_clicked.connect(self.step)
+        self._image.side_clicked.connect(lambda side: self.step(int(side)))
         self._image.double_activated.connect(self._on_photo_double_click)
         self._image.zoom_changed.connect(self._on_zoom_changed)
         split.addWidget(self._image)
@@ -511,12 +534,20 @@ class MediaInspectorWindow(QWidget):
         self._pool_button.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self._pool_button.clicked.connect(self._toggle_pool)
         self._rating_row.addWidget(self._pool_button)
+        self._to_map_button = QPushButton("Zur Karte", self)
+        self._to_map_button.setObjectName("inspectorToMap")
+        self._to_map_button.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self._to_map_button.clicked.connect(self._request_open_on_map)
+        self._rating_row.addWidget(self._to_map_button)
         self._rating_row.addStretch(1)
         for widget in (
+            self,
             self._image,
+            self._meta,
             self._rotate_left,
             self._rotate_right,
             self._pool_button,
+            self._to_map_button,
             *self._rating_buttons.values(),
         ):
             widget.installEventFilter(self)
@@ -546,6 +577,7 @@ class MediaInspectorWindow(QWidget):
         self._index = (self._index + delta) % len(self._items)
         if self._thumbnail_first and not keep_view:
             self._showing_original = False
+        self._image.reset_view()
         self._show_current()
 
     def resize_to_aspect(self, wanted: QSize, *, old: QSize | None = None) -> None:
@@ -565,7 +597,7 @@ class MediaInspectorWindow(QWidget):
             self._restore_maximized = False
             self.showMaximized()
         self.activateWindow()
-        self.setFocus(Qt.FocusReason.ActiveWindowFocusReason)
+        self._image.setFocus(Qt.FocusReason.ActiveWindowFocusReason)
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
         super().resizeEvent(event)
@@ -605,12 +637,12 @@ class MediaInspectorWindow(QWidget):
         self._persist_geometry()
 
     def eventFilter(self, watched: object, event: QEvent) -> bool:  # noqa: N802
-        if event.type() == QEvent.Type.KeyPress and isinstance(event, QKeyEvent):
-            if event.key() == Qt.Key.Key_Left:
-                self.step(-1)
+        if isinstance(event, QKeyEvent) and event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+            if event.type() == QEvent.Type.ShortcutOverride:
+                event.accept()
                 return True
-            if event.key() == Qt.Key.Key_Right:
-                self.step(1)
+            if event.type() == QEvent.Type.KeyPress:
+                self.step(-1 if event.key() == Qt.Key.Key_Left else 1)
                 return True
         return super().eventFilter(watched, event)
 
@@ -712,6 +744,7 @@ class MediaInspectorWindow(QWidget):
             self._advance_to_next()
             return
         self._sync_pool_button()
+        self._sync_map_button()
 
     def _show_current(self) -> None:
         item = self.item()
@@ -740,6 +773,7 @@ class MediaInspectorWindow(QWidget):
             button.setEnabled(can_rate and self.workspace is not None)
         self._sync_rating_buttons()
         self._sync_pool_button()
+        self._sync_map_button()
 
     def _wants_original(self) -> bool:
         return not (self._thumbnail_first and not self._showing_original)
@@ -768,7 +802,7 @@ class MediaInspectorWindow(QWidget):
         rotation = self._rotation_key(item)
         covering = self._cache.covering(item.source_file_id, rotation, edge)
         if covering is not None:
-            self._image.set_source(covering, keep_view=self._keep_zoom())
+            self._image.set_source(covering)
             self._prefetch_neighbors()
             return
         placeholder = self._cache.nearest(item.source_file_id, rotation)
@@ -778,9 +812,9 @@ class MediaInspectorWindow(QWidget):
             pixmap = load_media_pixmap(item, max_edge=edge)
             if not pixmap.isNull():
                 self._cache.put(self._cache_key(item, edge), pixmap)
-            self._image.set_source(pixmap, keep_view=self._keep_zoom())
+            self._image.set_source(pixmap)
         else:
-            self._image.set_source(placeholder, keep_view=self._keep_zoom())
+            self._image.set_source(placeholder)
             self._request_decode(item, edge)
         self._prefetch_neighbors()
 
@@ -867,6 +901,52 @@ class MediaInspectorWindow(QWidget):
             if parked
             else "Medium aus dem Tagebuch nehmen und in den Medienpool legen"
         )
+
+    def _item_has_map_position(self, item: GalleryItem) -> bool:
+        if item.display_latitude is not None and item.display_longitude is not None:
+            return True
+        return item.gps_latitude is not None and item.gps_longitude is not None
+
+    def _map_group_key(self) -> str | None:
+        if self.workspace is None:
+            return None
+        item = self.item()
+        if item.parked or not self._item_has_map_position(item):
+            return None
+        lookup = getattr(self.workspace, "map_group_key_for_source", None)
+        if lookup is None:
+            return None
+        try:
+            key = lookup(item.source_file_id)
+        except ProjectError:
+            return None
+        return key if isinstance(key, str) and key.strip() else None
+
+    def _sync_map_button(self) -> None:
+        has_workspace = self.workspace is not None
+        self._to_map_button.setVisible(has_workspace)
+        if not has_workspace:
+            return
+        item = self.item()
+        if item.parked:
+            self._to_map_button.setEnabled(False)
+            self._to_map_button.setToolTip("Nur Medien im Tagebuch erscheinen auf der Karte")
+            return
+        if not self._item_has_map_position(item):
+            self._to_map_button.setEnabled(False)
+            self._to_map_button.setToolTip("Nur mit Kartenposition")
+            return
+        key = self._map_group_key()
+        self._to_map_button.setEnabled(key is not None)
+        self._to_map_button.setToolTip(
+            "Medium auf der Karte zeigen" if key else "Nach dem Speichern auf der Karte sichtbar"
+        )
+
+    def _request_open_on_map(self) -> None:
+        key = self._map_group_key()
+        if key is None:
+            return
+        self.open_media_on_map.emit(key, self.item().source_file_id)
 
 
 def clamp_inspector_size(width: object, height: object) -> tuple[int, int]:

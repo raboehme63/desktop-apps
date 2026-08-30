@@ -259,6 +259,37 @@ def parse_group_key(group_key: str) -> tuple[str | None, int | str | None]:
     return None, None
 
 
+def map_group_key_for_source(
+    session: Session,
+    project_id: int,
+    source_file_id: int,
+) -> str | None:
+    """Overview key (`section:N`, `day:N`, `loose:…`) for one unparked journal file."""
+
+    source = session.get(SourceFile, source_file_id)
+    if source is None or source.project_id != project_id or source.parked:
+        return None
+    member_id = session.scalar(
+        select(SectionMember.section_id).where(SectionMember.source_file_id == source_file_id)
+    )
+    if member_id is not None:
+        return f"section:{member_id}"
+    trip = session.scalar(select(Trip).where(Trip.project_id == project_id).order_by(Trip.id.asc()))
+    if trip is None:
+        return None
+    moments = _journal_moments(session, [source_file_id])
+    day_key = calendar_key(moments.get(source_file_id) or source.captured_at)
+    section = day_section_for_date(session, trip.id, day_key, create=False)
+    if section is not None:
+        return f"section:{section.id}"
+    for day in session.scalars(select(TripDay).where(TripDay.trip_id == trip.id)):
+        if calendar_key(day.date) == day_key:
+            return f"day:{day.id}"
+    if day_key is None:
+        return "loose:Ohne Datum"
+    return f"loose:{day_key.isoformat()}"
+
+
 def count_card_media(
     items: Sequence[TimelinePhoto],
     youtube_urls: Sequence[str] = (),

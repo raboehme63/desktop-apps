@@ -14,6 +14,7 @@ from travelcore.maps.groups import (
     build_map_group_detail,
     build_map_overview,
     build_map_timeline,
+    map_group_key_for_source,
     parse_group_key,
     stay_links_from_entries,
 )
@@ -57,6 +58,7 @@ __all__ = [
     "interaction_config",
     "leaflet_payload",
     "map_cache_identity",
+    "map_group_key_for_source",
     "parse_group_key",
     "photo_fov_degrees",
     "read_cached_map",

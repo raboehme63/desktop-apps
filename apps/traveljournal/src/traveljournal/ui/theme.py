@@ -423,7 +423,8 @@ QTabBar#mediaSortTabs::tab:hover {
     color: #e8edf5;
 }
 
-QPushButton#ratingChip {
+QPushButton#ratingChip,
+QPushButton#inspectorToMap {
     min-width: 108px;
 }
 

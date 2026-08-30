@@ -88,6 +88,7 @@ from travelcore.timeline.types import (
     TimelineSnapshot,
 )
 from traveljournal.services.workspace import Workspace
+from traveljournal.widgets.click_combo import ClickCombo
 from traveljournal.widgets.entry_links import (
     LeonardoLinksDialog,
     YouTubeLinksDialog,
@@ -98,7 +99,7 @@ from traveljournal.widgets.entry_links import (
 )
 from traveljournal.widgets.gallery import GalleryView, source_ids_from_mime
 from traveljournal.widgets.join_plus import TimelineSpine as TimelineJoin
-from traveljournal.widgets.media_inspector import MediaInspectorWindow
+from traveljournal.widgets.media_inspector import MediaInspectorWindow, cascade_inspector
 from traveljournal.widgets.media_tabs import (
     RATING_TABS,
     ClickTabBar,
@@ -211,7 +212,7 @@ def autoscroll_step(
     return 0
 
 
-class SectionKindCombo(QComboBox):
+class SectionKindCombo(ClickCombo):
     """Type picker whose popup always shows Tag, Aufenthalt and Transfer."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -747,18 +748,22 @@ class TimelineView(QWidget):
         sequence = [item]
         sender = self.sender()
         if isinstance(sender, GalleryView):
-            parent = sender.parent()
-            if isinstance(parent, EntryWidget):
-                if sender is parent.gallery:
-                    sequence = parent.inspectable_media()
-                elif sender is parent.track_gallery:
-                    sequence = parent.inspectable_tracks()
-            elif isinstance(parent, PoolPane):
-                sequence = parent.gallery.items()
+            host = sender.parent()
+            while host is not None and not isinstance(host, (EntryWidget, PoolPane)):
+                host = host.parent()
+            if isinstance(host, EntryWidget):
+                if sender is host.gallery:
+                    sequence = host.inspectable_media()
+                elif sender is host.track_gallery:
+                    sequence = host.inspectable_tracks()
+            elif isinstance(host, PoolPane):
+                sequence = host.gallery.items()
         window = MediaInspectorWindow(item, items=sequence, workspace=self.workspace, parent=self.window())
         window.rating_changed.connect(self._on_item_rating)
         window.rotation_changed.connect(self._on_item_rating)
         window.park_changed.connect(self._on_inspector_park)
+        window.open_media_on_map.connect(self.open_media_on_map.emit)
+        cascade_inspector(window, self.window())
         window.show()
         window.raise_()
         window.activateWindow()

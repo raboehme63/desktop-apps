@@ -252,8 +252,10 @@ passt `traveljournalFitCoverPack` zuerst die Gruppe ein; ein späterer Klick
 zoomt auf einen Kreis. Der zweite Klick auf denselben Kreis öffnet die
 Detailansicht (`traveljournalShowDetail`): Fotos, Videos, GPX-Linien,
 IGC-Flugtracks ab Zoom 10 (Start/Landung immer sichtbar) und Orte.
-Rechtsklick **Zur Karte…** auf einem Timeline-Thumbnail öffnet dieselbe Detailansicht
-und zentriert auf dem Medium (`traveljournalFocusMedia`).
+Rechtsklick **Zur Karte…** auf einem Timeline-Thumbnail oder **Zur Karte** im
+Medieninspektor öffnet dieselbe Detailansicht und zentriert auf dem Medium
+(`traveljournalFocusMedia`). `map_group_key_for_source` löst `section:N` /
+`day:N` / `loose:…` aus der Mitgliedschaft.
 Klick auf einen Transfer-Kreis oder auf das Verkehrssymbol öffnet dieselbe
 Detailansicht (`traveljournalExpand` mit `section:<id>`).
 `resolve_map_group` liest nur den angeklickten Eintrag, nicht die ganze

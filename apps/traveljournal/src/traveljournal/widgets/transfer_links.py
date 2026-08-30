@@ -5,11 +5,9 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidget,
     QListWidgetItem,
     QPushButton,
     QToolButton,
@@ -29,6 +27,7 @@ from travelcore.timeline.transfer_links import (
     parse_dash,
 )
 from travelcore.timeline.types import TimelineLink
+from traveljournal.widgets.click_combo import ClickCombo, ClickListWidget
 from traveljournal.widgets.transport_icons import fill_transport_combo, transport_badge_icon
 
 _GEOMETRY_LABELS = (
@@ -55,7 +54,7 @@ class TransferLinkStrip(QWidget):
         layout.setSpacing(4)
         caption = QLabel("Verbindungslinien", self)
         caption.setObjectName("fieldCaption")
-        self._list = QListWidget(self)
+        self._list = ClickListWidget(self)
         self._list.setObjectName("transferLinkList")
         self._list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self._list.setDefaultDropAction(Qt.DropAction.MoveAction)
@@ -202,16 +201,16 @@ class TransferLinkRow(QWidget):
         top.setSpacing(6)
         handle = QLabel("⋮⋮", self)
         handle.setToolTip("Ziehen, um die Reihenfolge zu ändern")
-        self.geometry = QComboBox(self)
+        self.geometry = ClickCombo(self)
         for value, label in _GEOMETRY_LABELS:
             self.geometry.addItem(label, value)
         self._disable_route()
-        self.dash = QComboBox(self)
+        self.dash = ClickCombo(self)
         self.dash.addItem("durchgezogen", LINK_DASH_SOLID)
         self.dash.addItem("gestrichelt", LINK_DASH_DASHED)
-        self.symbol = QComboBox(self)
+        self.symbol = ClickCombo(self)
         fill_transport_combo(self.symbol, _SYMBOL_LABELS)
-        self.track = QComboBox(self)
+        self.track = ClickCombo(self)
         self.track.setMinimumWidth(140)
         remove = QToolButton(self)
         remove.setText("–")
@@ -370,14 +369,14 @@ class OutboundLinkRow(QWidget):
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(6)
-        self.geometry = QComboBox(self)
+        self.geometry = ClickCombo(self)
         self.geometry.addItem("Gerade", LINK_GEOMETRY_LINE)
         self.geometry.addItem("Bogenlinie", LINK_GEOMETRY_ARC)
         self.geometry.addItem("Keine Linie", LINK_GEOMETRY_NONE)
-        self.dash = QComboBox(self)
+        self.dash = ClickCombo(self)
         self.dash.addItem("durchgezogen", LINK_DASH_SOLID)
         self.dash.addItem("gestrichelt", LINK_DASH_DASHED)
-        self.symbol = QComboBox(self)
+        self.symbol = ClickCombo(self)
         self.symbol.addItem(transport_badge_icon("other"), "Pfeil", "")
         fill_transport_combo(self.symbol, _SYMBOL_LABELS[1:])
         row.addWidget(self.geometry, 0)

@@ -89,8 +89,10 @@ class MainWindow(QMainWindow):
         self.photos_view.status_message.connect(self._set_status)
         self.photos_view.rating_changed.connect(self.timeline_view.apply_media_rating)
         self.photos_view.rating_changed.connect(self.map_view.apply_media_rating)
+        self.photos_view.open_media_on_map.connect(self._open_map_media)
         self.map_view.status_message.connect(self._set_status)
         self.map_view.open_in_timeline.connect(self._open_timeline_entry)
+        self.map_view.open_media_on_map.connect(self._open_map_media)
         self.map_view.insert_section.connect(self._insert_section_between)
         self.map_view.rating_changed.connect(self.timeline_view.apply_media_rating)
         self.map_view.rating_changed.connect(self.photos_view.apply_media_rating)
@@ -281,7 +283,7 @@ class MainWindow(QMainWindow):
         if key == "photos":
             self.photos_view.refresh()
         if key == "map":
-            self.map_view.refresh(force=previous == "timeline")
+            self.map_view.refresh()
         if key == "timeline":
             if previous == "map":
                 self.timeline_view.refresh()

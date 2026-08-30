@@ -347,6 +347,15 @@ class Workspace:
             return []
         return self.gallery_items_for_ids(resolved.source_ids)
 
+    def map_group_key_for_source(self, source_file_id: int) -> str | None:
+        """Overview key for one journal file, or None if it is parked or unknown."""
+
+        opened = self._require_open()
+        from travelcore.maps.groups import map_group_key_for_source as resolve_source_group
+
+        with opened.session_factory() as session:
+            return resolve_source_group(session, opened.project_id, source_file_id)
+
     def map_timeline_cards(self) -> tuple[MapTimelineCard, ...]:
         """Compact section cards for the horizontal strip under the map."""
 

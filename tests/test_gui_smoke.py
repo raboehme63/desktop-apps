@@ -1032,6 +1032,246 @@ def test_map_view_focus_group_media_keeps_pending_until_shown() -> None:
     _ = app
 
 
+def test_cascade_inspector_offsets_second_window(tmp_path: Path) -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from jpeg_fixtures import write_plain_jpeg
+    from PySide6.QtWidgets import QApplication, QWidget
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.widgets.media_inspector import MediaInspectorWindow, cascade_inspector
+
+    app = QApplication.instance() or QApplication([])
+    host = QWidget()
+    jpeg = write_plain_jpeg(tmp_path / "foto.jpg", size=(40, 30))
+    item = GalleryItem(
+        source_file_id=1,
+        path=str(jpeg),
+        filename="foto.jpg",
+        extension=".jpg",
+        captured_at=None,
+        timezone_unknown=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        camera=None,
+        is_favorite=False,
+        used_in_journal=False,
+        thumbnail_path=tmp_path,
+        sort_status=None,
+    )
+    first = MediaInspectorWindow(item, parent=host)
+    first.move(40, 60)
+    second = MediaInspectorWindow(item, parent=host)
+    cascade_inspector(second, host)
+    assert second.pos().x() == first.x() + 28
+    assert second.pos().y() == first.y() + 28
+    _ = app
+
+
+def test_focus_group_media_last_press_wins_strip() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.maps.groups import MapTimelineCard
+    from travelcore.timeline.sections import KIND_STAY
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.map_view import MapView
+
+    app = QApplication.instance() or QApplication([])
+    view = MapView(Workspace())
+    view._stack.setCurrentWidget(view._web_host)
+    view._timeline.set_cards(
+        (
+            MapTimelineCard(
+                group_key="section:1",
+                title="Eins",
+                time_label="am 01.05.2025",
+                latitude=46.0,
+                longitude=11.0,
+                card_kind=KIND_STAY,
+            ),
+            MapTimelineCard(
+                group_key="section:7",
+                title="Sieben",
+                time_label="am 02.05.2025",
+                latitude=47.0,
+                longitude=12.0,
+                card_kind=KIND_STAY,
+            ),
+        )
+    )
+    view.resize(800, 500)
+    view.show()
+    app.processEvents()
+    view.focus_group_media("section:1", 3)
+    first_gen = view._media_focus_gen
+    view.focus_group_media("section:7", 9)
+    app.processEvents()
+    assert view._media_focus_gen > first_gen
+    assert view._timeline.focused_key() == "section:7"
+    assert view._requested_focus == "section:7"
+    view._focus_detail_media(3, first_gen)
+    scripts: list[str] = []
+    view._run_js = scripts.append  # type: ignore[method-assign]
+    view._focus_detail_media(3, first_gen)
+    assert scripts == []
+    view._focus_detail_media(9, view._media_focus_gen)
+    assert any("traveljournalFocusMedia(9)" in script for script in scripts)
+    _ = app
+
+
+def test_focus_group_media_centers_image_section_and_keeps_detail() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.maps.groups import MapTimelineCard
+    from travelcore.timeline.sections import KIND_STAY
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.map_view import MapView
+
+    app = QApplication.instance() or QApplication([])
+    view = MapView(Workspace())
+    view._stack.setCurrentWidget(view._web_host)
+    view._timeline.set_cards(
+        (
+            MapTimelineCard(
+                group_key="section:1",
+                title="Eins",
+                time_label="am 01.05.2025",
+                latitude=46.0,
+                longitude=11.0,
+                card_kind=KIND_STAY,
+            ),
+            MapTimelineCard(
+                group_key="section:7",
+                title="Sieben",
+                time_label="am 02.05.2025",
+                latitude=47.0,
+                longitude=12.0,
+                card_kind=KIND_STAY,
+            ),
+        )
+    )
+    view.resize(800, 500)
+    view.show()
+    app.processEvents()
+    view.focus_group_media("section:7", 9)
+    app.processEvents()
+    assert view._timeline.focused_key() == "section:7"
+    view._map_focus_armed = True
+    view._last_expand_key = "section:7"
+    view._detail_group_key = "section:7"
+    view._wanted_detail_key = "section:7"
+    view._wanted_detail_media = 9
+    view._media_focus_lock = False
+    scripts: list[str] = []
+    view._run_js = scripts.append  # type: ignore[method-assign]
+    view._on_timeline_focus("section:7")
+    assert view._last_expand_key == "section:7"
+    assert view._detail_group_key == "section:7"
+    assert not any("traveljournalZoomToCover" in script for script in scripts)
+    view._media_focus_lock = True
+    view._on_timeline_focus("section:1")
+    assert view._last_expand_key == "section:7"
+    assert view._detail_group_key == "section:7"
+    assert not any("traveljournalZoomToCover" in script for script in scripts)
+    _ = app
+
+
+def test_focus_group_media_opens_section_detail_and_photo() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.maps.groups import MapTimelineCard
+    from travelcore.timeline.sections import KIND_STAY
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.map_view import MapView
+
+    app = QApplication.instance() or QApplication([])
+    view = MapView(Workspace())
+    view._stack.setCurrentWidget(view._web_host)
+    view._timeline.set_cards(
+        (
+            MapTimelineCard(
+                group_key="section:7",
+                title="Sieben",
+                time_label="am 02.05.2025",
+                latitude=47.0,
+                longitude=12.0,
+                card_kind=KIND_STAY,
+            ),
+        )
+    )
+    view.resize(800, 500)
+    view.show()
+    app.processEvents()
+    view.focus_group_media("section:7", 9)
+    scripts: list[str] = []
+    view.workspace.map_group_detail = lambda key: {  # type: ignore[method-assign]
+        "group_key": key,
+        "markers": [],
+        "polylines": [],
+    }
+    view._page_ready = lambda: True  # type: ignore[method-assign]
+    view._run_js = lambda script: scripts.append(script) or True  # type: ignore[method-assign]
+    view._web = object()  # type: ignore[assignment]
+    view._finish_requested_focus()
+    assert view._wanted_detail_key == "section:7"
+    assert view._wanted_detail_media == 9
+    assert any("traveljournalShowDetail" in script for script in scripts)
+    assert any("focus_source_id" in script for script in scripts)
+    view._media_focus_lock = False
+    view._map_focus_armed = True
+    later: list[str] = []
+    view._run_js = later.append  # type: ignore[method-assign]
+    view._on_timeline_focus("section:7")
+    assert view._last_expand_key == "section:7"
+    assert not any("traveljournalZoomToCover" in script for script in later)
+    _ = app
+
+
+def test_strip_set_cards_can_keep_requested_section() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.maps.groups import MapTimelineCard
+    from travelcore.timeline.sections import KIND_STAY
+    from traveljournal.widgets.map_timeline import MapTimelineStrip
+
+    app = QApplication.instance() or QApplication([])
+    strip = MapTimelineStrip()
+    strip.resize(640, 180)
+    strip.show()
+    seen: list[str] = []
+    strip.focus_changed.connect(seen.append)
+    cards = (
+        MapTimelineCard(
+            group_key="section:1",
+            title="Eins",
+            time_label="am 01.05.2025",
+            latitude=46.0,
+            longitude=11.0,
+            card_kind=KIND_STAY,
+        ),
+        MapTimelineCard(
+            group_key="section:7",
+            title="Sieben",
+            time_label="am 02.05.2025",
+            latitude=47.0,
+            longitude=12.0,
+            card_kind=KIND_STAY,
+        ),
+    )
+    strip.set_cards(cards, focus_key="section:7")
+    app.processEvents()
+    assert strip.focused_key() == "section:7"
+    seen.clear()
+    strip.center_on("section:7", emit=False)
+    app.processEvents()
+    strip._emit_center()
+    assert seen == []
+    _ = app
+
+
 def test_map_view_focus_group_centers_section_card() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication
@@ -1140,6 +1380,58 @@ def test_strip_click_closes_detail_and_zooms_cover() -> None:
     view._on_timeline_focus("section:7")
     assert view._last_expand_key == ""
     assert any("traveljournalZoomToCover" in script for script in scripts)
+    _ = app
+
+
+def test_strip_click_zooms_to_section_cover() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.maps.groups import MapTimelineCard
+    from travelcore.timeline.sections import KIND_STAY
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.map_view import MapView
+
+    app = QApplication.instance() or QApplication([])
+    view = MapView(Workspace())
+    view._timeline.set_cards(
+        (
+            MapTimelineCard(
+                group_key="section:7",
+                title="Sieben",
+                time_label="am 02.05.2025",
+                latitude=47.0,
+                longitude=12.0,
+                card_kind=KIND_STAY,
+            ),
+        )
+    )
+    view._map_focus_armed = True
+    scripts: list[str] = []
+    view._run_js = scripts.append  # type: ignore[method-assign]
+    view._on_timeline_focus("section:7")
+    assert view._timeline.focused_key() == "section:7"
+    assert any("traveljournalZoomToCover" in script for script in scripts)
+    assert not any("traveljournalFocusCover" in script for script in scripts)
+    _ = app
+
+
+def test_map_pipeline_view_skips_overview_fit() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.map_view import MapView
+
+    app = QApplication.instance() or QApplication([])
+    view = MapView(Workspace())
+    scripts: list[str] = []
+    view._run_js = scripts.append  # type: ignore[method-assign]
+    view._store_pipeline_view([46.5, 11.3, 14])
+    view._fit_map_overview()
+    assert scripts == []
+    view._restore_pipeline_view()
+    assert any("traveljournalRestoreView(46.5000000000, 11.3000000000, 14.000000)" in script for script in scripts)
     _ = app
 
 
@@ -2108,6 +2400,46 @@ def test_media_tabs_change_only_on_click() -> None:
     _ = app
 
 
+def test_timeline_card_combos_ignore_hover_wheel() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QWheelEvent
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.timeline.transfer_links import LINK_DASH_SOLID, LINK_GEOMETRY_LINE
+    from travelcore.timeline.types import TimelineLink
+    from traveljournal.views.timeline_view import SectionKindCombo
+    from traveljournal.widgets.transfer_links import TransferLinkRow
+
+    app = QApplication.instance() or QApplication([])
+    wheel = QWheelEvent(
+        QPointF(20, 10),
+        QPointF(20, 10),
+        QPoint(0, 0),
+        QPoint(0, 120),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+    kind = SectionKindCombo()
+    kind.addItem("Tag", "day")
+    kind.addItem("Aufenthalt", "stay")
+    kind.addItem("Transfer", "movement")
+    kind.setCurrentIndex(0)
+    kind.wheelEvent(wheel)
+    assert kind.currentIndex() == 0
+    assert kind.focusPolicy() == Qt.FocusPolicy.ClickFocus
+    row = TransferLinkRow(
+        TimelineLink(id=0, sort_index=0, geometry=LINK_GEOMETRY_LINE, dash=LINK_DASH_SOLID),
+        [],
+    )
+    before = row.geometry.currentIndex()
+    row.geometry.wheelEvent(wheel)
+    assert row.geometry.currentIndex() == before
+    _ = app
+
+
 def test_timeline_global_register_applies_to_all_days(tmp_path: Path, monkeypatch) -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from datetime import UTC, datetime
@@ -2604,6 +2936,7 @@ def test_media_inspector_shows_original_and_ratings(tmp_path: Path) -> None:
     assert set(window._rating_buttons) == {"favorite", "reserve", "rejected"}
     assert window._rotate_left.text() == "↺"
     assert window._pool_button.isHidden()
+    assert window._to_map_button.isHidden()
     pixmap = load_media_pixmap(item)
     assert not pixmap.isNull()
     assert pixmap.width() >= 40
@@ -2701,6 +3034,70 @@ def test_media_inspector_parks_and_unparks_from_pool_button(tmp_path: Path) -> N
     _ = app
 
 
+def test_media_inspector_opens_current_item_on_map(tmp_path: Path) -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from jpeg_fixtures import write_plain_jpeg
+    from PySide6.QtWidgets import QApplication, QPushButton
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.widgets.media_inspector import MediaInspectorWindow
+
+    class StubWorkspace:
+        def inspector_size(self) -> tuple[int, int]:
+            return (720, 520)
+
+        def inspector_maximized(self) -> bool:
+            return False
+
+        def map_group_key_for_source(self, source_file_id: int) -> str | None:
+            return "section:7" if source_file_id == 9 else None
+
+    app = QApplication.instance() or QApplication([])
+    jpeg = write_plain_jpeg(tmp_path / "foto.jpg", size=(40, 30))
+    located = GalleryItem(
+        source_file_id=9,
+        path=str(jpeg),
+        filename="foto.jpg",
+        extension=".jpg",
+        captured_at=None,
+        timezone_unknown=False,
+        gps_latitude=46.5,
+        gps_longitude=11.3,
+        camera=None,
+        is_favorite=False,
+        used_in_journal=True,
+        thumbnail_path=Path("."),
+        sort_status=None,
+    )
+    blank = GalleryItem(
+        source_file_id=10,
+        path=str(jpeg),
+        filename="ohne.jpg",
+        extension=".jpg",
+        captured_at=None,
+        timezone_unknown=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        camera=None,
+        is_favorite=False,
+        used_in_journal=True,
+        thumbnail_path=Path("."),
+        sort_status=None,
+    )
+    window = MediaInspectorWindow(located, items=[located, blank], workspace=StubWorkspace())
+    button = window.findChild(QPushButton, "inspectorToMap")
+    assert button is not None
+    assert not button.isHidden()
+    assert button.isEnabled()
+    opened: list[tuple[str, int]] = []
+    window.open_media_on_map.connect(lambda key, sid: opened.append((key, sid)))
+    button.click()
+    assert opened == [("section:7", 9)]
+    window.step(1)
+    assert not window._to_map_button.isEnabled()
+    _ = app
+
+
 def test_media_inspector_rotates_display_without_writing_original(tmp_path: Path) -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from jpeg_fixtures import write_plain_jpeg
@@ -2741,7 +3138,7 @@ def test_media_inspector_rotates_display_without_writing_original(tmp_path: Path
 def test_media_inspector_browses_section_sequence(tmp_path: Path) -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from jpeg_fixtures import write_plain_jpeg
-    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtCore import QEvent, QPointF, Qt
     from PySide6.QtGui import QKeyEvent
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication
@@ -2779,6 +3176,11 @@ def test_media_inspector_browses_section_sequence(tmp_path: Path) -> None:
     window.step(1)
     assert window.item().filename == "eins.jpg"
     assert window.windowTitle() == "eins.jpg · 1 von 2"
+    override = QKeyEvent(
+        QEvent.Type.ShortcutOverride, Qt.Key.Key_Right, Qt.KeyboardModifier.NoModifier
+    )
+    QApplication.sendEvent(window, override)
+    assert override.isAccepted()
     QApplication.sendEvent(
         window,
         QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Right, Qt.KeyboardModifier.NoModifier),
@@ -2789,10 +3191,15 @@ def test_media_inspector_browses_section_sequence(tmp_path: Path) -> None:
     assert window.item().filename == "eins.jpg"
     window._image.side_clicked.emit(1)
     assert window.item().filename == "zwei.jpg"
+    window._image.zoom_at(2.0, QPointF(200, 150))
+    assert window._image.zoom == 2.0
+    window.step(1)
+    assert window.item().filename == "eins.jpg"
+    assert window._image.zoom == 1.0
+    window._meta.setFocus()
+    QTest.keyClick(window._meta, Qt.Key.Key_Right)
+    assert window.item().filename == "zwei.jpg"
     _ = app
-
-
-def test_media_inspector_rating_advances_to_next_photo(tmp_path: Path) -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from jpeg_fixtures import write_plain_jpeg
     from PySide6.QtWidgets import QApplication
@@ -3308,6 +3715,8 @@ def test_parse_map_bridge_url_reads_group_key() -> None:
     assert "getBoundingClientRect" not in MAP_PAGE_SETUP_JS
     assert "layer.getLatLng" in MAP_PAGE_SETUP_JS
     assert "zoom: {animate: false}" in MAP_PAGE_SETUP_JS
+    assert "getContainer" in MAP_PAGE_SETUP_JS
+    assert "window._tjPageSetup" in MAP_PAGE_SETUP_JS
 
 
 def test_map_view_refresh_uses_disk_cache_without_rebuild(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001

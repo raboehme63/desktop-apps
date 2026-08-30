@@ -648,9 +648,19 @@ def _photo_cone_js() -> str:
       resetPhotoFan();
     }});
     function markerNode(marker) {{
-      return (marker.getElement && marker.getElement()) || marker._icon || marker._path;
+      if (!marker) {{
+        return null;
+      }}
+      try {{
+        return (marker.getElement && marker.getElement()) || marker._icon || marker._path || null;
+      }} catch (err) {{
+        return marker._icon || marker._path || null;
+      }}
     }}
     function setEntryVisible(entry, show) {{
+      if (!entry) {{
+        return;
+      }}
       var el = markerNode(entry.marker);
       if (el) {{
         el.style.visibility = show ? '' : 'hidden';
@@ -2107,12 +2117,20 @@ def _overview_script(
       }}
     }}
     function layerKey(layer) {{
-      var opts = (layer && layer.options) || {{}};
+      if (!layer) {{
+        return '';
+      }}
+      var opts = layer.options || {{}};
       var fromOpts = opts.group_key || opts.groupKey || '';
       if (fromOpts) {{
         return fromOpts;
       }}
-      var el = (layer.getElement && layer.getElement()) || layer._icon;
+      var el = null;
+      try {{
+        el = (layer.getElement && layer.getElement()) || layer._icon;
+      }} catch (err) {{
+        el = layer._icon;
+      }}
       var node = el && el.querySelector
         ? el.querySelector('[data-group-key]')
         : null;
@@ -2670,7 +2688,15 @@ def _overview_script(
     }};
     window.traveljournalMarkCover = function(key) {{
       covers.eachLayer(function(layer) {{
-        var el = (layer.getElement && layer.getElement()) || layer._icon;
+        if (!layer) {{
+          return;
+        }}
+        var el = null;
+        try {{
+          el = (layer.getElement && layer.getElement()) || layer._icon;
+        }} catch (err) {{
+          el = layer._icon;
+        }}
         var node = el && el.querySelector ? el.querySelector('.tj-cover') : null;
         if (!node || !node.classList) {{
           return;
@@ -2780,6 +2806,17 @@ def _overview_script(
         }}
       }});
       if (target && target.marker && target.marker.getLatLng) {{
+        try {{
+          var mediaZoom = Math.max(map.getZoom() || 0, 16);
+          if (map.stop) {{
+            map.stop();
+          }}
+          map.setView(target.marker.getLatLng(), mediaZoom, {{
+            animate: true,
+            pan: {{animate: true}},
+            zoom: {{animate: false}}
+          }});
+        }} catch (err) {{}}
         focusPhoto(id, true);
         openEntryPopup(target);
         applyPopupLayout(target.marker.getPopup && target.marker.getPopup());
@@ -3050,17 +3087,7 @@ def _overview_script(
       window.traveljournalPopupStep(ev.key === 'ArrowLeft' ? -1 : 1);
     }}, true);
     map.on('dblclick', function(event) {{
-      var target = event.originalEvent && event.originalEvent.target;
-      if (target && target.closest && target.closest(
-        '.tj-cover, .tj-cover-icon, .tj-thumb, .tj-popup-thumb, .leaflet-popup, '
-        + '.tj-stack-icon, .tj-stack, .tj-photo-cone, .tj-settings, .tj-fit-trip, .tj-rate, '
-        + '.tj-popup-arrow, .tj-close-section'
-      )) {{
-        L.DomEvent.stop(event);
-        return;
-      }}
       L.DomEvent.stop(event);
-      window.traveljournalFitOverview();
     }});
     function bindCover(layer) {{
       if (layer._tjBound) {{
@@ -3090,7 +3117,12 @@ def _overview_script(
         enableDrag();
       }});
       function bindIcon() {{
-        var el = (layer.getElement && layer.getElement()) || layer._icon;
+        var el = null;
+        try {{
+          el = (layer && layer.getElement && layer.getElement()) || (layer && layer._icon);
+        }} catch (err) {{
+          el = layer && layer._icon;
+        }}
         if (!el || el._tjBound) {{
           return;
         }}

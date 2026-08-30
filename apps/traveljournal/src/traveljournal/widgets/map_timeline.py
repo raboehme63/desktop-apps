@@ -366,6 +366,8 @@ class MapTimelineStrip(QScrollArea):
         self._cards: tuple[MapTimelineCard, ...] = ()
         self._widgets: list[_CardWidget] = []
         self._focused_key = ""
+        self._ignore_scroll_focus = False
+        self._center_token = 0
         self._show_reserve = False
         self._inner = QWidget()
         self._inner.setAutoFillBackground(False)
@@ -428,9 +430,15 @@ class MapTimelineStrip(QScrollArea):
         for widget in self._widgets:
             widget.update()
 
-    def set_cards(self, cards: tuple[MapTimelineCard, ...] | list[MapTimelineCard]) -> None:
-        keep = self._focused_key
+    def set_cards(
+        self,
+        cards: tuple[MapTimelineCard, ...] | list[MapTimelineCard],
+        *,
+        focus_key: str = "",
+    ) -> None:
+        keep = (focus_key or self._focused_key).strip()
         self._timer.stop()
+        self._ignore_scroll_focus = False
         self._cards = tuple(cards)
         self._widgets = []
         self._focused_key = ""
@@ -479,11 +487,18 @@ class MapTimelineStrip(QScrollArea):
         widget = next((item for item in self._widgets if item.card.group_key == group_key), None)
         if widget is None:
             return
+        self._ignore_scroll_focus = True
+        self._timer.stop()
+        self._center_token += 1
+        token = self._center_token
         self._apply_focus(group_key, force=True, emit=emit)
         layout = self._inner.layout()
         if layout is not None:
             layout.activate()
         self._scroll_widget_to_center(widget)
+        QTimer.singleShot(0, lambda t=token, key=group_key: self._scroll_to_key(key, t))
+        QTimer.singleShot(80, lambda t=token, key=group_key: self._scroll_to_key(key, t))
+        QTimer.singleShot(_FOCUS_DELAY_MS + 40, lambda t=token: self._resume_scroll_focus(t))
 
     def sizeHint(self) -> QSize:  # noqa: N802
         return QSize(400, self.minimumHeight())
@@ -512,12 +527,30 @@ class MapTimelineStrip(QScrollArea):
         self._left_pad.setFixedWidth(pad)
         self._right_pad.setFixedWidth(pad)
 
+    def _resume_scroll_focus(self, token: int | None = None) -> None:
+        if token is not None and token != self._center_token:
+            return
+        self._ignore_scroll_focus = False
+
+    def _scroll_to_key(self, group_key: str, token: int) -> None:
+        if token != self._center_token:
+            return
+        widget = next((item for item in self._widgets if item.card.group_key == group_key), None)
+        if widget is None:
+            return
+        self._ignore_scroll_focus = True
+        self._timer.stop()
+        self._scroll_widget_to_center(widget)
+        QTimer.singleShot(_FOCUS_DELAY_MS + 40, lambda t=token: self._resume_scroll_focus(t))
+
     def _schedule_focus(self) -> None:
-        if not self._widgets:
+        if self._ignore_scroll_focus or not self._widgets:
             return
         self._timer.start()
 
     def _emit_center(self) -> None:
+        if self._ignore_scroll_focus:
+            return
         index = nearest_card_index(self._card_centers(), self._viewport_center())
         if index is None:
             return
@@ -544,6 +577,9 @@ class MapTimelineStrip(QScrollArea):
         return centers
 
     def _scroll_widget_to_center(self, widget: _CardWidget) -> None:
+        layout = self._inner.layout()
+        if layout is not None:
+            layout.activate()
         center = widget.mapTo(self._inner, QPoint(widget.width() // 2, 0)).x()
         self.horizontalScrollBar().setValue(center - self.viewport().width() // 2)
 

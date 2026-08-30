@@ -25,7 +25,7 @@ from travelcore.timeline.sections import expand_range_selection
 from traveljournal.services.workers import ThumbnailRunnable
 from traveljournal.services.workspace import Workspace
 from traveljournal.widgets.gallery import GalleryView
-from traveljournal.widgets.media_inspector import MediaInspectorWindow
+from traveljournal.widgets.media_inspector import MediaInspectorWindow, cascade_inspector
 from traveljournal.widgets.media_tabs import (
     RATING_TABS,
     ClickTabBar,
@@ -48,6 +48,7 @@ _TRACK = {".gpx", ".igc", ".kml", ".geojson"}
 class PhotosView(QWidget):
     status_message = Signal(str)
     rating_changed = Signal(object)
+    open_media_on_map = Signal(str, int)
 
     def __init__(self, workspace: Workspace, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -435,6 +436,8 @@ class PhotosView(QWidget):
         window.rating_changed.connect(self._on_inspector_rating)
         window.rotation_changed.connect(self._on_inspector_rating)
         window.park_changed.connect(self._on_inspector_park)
+        window.open_media_on_map.connect(self.open_media_on_map.emit)
+        cascade_inspector(window, self.window())
         window.show()
         window.raise_()
         window.activateWindow()
