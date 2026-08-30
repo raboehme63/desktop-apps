@@ -103,6 +103,40 @@ class IndexRunnable(QRunnable):
             self.signals.failed.emit(str(exc))
 
 
+class QualitySignals(QObject):
+    progress = Signal(int, int)
+    finished = Signal(int, int, int)
+    failed = Signal(str)
+
+
+class QualityRunnable(QRunnable):
+    def __init__(self, open_project: OpenProject) -> None:
+        super().__init__()
+        self.open_project = open_project
+        self.signals = QualitySignals()
+        self.setAutoDelete(True)
+
+    def run(self) -> None:
+        try:
+            from travelcore.image_analysis import analyze_project_photos
+
+            settings = AppSettings()
+
+            def on_progress(current: int, total: int) -> None:
+                self.signals.progress.emit(current, total)
+
+            with session_scope(self.open_project.session_factory) as session:
+                result = analyze_project_photos(
+                    session,
+                    self.open_project.project_id,
+                    max_workers=settings.worker_count,
+                    progress=on_progress,
+                )
+            self.signals.finished.emit(result.analyzed, result.skipped, result.failed)
+        except Exception as exc:  # noqa: BLE001 - surface quality failures to the UI
+            self.signals.failed.emit(str(exc))
+
+
 class ThumbnailSignals(QObject):
     finished = Signal(int)
     failed = Signal(str)

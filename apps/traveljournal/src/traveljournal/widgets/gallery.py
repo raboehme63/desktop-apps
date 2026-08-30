@@ -40,6 +40,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from travelcore.image_analysis.quality import (
+    QUALITY_GREEN,
+    QUALITY_RED,
+    QUALITY_YELLOW,
+    quality_light_label,
+)
 from travelcore.media.gallery import (
     SORT_FAVORITE,
     SORT_REJECTED,
@@ -88,6 +94,23 @@ _GROUP_CHIP_PALETTE = (
 )
 _GROUP_TEXT_DARK = QColor("#0e1628")
 _GROUP_TEXT_READY = QColor("#06231e")
+_QUALITY_LIGHT = {
+    QUALITY_GREEN: QColor("#2eb8a0"),
+    QUALITY_YELLOW: QColor("#d4a017"),
+    QUALITY_RED: QColor("#d94a4a"),
+}
+
+
+def quality_light_color(light: str | None) -> QColor | None:
+    return _QUALITY_LIGHT.get(light or "")
+
+
+def quality_hotspot(cell: QRect, *, icon: int | None = None) -> QRect:
+    """Small Ampel disc at the bottom-left of the thumbnail."""
+
+    icon_px = gallery_icon_size(DEFAULT_THUMB_ZOOM) if icon is None else icon
+    size = 10
+    return QRect(cell.x() + 10, cell.y() + 8 + icon_px - size - 2, size, size)
 
 
 def rating_hotspots(
@@ -283,6 +306,8 @@ class GalleryModel(QAbstractListModel):
             return item.filename
         if role == Qt.ItemDataRole.UserRole:
             return item
+        if role == Qt.ItemDataRole.ToolTipRole:
+            return quality_light_label(item.quality_light)
         return None
 
     def item_at(self, index: QModelIndex) -> GalleryItem | None:
@@ -386,6 +411,13 @@ class GalleryDelegate(QStyledItemDelegate):
             painter.drawRoundedRect(chip, 6, 6)
             painter.setPen(QColor("#06231e") if active else QColor("#c5cddb"))
             painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, "T")
+        if item.quality_light:
+            color = quality_light_color(item.quality_light)
+            if color is not None:
+                disc = quality_hotspot(rect, icon=self._icon)
+                painter.setBrush(color)
+                painter.setPen(QColor("#0e1628"))
+                painter.drawEllipse(disc)
         if self.show_ratings:
             painter.setFont(QFont("Segoe UI", 10, QFont.Weight.DemiBold))
             spots = rating_hotspots(rect, icon=self._icon, chip=self._chip)

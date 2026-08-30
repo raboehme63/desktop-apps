@@ -364,6 +364,32 @@ QMenu::separator {
     margin: 4px 8px;
 }
 
+#mediaFilterPanel {
+    background-color: #181c27;
+    border: 1px solid #2a3144;
+    border-radius: 10px;
+    padding: 8px;
+}
+
+#mediaFilterPanel QGroupBox {
+    border: 1px solid #2a3144;
+    border-radius: 8px;
+    margin-top: 10px;
+    padding: 10px 8px 8px 8px;
+    font-weight: 600;
+}
+
+#mediaFilterPanel QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 4px;
+    color: #c5cddb;
+}
+
+QPushButton#mediaFilterButton:checked {
+    border-color: #2eb8a0;
+}
+
 QToolButton#entryMenu {
     background: transparent;
     border: none;

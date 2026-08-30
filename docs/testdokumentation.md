@@ -281,6 +281,9 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_indexer_writes_thumbnails_in_parallel` | `test_indexer.py` | vier Vorschaubilder per ProcessPool |
 | `test_effective_sort_status_prefers_stored_value` | `test_gallery.py` | gespeicherter `sort_status` vor Favoriten-Flag |
 | `test_effective_sort_status_falls_back_to_favorite_flag` | `test_gallery.py` | leerer Status plus Favorit gilt als Favorit |
+| `test_quality_filter_empty_keeps_all` | `tests/test_media_filter.py` | Ampelfilter: leer = alle, sonst nur gewählte Farben |
+| `test_rating_filter_multi_select` | `tests/test_media_filter.py` | Bewertungsfilter Mehrfachauswahl inkl. ohne Bewertung |
+| `test_date_range_inclusive` | `tests/test_media_filter.py` | Von–Bis inklusiv; ohne Aufnahmedatum fällt raus |
 
 ### 4.9 Karte — FA-050 bis FA-053
 
@@ -483,6 +486,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_timeline_pool_restores_width_after_collapse` | `tests/test_gui_smoke.py` | Einklappen merkt die Breite, Ausklappen stellt sie wieder her |
 | `test_photos_view_pool_collapse_matches_timeline` | `tests/test_gui_smoke.py` | Medien: gleicher Pfeil, Breite bleibt |
 | `test_photos_view_media_tab_filters_favorites` | `tests/test_gui_smoke.py` | linkes Register filtert Favoriten; Aussortierte nur unter Aussortiert; Pool-Favoriten bleiben rechts |
+| `test_photos_view_filter_panel_quality_and_rating` | `tests/test_gui_smoke.py` | **Filtern**: Qualität, Bewertung und Zeitraum gelten für Galerie und Pool |
 | `test_photos_rating_applies_to_timeline_gallery` | `tests/test_gui_smoke.py` | Medien-Bewertung erscheint in der Timeline |
 | `test_media_tabs_change_only_on_click` | `tests/test_gui_smoke.py` | Mausrad wechselt keinen Reiter |
 | `test_timeline_global_register_applies_to_all_days` | `tests/test_gui_smoke.py` | globales Register |
@@ -511,6 +515,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_media_inspector_shows_ratings_for_tracks` | `tests/test_gui_smoke.py` | Track-Bewertung im Inspektor |
 | `test_entry_widget_track_tab_filters_and_reactivates` | `tests/test_gui_smoke.py` | Track-Reiter wie Medien-Register |
 | `test_thumb_zoom_slider_marks_default` | `tests/test_gui_smoke.py` | Thumbnail-Schieber 50–200 %, Marke 100 % |
+| `test_import_view_thumb_zoom_scales_preview` | `tests/test_gui_smoke.py` | Import-Vorschau folgt dem Schieber |
 | `test_media_inspector_parks_and_unparks_from_pool_button` | `tests/test_gui_smoke.py` | Inspektor: In den Pool / Zurückholen |
 | `test_media_inspector_opens_current_item_on_map` | `tests/test_gui_smoke.py` | Inspektor: Zur Karte sendet Abschnitt und Medium |
 | `test_media_inspector_rotates_display_without_writing_original` | `tests/test_gui_smoke.py` | Drehen, Original-mtime gleich |
@@ -534,7 +539,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Timeline-Leiste zentriert; Zähler Fotos/Tracks/IGC/YouTube, Reserve-Schalter, Plus zwischen Karten |
 | `test_strip_click_closes_detail_and_zooms_cover` | `tests/test_gui_smoke.py` | andere Leistenkarte schließt Detail und zoomt; dieselbe bleibt |
 | `test_inspector_map_opens_thumbnail_then_original_on_double_click` | `tests/test_gui_smoke.py` | Vorschau, dann Original |
-| `test_thumb_zoom_persists` | `tests/test_workspace.py` | `timeline_thumb_zoom`, `map_thumb_zoom` und `media_thumb_zoom` in `config.json` |
+| `test_thumb_zoom_persists` | `tests/test_workspace.py` | `timeline_thumb_zoom`, `map_thumb_zoom`, `media_thumb_zoom` und `import_thumb_zoom` in `config.json` |
 | `test_normalize_timeline_media_tab` | `tests/test_workspace.py` | gültige Tab-Namen |
 | `test_timeline_media_tab_persists` | `tests/test_workspace.py` | `config.json` hält das Register |
 | `test_sidebar_collapsed_persists` | `tests/test_workspace.py` | `config.json` hält die eingeklappte Navigation |
@@ -583,6 +588,20 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_media_inspector_skips_rejected_unless_checked` | `tests/test_gui_smoke.py` | Inspektor blendet Aussortierte nur mit Checkbox ein |
 | `test_inspector_show_rejected_persists` | `tests/test_workspace.py` | `inspector_show_rejected` in `config.json` |
 
+### 4.18 Qualitätsampel — FA-070
+
+| Test | Datei | Prüft |
+| --- | --- | --- |
+| `test_quality_light_thresholds` | `packages/travelcore/tests/test_quality.py` | grün ≥ 0,66, gelb ≥ 0,40, sonst rot |
+| `test_sharp_large_photo_is_green` | `packages/travelcore/tests/test_quality.py` | scharfes Großformat, Original-mtime unverändert |
+| `test_tiny_photo_is_red` | `packages/travelcore/tests/test_quality.py` | sehr geringe Auflösung → rot |
+| `test_dark_photo_is_not_green` | `packages/travelcore/tests/test_quality.py` | Unterbelichtung nicht grün |
+| `test_blurred_photo_scores_below_sharp` | `packages/travelcore/tests/test_quality.py` | Unschärfe senkt den Score |
+| `test_analyze_project_writes_ampel_without_changing_rating` | `packages/travelcore/tests/test_quality.py` | Persistenz, Skip bestehender Analysen, `sort_status` bleibt |
+| `test_analyze_project_reports_progress` | `packages/travelcore/tests/test_quality.py` | Fortschritt 0…n während der Analyse |
+| `test_gallery_quality_ampel` | `tests/test_gui_smoke.py` | Ampelfarben und Position unten links |
+| `test_main_window_starts` | `tests/test_gui_smoke.py` | Knopf **Qualität prüfen** |
+
 ---
 
 ## 5. Abdeckung gegen das Pflichtenheft
@@ -613,6 +632,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 - Anzeigedrehung (Index, Cachepfad, Re-Import, Inspektor ohne Originalschreiben)
 - GUI-Rauch: Fenstertitel mit Version R3.0.0, Menü **Bearbeiten** (Strg+Z/Strg+Y), Pipeline Import→Medien→Timeline, Pool-Spalte, getrennte Medien/Tracks, Register nur per Klick (auch Tracks), Inspektor Blättern/Zoom/Drehen/Pool/Zur Karte (letzter Klick, geladene Karte ohne Neuaufbau), Thumbnail-Schieber
 - Medien-Cluster: SHA-256-Stapel, 30-s-Szenengruppen, manuelle Gruppen ohne Schlüssel, Overlay blendet Nicht-Schlüssel aus, Galerie-Kennzeichen G/×n, Inspektor-Blättern (Links/rechts Schlüssel, hoch/runter Gruppe, Leertaste, Aussortierte-Checkbox), Statistikleiste
+- Qualitätsampel: `technical_quality` in `photo_analyses`, Pillow-Analyse ohne Originalschreiben, Ampel in der Galerie, Knopf **Qualität prüfen**
 - Export- und Provider-*Verträge* existieren
 
 ### 5.2 Bewusst noch ohne Automatisierung
@@ -622,10 +642,9 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | Visuelle Marker-Vorschau / Bedienung in Qt | FA-050–FA-053 | Szene und Bridge in `test_maps.py` / `test_gui_smoke.py`; visuell MT-12 |
 | Timeline-Bedienung | FA-060–FA-069, FA-080, FA-084, FA-085 | Logik in `test_timeline*.py` und `test_edit_history.py`; Speichern-Button, Schieber-Datum und Menü Bearbeiten `test_gui_smoke.py`; visuell MT-13, MT-18–MT-21, MT-24, MT-25 |
 | Windows-Endnutzerpaket | FA-140–FA-144 | kein pytest; manuell MT-22 nach `packaging/build.ps1` |
-| Galeriefilter in der UI | FA-101 | Logik der Liste automatisiert; Filter nur MT-09 |
+| Galeriefilter in der UI | FA-101 | Logik der Liste und **Filtern**-Panel automatisiert; visuell MT-09 |
 | Zuletzt verwendete Projekte in der UI | FA-091 | `recent.json` ohne Oberfläche; manuell nicht zwingend |
 | HTML-/PDF-/LaTeX-Ausgabe | FA-121–FA-123 | Phase 8 |
-| Qualitätskennzahlen | FA-070 | Phase 9 |
 | pHash/dHash, unechte Dubletten | FA-071 | SHA-256-Stapel und Zeitszenen automatisiert; visuelle Near-Duplicates Phase 10 |
 | Importliste „alle Dateien“ (kein 250er-Limit) | FA-025 | nur manuell / GUI, kein Unit-Test der Qt-Tabelle |
 | Originale unverändert | FA-023 | implizit (nur Lese-APIs); Thumbnail- und Inspektor-Tests prüfen mtime |
@@ -634,7 +653,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | pytest-qt Bedienung Import-Button | FA-092 | geplant |
 | KML/GeoJSON auf der interaktiven Karte | FA-013, FA-043 | bewusst nicht; Parser + Thumbs automatisiert |
 
-Qualität und perceptual hashing entstehen mit den Phasen 9–10; SHA-256-Stapel und Zeitszenen sind in R3.0.0 automatisiert. Die Verträge `QualityAnalyzer` und `RankingStrategy` sind importierbar.
+Perceptual hashing bleibt Phase 10. Die Qualitätsampel (FA-070) ist automatisiert. `QualityAnalyzer` und `RankingStrategy` sind importierbar.
 
 ---
 
@@ -697,6 +716,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | --- | --- |
 | Quelle mit mehr als 250 unterstützten Dateien | Tabellenzeilen = indexierte Dateien; Zähler und Fußzeile („N Dateien in der Liste“) stimmen überein |
 | Klick oder Mouseover auf eine Fotozeile | Rechts: Vorschaubild (nach Thumbnail-Lauf) und Metadaten inkl. GPS/Kamera |
+| Thumbnail-Schieber auf Import | rechte Vorschau 50–200 %; bleibt in `config.json` als `import_thumb_zoom` |
 
 ### MT-23 Quellverzeichnis synchronisieren
 
@@ -738,7 +758,8 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Seite **Medien**: Filter Jahr / Mit Ort / JPEG / Register Favoriten / Nicht im Tagebuch | sichtbare Menge ändert sich; Zähler „N von M Medien“ |
+| Seite **Medien**: Filter Jahr / Mit Ort / JPEG / Register Favoriten / Nicht im Tagebuch | sichtbare Menge ändert sich; Statistikleiste bleibt projektweit |
+| **Filtern**: Qualität (mehrere Ampelfarben), Zeitraum Von–Bis, Bewertung (mehrere Stufen) | Galerie und Pool zeigen die Schnittmenge; leere Auswahl hebt den jeweiligen Filter auf; gesetzte Bewertung überstimmt das Register; **Filter zurücksetzen** leert alles |
 | Favorit umschalten, Projekt schließen und öffnen | Favorit bleibt |
 | Bewertung (Favorit/Reserve/Aussortiert) auf **Medien**, dann Seite **Timeline** | dieselbe Bewertung am gleichen Medium; Register Favoriten zeigt es |
 | Doppelklick | Medieninspektor mit Zeit, GPS, Kamera; Originale unverändert |
@@ -970,6 +991,18 @@ Voraussetzung: Projekt mit mehreren Fotos, darunter mindestens eine echte Kopie 
 | Suche, Jahr oder Register wechseln | Statistikleiste unten bleibt projektweit (Importiert · Galerie · Aussortiert · Pool · Dubletten · Gruppen · Deaktiviert) |
 | Timeline: Rechtsklick **Gruppieren** auf zwei Fotos | dieselbe manuelle Gruppe wie auf Medien |
 
+### MT-27 Qualitätsampel (FA-070)
+
+Voraussetzung: Projekt mit Fotos unterschiedlicher Technik (scharfes Original, kleine Kopie, dunkles oder unscharfes Bild).
+
+| Schritt | Erwartung |
+| --- | --- |
+| Medien: **Qualität prüfen** | Fortschrittsbalken auf der Seite und in der Statusleiste (`n von m`); danach Statuszeile mit der Zahl; kleine farbige Scheibe unten links am Thumbnail (grün/gelb/rot); Tooltip „Qualität gut/mittel/schwach“ |
+| Favorit oder Aussortiert vorher setzen, dann prüfen | Bewertung unverändert; Originale unverändert (mtime) |
+| Erneut **Qualität prüfen** | bereits bewertete Fotos werden übersprungen |
+| Timeline-Galerie | dieselbe Ampel an denselben Fotos |
+| Videos und Tracks | keine Ampel |
+
 ---
 
 ## 8. Manuelle Fälle ab Phase 8 (Vorschau)
@@ -980,7 +1013,7 @@ Diese Fälle werden mit der jeweiligen Phase verbindlich.
 | --- | --- | --- |
 | MT-14 | 8 | HTML-Export öffnet sich im Browser, lokale Bilder, kein Server |
 | MT-15 | 8 | Export schreibt nach `exports/`, Originale unverändert |
-| MT-16 | 9 | Qualitätswerte sind Empfehlung, kein Löschen |
+| MT-16 | 9 | erledigt als MT-27 (Ampel, kein Löschen) |
 | MT-17 | 10 | unechte Dubletten per pHash, Originale bleiben (SHA-256 und Zeitszenen: MT-26) |
 
 ---
@@ -998,6 +1031,8 @@ Diese Fälle werden mit der jeweiligen Phase verbindlich.
 | Verbindungslinien / Symbole | `test_transfer_links.py`, `test_symbols.py`, `test_maps.py` (outbound), `tests/test_gui_smoke.py` (Transfer-Zeile), manuell MT-12, MT-13, MT-25 |
 | Inspektor / Drehung / Register / Zur Karte | `test_orientation.py`, `tests/test_gui_smoke.py`, manuell MT-18–MT-21 |
 | Medien-Cluster / Statistik | `packages/travelcore/tests/test_clusters.py`, `tests/test_gui_smoke.py` (Cluster-Fälle), manuell MT-26 |
+| Qualitätsampel | `packages/travelcore/tests/test_quality.py`, `tests/test_gui_smoke.py` (Ampel, Knopf), manuell MT-27 |
+| Medien-Filtern | `tests/test_media_filter.py`, `tests/test_gui_smoke.py` (`test_photos_view_filter_panel_quality_and_rating`), manuell MT-09 |
 | Windows-Paket (`packaging/`) | manuell MT-22 (kein pytest) |
 | UI-Importliste | MT-04, MT-23 |
 | Vor Phasenabschluss | pytest grün + manuelle Fälle der Phase + Ruff |

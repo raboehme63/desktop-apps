@@ -15,6 +15,7 @@ from travelcore.database.models import Project, SourceFile, Trip
 from travelcore.database.project_store import OpenProject, ProjectStore
 from travelcore.exceptions import ProjectError
 from travelcore.gps.ingest import set_track_external_url, track_urls_by_source
+from travelcore.image_analysis import QualityRunResult, analyze_project_photos
 from travelcore.maps import (
     MapRenderResult,
     MapTimelineCard,
@@ -392,6 +393,19 @@ class Workspace:
             )
         by_id = {item.source_file_id: item for item in found}
         return [by_id[item_id] for item_id in source_ids if item_id in by_id]
+
+    def analyze_photo_quality(self, *, force: bool = False) -> QualityRunResult:
+        opened = self._require_open()
+
+        with opened.session_factory() as session:
+            result = analyze_project_photos(
+                session,
+                opened.project_id,
+                force=force,
+                max_workers=AppSettings().worker_count,
+            )
+            session.commit()
+        return result
 
     def accept_exact_stacks(self) -> int:
         opened = self._require_open()
@@ -876,6 +890,21 @@ class Workspace:
         if data.get("map_thumb_zoom") == zoom:
             return
         data["map_thumb_zoom"] = zoom
+        self._save_ui_config(data)
+
+    def import_thumb_zoom(self) -> int:
+        from traveljournal.widgets.thumb_zoom import clamp_thumb_zoom
+
+        return clamp_thumb_zoom(self._load_ui_config().get("import_thumb_zoom"))
+
+    def set_import_thumb_zoom(self, percent: int) -> None:
+        from traveljournal.widgets.thumb_zoom import clamp_thumb_zoom
+
+        zoom = clamp_thumb_zoom(percent)
+        data = self._load_ui_config()
+        if data.get("import_thumb_zoom") == zoom:
+            return
+        data["import_thumb_zoom"] = zoom
         self._save_ui_config(data)
 
     def show_rejected_in_all(self) -> bool:

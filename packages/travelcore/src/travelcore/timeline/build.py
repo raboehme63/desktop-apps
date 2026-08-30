@@ -25,6 +25,7 @@ from travelcore.database.models import (
 from travelcore.exceptions import ProjectError
 from travelcore.geolocation.stays import cluster_stays
 from travelcore.gps.ingest import track_urls_by_source
+from travelcore.image_analysis.quality import quality_light
 from travelcore.media.gallery import SORT_FAVORITE, SORT_STATUSES, effective_sort_status
 from travelcore.media.orientation import normalize_rotation_degrees
 from travelcore.media.thumbnails import cached_thumbnail_path, ensure_photo_and_video_rows
@@ -585,6 +586,12 @@ def _events_for_day(session: Session, day_id: int) -> list[Event]:
     )
 
 
+def _photo_quality_light(photo: Photo | None) -> str | None:
+    if photo is None or photo.analysis is None:
+        return None
+    return quality_light(photo.analysis.technical_quality)
+
+
 def _photo_view(
     row: SourceFile,
     photo: Photo | None,
@@ -639,6 +646,7 @@ def _photo_view(
         group_size=0 if marks is None else marks.group_size,
         is_group_key=False if marks is None else marks.is_group_key,
         group_status=None if marks is None else marks.group_status,
+        quality_light=_photo_quality_light(photo),
     )
 
 

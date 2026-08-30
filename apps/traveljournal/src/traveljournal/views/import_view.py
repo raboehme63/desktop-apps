@@ -40,6 +40,11 @@ from travelcore.media.thumbnails import cached_thumbnail_path
 from travelcore.media.types import FileKind
 from traveljournal.services.workers import IndexLoadRunnable, IndexRunnable
 from traveljournal.services.workspace import Workspace
+from traveljournal.widgets.thumb_zoom import (
+    ThumbZoomSlider,
+    clamp_thumb_zoom,
+    import_preview_size,
+)
 
 _TABLE_FILL_CHUNK = 80
 
@@ -191,12 +196,15 @@ class ImportView(QWidget):
         preview.setObjectName("card")
         preview.setMinimumWidth(260)
         preview.setMaximumWidth(380)
+        self._preview_card = preview
         preview_layout = QVBoxLayout(preview)
         preview_layout.setContentsMargins(16, 14, 16, 14)
         preview_layout.setSpacing(10)
+        self._thumb_zoom = ThumbZoomSlider(self, value=self.workspace.import_thumb_zoom())
+        self._thumb_zoom.zoom_changed.connect(self._on_thumb_zoom)
+        preview_layout.addWidget(self._thumb_zoom)
         self._preview_image = QLabel("Keine Datei gewählt")
         self._preview_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._preview_image.setMinimumHeight(220)
         self._preview_image.setObjectName("statLabel")
         self._preview_meta = QLabel("Klick oder Mouseover auf eine Zeile zeigt Metadaten.")
         self._preview_meta.setWordWrap(True)
@@ -229,6 +237,8 @@ class ImportView(QWidget):
         self._emit_import_after_load = False
         self._index_loader: IndexLoadRunnable | None = None
         self._index_loading = False
+        self._zoom = clamp_thumb_zoom(self.workspace.import_thumb_zoom())
+        self._apply_thumb_zoom(self._zoom)
 
     def refresh(self) -> None:
         self.refresh_summary()
@@ -541,7 +551,8 @@ class ImportView(QWidget):
         self._show_selected_preview()
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
-        if watched is self.table.viewport() and event.type() == QEvent.Type.Leave:
+        table = getattr(self, "table", None)
+        if table is not None and watched is table.viewport() and event.type() == QEvent.Type.Leave:
             self._show_selected_preview()
         return super().eventFilter(watched, event)
 
@@ -565,6 +576,19 @@ class ImportView(QWidget):
         self._preview_image.setText("Keine Datei gewählt")
         self._preview_meta.setText("Klick oder Mouseover auf eine Zeile zeigt Metadaten.")
 
+    def _on_thumb_zoom(self, percent: int) -> None:
+        self.workspace.set_import_thumb_zoom(percent)
+        self._apply_thumb_zoom(percent)
+
+    def _apply_thumb_zoom(self, percent: int) -> None:
+        self._zoom = clamp_thumb_zoom(percent)
+        edge = import_preview_size(self._zoom)
+        self._preview_card.setMinimumWidth(260)
+        self._preview_card.setMaximumWidth(max(380, edge + 40))
+        self._preview_image.setMinimumHeight(edge)
+        if self._preview_id is not None:
+            self._show_file_preview(self._preview_id)
+
     def _show_file_preview(self, file_id: int) -> None:
         item = self._files.get(file_id)
         if item is None:
@@ -582,7 +606,7 @@ class ImportView(QWidget):
     def _preview_pixmap(self, item: SourceFile) -> QPixmap:
         thumbs = self.workspace.thumbs_dir()
         if thumbs is None:
-            return _placeholder_pixmap()
+            return self._scaled_preview(_placeholder_pixmap())
         size = AppSettings().default_thumbnail_size
         path = cached_thumbnail_path(
             thumbs,
@@ -594,21 +618,24 @@ class ImportView(QWidget):
         )
         key = str(path)
         if self._thumb_cache is not None and self._thumb_cache[0] == key:
-            return self._thumb_cache[1]
+            return self._scaled_preview(self._thumb_cache[1])
         if item.file_kind == FileKind.TEXT.value or not path.is_file():
             pixmap = _placeholder_pixmap()
         else:
             loaded = QPixmap(str(path))
-            if loaded.isNull():
-                pixmap = _placeholder_pixmap()
-            else:
-                pixmap = loaded.scaled(
-                    QSize(240, 240),
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
+            pixmap = _placeholder_pixmap() if loaded.isNull() else loaded
         self._thumb_cache = (key, pixmap)
-        return pixmap
+        return self._scaled_preview(pixmap)
+
+    def _scaled_preview(self, pixmap: QPixmap) -> QPixmap:
+        if pixmap.isNull():
+            return pixmap
+        edge = import_preview_size(self._zoom)
+        return pixmap.scaled(
+            QSize(edge, edge),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
 
     def _on_row_double_clicked(self, item: QTableWidgetItem) -> None:
         row = item.row()

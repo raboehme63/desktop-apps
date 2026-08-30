@@ -69,6 +69,7 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     assert window.timeline_view._thumb_zoom.value() == 100
     assert window.map_view._thumb_zoom.value() == 100
     assert window.photos_view._thumb_zoom.value() == 100
+    assert window.import_view._thumb_zoom.value() == 100
     assert window.timeline_view._pool_toggle.isCheckable()
     assert not window.timeline_view._pool_toggle.isChecked()
     assert window.timeline_view._pool_toggle.objectName() == "poolCollapse"
@@ -123,6 +124,11 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     assert "Dubletten stapeln" in photo_buttons
     assert "Ähnliche gruppieren" in photo_buttons
     assert "Auswahl gruppieren" in photo_buttons
+    assert "Qualität prüfen" in photo_buttons
+    assert window.photos_view._filter_btn.text() == "Filtern"
+    assert window.photos_view._filter_panel.isHidden()
+    assert window.photos_view.progress.format() == "Bereit"
+    assert window.photos_view._quality_btn.isEnabled()
     assert not window.photos_view._group_selected_btn.isEnabled()
     assert window.photos_view._pool_pane._tabs.count() == 4
     assert window.photos_view._pool_pane._tabs.tabText(1) == "Favoriten"
@@ -293,6 +299,30 @@ def test_import_browse_start_uses_config_roots(tmp_path: Path) -> None:
     assert import_browse_start("", source_root=str(source), projects_root=projects) == str(source)
     assert import_browse_start("", source_root=None, projects_root=projects) == str(projects)
     assert import_browse_start("missing", source_root=None, projects_root=None) == ""
+
+
+def test_import_view_thumb_zoom_scales_preview(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.import_view import ImportView
+    from traveljournal.widgets.thumb_zoom import import_preview_size
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    app = QApplication.instance() or QApplication([])
+    workspace = Workspace()
+    view = ImportView(workspace)
+    assert view._preview_image.minimumHeight() == import_preview_size(100)
+    view._on_thumb_zoom(50)
+    assert view._preview_image.minimumHeight() == import_preview_size(50)
+    assert view._preview_card.maximumWidth() == 380
+    view._on_thumb_zoom(200)
+    assert view._preview_image.minimumHeight() == import_preview_size(200)
+    assert view._preview_card.maximumWidth() > 380
+    assert workspace.import_thumb_zoom() == 200
+    _ = app
 
 
 def test_youtube_links_dialog_add_and_delete() -> None:
@@ -506,6 +536,42 @@ def test_gallery_cluster_hotspots() -> None:
         replace(suggested, source_file_id=4)
     ).name()
     assert group_badge_color(suggested).name() != group_badge_color(other).name()
+    _ = app
+
+
+def test_gallery_quality_ampel() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from pathlib import Path
+
+    from PySide6.QtCore import QRect
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.widgets.gallery import quality_hotspot, quality_light_color
+
+    app = QApplication.instance() or QApplication([])
+    item = GalleryItem(
+        source_file_id=1,
+        path="foto.jpg",
+        filename="foto.jpg",
+        extension=".jpg",
+        captured_at=None,
+        timezone_unknown=True,
+        gps_latitude=None,
+        gps_longitude=None,
+        camera=None,
+        is_favorite=False,
+        used_in_journal=False,
+        thumbnail_path=Path("missing.jpg"),
+        quality_light="green",
+    )
+    cell = QRect(0, 0, 184, 214)
+    disc = quality_hotspot(cell)
+    assert disc.x() < cell.center().x()
+    assert quality_light_color(item.quality_light).name() == "#2eb8a0"
+    assert quality_light_color("yellow").name() == "#d4a017"
+    assert quality_light_color("red").name() == "#d94a4a"
+    assert quality_light_color(None) is None
     _ = app
 
 
@@ -860,6 +926,7 @@ def test_thumb_zoom_slider_marks_default() -> None:
         ThumbZoomSlider,
         clamp_thumb_zoom,
         gallery_icon_size,
+        import_preview_size,
     )
 
     app = QApplication.instance() or QApplication([])
@@ -869,6 +936,9 @@ def test_thumb_zoom_slider_marks_default() -> None:
     assert clamp_thumb_zoom(400) == 200
     assert gallery_icon_size(DEFAULT_THUMB_ZOOM) == 168
     assert gallery_icon_size(50) == 84
+    assert import_preview_size(DEFAULT_THUMB_ZOOM) == 240
+    assert import_preview_size(50) == 120
+    assert import_preview_size(200) == 480
     widget = ThumbZoomSlider()
     assert widget.value() == DEFAULT_THUMB_ZOOM
     assert widget._slider._default == DEFAULT_THUMB_ZOOM
@@ -2768,6 +2838,75 @@ def test_photos_view_media_tab_filters_favorites(tmp_path: Path, monkeypatch) ->
     assert [row.filename for row in view._pool_pane.gallery.items()] == ["pool-fav.jpg"]
     view._pool_pane._tabs.setCurrentIndex(media_tab_index("rejected"))
     assert [row.filename for row in view._pool_pane.gallery.items()] == ["pool-weg.jpg"]
+    _ = app
+
+
+def test_photos_view_filter_panel_quality_and_rating(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, date, datetime
+
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.photos_view import PhotosView
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    app = QApplication.instance() or QApplication([])
+    view = PhotosView(Workspace())
+    stamp = datetime(2025, 6, 15, 8, 0, tzinfo=UTC)
+
+    def item(
+        name: str,
+        source_file_id: int,
+        *,
+        quality: str | None = None,
+        sort_status: str | None = None,
+        parked: bool = False,
+    ) -> GalleryItem:
+        return GalleryItem(
+            source_file_id=source_file_id,
+            path=name,
+            filename=name,
+            extension=".jpg",
+            captured_at=stamp,
+            timezone_unknown=False,
+            gps_latitude=None,
+            gps_longitude=None,
+            camera=None,
+            is_favorite=sort_status == "favorite",
+            used_in_journal=False,
+            thumbnail_path=Path("."),
+            sort_status=sort_status,
+            parked=parked,
+            quality_light=quality,
+        )
+
+    view._items = [
+        item("green.jpg", 1, quality="green", sort_status="favorite"),
+        item("red.jpg", 2, quality="red", sort_status="rejected"),
+        item("plain.jpg", 3),
+        item("pool-green.jpg", 4, quality="green", parked=True),
+    ]
+    view._filter_btn.setChecked(True)
+    assert not view._filter_panel.isHidden()
+    view._filter_panel._quality["green"].setChecked(True)
+    view._filter_panel._quality["yellow"].setChecked(True)
+    assert [row.filename for row in view.gallery.items()] == ["green.jpg"]
+    assert [row.filename for row in view._pool_pane.gallery.items()] == ["pool-green.jpg"]
+    view._filter_panel.reset()
+    view._filter_panel._ratings["favorite"].setChecked(True)
+    view._filter_panel._ratings["none"].setChecked(True)
+    assert [row.filename for row in view.gallery.items()] == ["green.jpg", "plain.jpg"]
+    assert [row.filename for row in view._pool_pane.gallery.items()] == ["pool-green.jpg"]
+    assert view._filter_btn.text() == "Filtern · Bewertung"
+    view._filter_panel.reset()
+    view._filter_panel._range.setChecked(True)
+    view._filter_panel.set_span(date(2025, 7, 1), date(2025, 7, 31))
+    view._filter_panel.changed.emit()
+    assert [row.filename for row in view.gallery.items()] == []
+    assert view._filter_btn.text() == "Filtern · Datum"
     _ = app
 
 

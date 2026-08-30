@@ -11,6 +11,7 @@ DEFAULT_THUMB_ZOOM = 100
 MAX_THUMB_ZOOM = 200
 DEFAULT_GALLERY_ICON = 168
 DEFAULT_GALLERY_CELL = QSize(184, 214)
+DEFAULT_IMPORT_PREVIEW = 240
 
 
 def clamp_thumb_zoom(value: object) -> int:
@@ -35,6 +36,10 @@ def gallery_cell_size(percent: int) -> QSize:
 
 def gallery_chip_size(percent: int) -> int:
     return max(16, min(28, round(22 * clamp_thumb_zoom(percent) / 100)))
+
+
+def import_preview_size(percent: int) -> int:
+    return max(80, round(DEFAULT_IMPORT_PREVIEW * clamp_thumb_zoom(percent) / 100))
 
 
 class DefaultMarkSlider(QSlider):

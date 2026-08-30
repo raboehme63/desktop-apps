@@ -11,7 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from travelcore.config import DEFAULT_THUMBNAIL_SIZE
-from travelcore.database.models import Photo, SourceFile
+from travelcore.database.models import Photo, PhotoAnalysis, SourceFile
+from travelcore.image_analysis.quality import quality_light
 from travelcore.media.orientation import normalize_rotation_degrees
 from travelcore.media.thumbnails import cached_thumbnail_path
 from travelcore.media.types import FileKind
@@ -59,6 +60,7 @@ class GalleryItem:
     group_size: int = 0
     is_group_key: bool = False
     group_status: str | None = None
+    quality_light: str | None = None
 
 
 def list_gallery_items(
@@ -75,8 +77,9 @@ def list_gallery_items(
     if source_file_ids is not None and not source_file_ids:
         return []
     query = (
-        select(SourceFile, Photo)
+        select(SourceFile, Photo, PhotoAnalysis)
         .outerjoin(Photo, Photo.source_file_id == SourceFile.id)
+        .outerjoin(PhotoAnalysis, PhotoAnalysis.photo_id == Photo.id)
         .where(
             SourceFile.project_id == project_id,
             SourceFile.file_kind.in_((FileKind.PHOTO.value, FileKind.VIDEO.value, FileKind.GPS.value)),
@@ -88,7 +91,7 @@ def list_gallery_items(
     rows = session.execute(query)
     overlay = load_cluster_overlay(session, project_id)
     items: list[GalleryItem] = []
-    for source, photo in rows:
+    for source, photo, analysis in rows:
         if hide_cluster_hidden and overlay.is_hidden(source.id):
             continue
         rotation = normalize_rotation_degrees(source.rotation_degrees)
@@ -127,6 +130,9 @@ def list_gallery_items(
                 group_size=marks.group_size,
                 is_group_key=marks.is_group_key,
                 group_status=marks.group_status,
+                quality_light=quality_light(
+                    analysis.technical_quality if analysis is not None else None
+                ),
             )
         )
     return items

@@ -87,6 +87,8 @@ class MainWindow(QMainWindow):
         self.import_view.index_load_progress.connect(self._on_index_progress)
         self.import_view.index_load_finished.connect(self._on_index_loaded)
         self.photos_view.status_message.connect(self._set_status)
+        self.photos_view.quality_progress.connect(self._on_quality_progress)
+        self.photos_view.quality_finished.connect(self._on_quality_finished)
         self.photos_view.rating_changed.connect(self.timeline_view.apply_media_rating)
         self.photos_view.rating_changed.connect(self.map_view.apply_media_rating)
         self.photos_view.open_media_on_map.connect(self._open_map_media)
@@ -265,6 +267,21 @@ class MainWindow(QMainWindow):
             self.map_view.refresh()
         elif key == "timeline":
             self.timeline_view.refresh()
+
+    def _on_quality_progress(self, current: int, total: int, message: str) -> None:
+        self._load_progress.show()
+        if total <= 0:
+            self._load_progress.setRange(0, 0)
+        else:
+            self._load_progress.setRange(0, total)
+            self._load_progress.setValue(current)
+        self._load_progress.setFormat(message or "Qualität wird geprüft…")
+
+    def _on_quality_finished(self) -> None:
+        self._load_progress.hide()
+        self._load_progress.setRange(0, 100)
+        self._load_progress.setValue(0)
+        self._load_progress.setFormat("Bereit")
 
     def _show_page(self, key: str) -> None:
         previous = next(

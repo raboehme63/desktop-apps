@@ -35,6 +35,7 @@ class TimelinePhoto:
     group_size: int = 0
     is_group_key: bool = False
     group_status: str | None = None
+    quality_light: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

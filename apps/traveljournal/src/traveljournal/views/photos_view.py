@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QSplitter,
     QVBoxLayout,
@@ -26,9 +27,16 @@ from travelcore.media.gallery import SORT_FAVORITE, GalleryItem, effective_sort_
 from travelcore.media.types import PHOTO_EXTENSIONS
 from travelcore.similarity.types import ClusterType
 from travelcore.timeline.sections import expand_range_selection
-from traveljournal.services.workers import ThumbnailRunnable
+from traveljournal.services.workers import QualityRunnable, ThumbnailRunnable
 from traveljournal.services.workspace import Workspace
+from traveljournal.views.import_view import progress_bar_format
 from traveljournal.widgets.gallery import GalleryView
+from traveljournal.widgets.media_filter import (
+    MediaFilterPanel,
+    matches_date_range,
+    matches_quality_filter,
+    matches_rating_filter,
+)
 from traveljournal.widgets.media_inspector import (
     MediaInspectorWindow,
     cascade_inspector,
@@ -56,6 +64,8 @@ _TRACK = {".gpx", ".igc", ".kml", ".geojson"}
 
 class PhotosView(QWidget):
     status_message = Signal(str)
+    quality_progress = Signal(int, int, str)
+    quality_finished = Signal()
     rating_changed = Signal(object)
     open_media_on_map = Signal(str, int)
 
@@ -103,6 +113,11 @@ class PhotosView(QWidget):
         self.year.currentIndexChanged.connect(self._apply_filters)
         self.unused = QCheckBox("Nicht im Tagebuch")
         self.unused.toggled.connect(self._apply_filters)
+        self._filter_btn = QPushButton("Filtern")
+        self._filter_btn.setObjectName("mediaFilterButton")
+        self._filter_btn.setCheckable(True)
+        self._filter_btn.setToolTip("Qualität, Zeitraum und Bewertung.")
+        self._filter_btn.toggled.connect(self._toggle_filter_panel)
         refresh = QPushButton("Vorschauen aktualisieren")
         refresh.clicked.connect(self._refresh_thumbs)
         filters.addWidget(self.search, 1)
@@ -110,8 +125,14 @@ class PhotosView(QWidget):
         filters.addWidget(self.place)
         filters.addWidget(self.kind)
         filters.addWidget(self.unused)
+        filters.addWidget(self._filter_btn)
         filters.addWidget(refresh)
         root.addLayout(filters)
+        self._filter_panel = MediaFilterPanel(self)
+        self._filter_panel.hide()
+        self._filter_panel.changed.connect(self._on_filter_panel_changed)
+        self._filter_panel.range_opened.connect(self._fill_filter_date_span)
+        root.addWidget(self._filter_panel)
 
         left = QWidget()
         left_layout = QVBoxLayout(left)
@@ -203,13 +224,27 @@ class PhotosView(QWidget):
         )
         self._group_selected_btn.clicked.connect(self._group_selected)
         self._group_selected_btn.setEnabled(False)
+        quality_btn = QPushButton("Qualität prüfen")
+        quality_btn.setToolTip(
+            "Technische Ampel (grün/gelb/rot) aus Auflösung, Schärfe und Belichtung. "
+            "Nur Empfehlung — ändert weder Bewertung noch Originale. "
+            "Bereits geprüfte Fotos werden übersprungen."
+        )
+        quality_btn.clicked.connect(self._analyze_quality)
+        self._quality_btn = quality_btn
         actions.addWidget(favorite_btn)
         actions.addWidget(pool_btn)
         actions.addWidget(stacks_btn)
         actions.addWidget(groups_btn)
         actions.addWidget(self._group_selected_btn)
+        actions.addWidget(quality_btn)
         actions.addStretch(1)
         root.addLayout(actions)
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setFormat("Bereit")
+        root.addWidget(self.progress)
         self.stats = QLabel("Kein Projekt geöffnet")
         self.stats.setObjectName("pageSubtitle")
         self.stats.setWordWrap(True)
@@ -278,19 +313,42 @@ class PhotosView(QWidget):
             self._show_rejected, self._media_tabs, checked=self.workspace.show_rejected_in_all()
         )
 
+    def _toggle_filter_panel(self, visible: bool) -> None:
+        self._filter_panel.setVisible(visible)
+        self._sync_filter_button()
+
+    def _fill_filter_date_span(self) -> None:
+        days = [item.captured_at.date() for item in self._items if item.captured_at is not None]
+        if days:
+            self._filter_panel.set_span(min(days), max(days))
+
+    def _on_filter_panel_changed(self) -> None:
+        self._sync_filter_button()
+        self._apply_filters()
+
+    def _sync_filter_button(self) -> None:
+        self._filter_btn.setText(self._filter_panel.button_label())
+
     def _apply_filters(self) -> None:
         journal, parked = self._partition_filtered()
-        wanted = rating_status_at(self._media_tabs.currentIndex())
-        include_rejected = self.workspace.show_rejected_in_all()
-        shown = [
-            item for item in journal if matches_rating(item, wanted, include_rejected=include_rejected)
-        ]
+        ratings = self._filter_panel.rating_selected()
+        if ratings:
+            shown = [item for item in journal if matches_rating_filter(item, ratings)]
+            parked = [item for item in parked if matches_rating_filter(item, ratings)]
+        else:
+            wanted = rating_status_at(self._media_tabs.currentIndex())
+            include_rejected = self.workspace.show_rejected_in_all()
+            shown = [
+                item
+                for item in journal
+                if matches_rating(item, wanted, include_rejected=include_rejected)
+            ]
         self.gallery.set_items(shown)
         self._journal_excluded.clear()
         self._journal_displayed.clear()
         self._pool_excluded.clear()
         self._pool_displayed.clear()
-        self._pool_pane.set_items(parked)
+        self._pool_pane.set_items(parked, apply_rating_tab=not bool(ratings))
         self._refresh_stats()
         self._sync_group_button()
 
@@ -309,6 +367,8 @@ class PhotosView(QWidget):
         kind = self.kind.currentText()
         year_text = self.year.currentText()
         unused = self.unused.isChecked()
+        qualities = self._filter_panel.quality_selected()
+        start, end = self._filter_panel.date_range()
         journal: list[GalleryItem] = []
         parked: list[GalleryItem] = []
         for item in self._items:
@@ -323,6 +383,10 @@ class PhotosView(QWidget):
             ):
                 continue
             if kind != "Alle Typen" and not _matches_kind(item.extension, kind):
+                continue
+            if not matches_quality_filter(item, qualities):
+                continue
+            if not matches_date_range(item, start, end):
                 continue
             if item.parked:
                 parked.append(item)
@@ -629,6 +693,70 @@ class PhotosView(QWidget):
             item if existing.source_file_id == item.source_file_id else existing for existing in self._items
         ]
         self._apply_filters()
+
+    def _analyze_quality(self) -> None:
+        if self.workspace.current is None:
+            QMessageBox.information(self, "Medien", "Bitte zuerst ein Projekt öffnen.")
+            return
+        if self._busy:
+            return
+        self._busy = True
+        self._quality_btn.setEnabled(False)
+        self.progress.setRange(0, 0)
+        self.progress.setFormat("Qualität wird geprüft…")
+        self.status_message.emit("Qualität wird geprüft…")
+        self.quality_progress.emit(0, 0, "Qualität wird geprüft…")
+        worker = QualityRunnable(self.workspace.current)
+        worker.signals.progress.connect(self._on_quality_progress)
+        worker.signals.finished.connect(self._on_quality_done)
+        worker.signals.failed.connect(self._on_quality_failed)
+        self._pool.start(worker)
+
+    def _on_quality_progress(self, current: int, total: int) -> None:
+        if total <= 0:
+            self.progress.setRange(0, 0)
+            self.progress.setFormat("Qualität wird geprüft…")
+            self.quality_progress.emit(0, 0, "Qualität wird geprüft…")
+            return
+        self.progress.setRange(0, total)
+        self.progress.setValue(current)
+        self.progress.setFormat(progress_bar_format("Qualität"))
+        percent = min(100, int(round(100 * current / total))) if total else 0
+        message = f"Qualität · {current} von {total} ({percent} %)"
+        self.status_message.emit(message)
+        self.quality_progress.emit(current, total, message)
+
+    def _clear_quality_progress(self, format_text: str = "Bereit") -> None:
+        self._busy = False
+        self._quality_btn.setEnabled(True)
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setFormat(format_text)
+        self.quality_finished.emit()
+
+    def _on_quality_done(self, analyzed: int, skipped: int, failed: int) -> None:
+        if analyzed:
+            message = f"{analyzed} Fotos bewertet."
+            if skipped:
+                message += f" {skipped} bereits vorhanden."
+            if failed:
+                message += f" {failed} ohne Ampel."
+        elif skipped:
+            message = "Qualität bereits geprüft."
+        else:
+            message = "Keine Fotos zum Prüfen."
+        self._busy = False
+        self._quality_btn.setEnabled(True)
+        self.progress.setRange(0, 1)
+        self.progress.setValue(1)
+        self.progress.setFormat(message)
+        self.quality_finished.emit()
+        self.refresh()
+        self.status_message.emit(message)
+
+    def _on_quality_failed(self, message: str) -> None:
+        self._clear_quality_progress("Qualität fehlgeschlagen")
+        QMessageBox.warning(self, "Medien", message)
 
     def _refresh_thumbs(self) -> None:
         if self.workspace.current is None:

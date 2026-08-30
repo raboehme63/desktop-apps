@@ -3,6 +3,7 @@ from travelcore.export.cewe import CeweExporter
 from travelcore.export.html import HtmlExporter
 from travelcore.export.latex import LatexExporter
 from travelcore.export.pdf import PdfExporter
+from travelcore.image_analysis.quality import PillowQualityAnalyzer, QualityAnalyzer
 from travelcore.maps import MapBackend
 from travelcore.metadata.provider import TIME_SOURCE_PRIORITY, MetadataProvider
 from travelcore.timeline.ranking import RankingStrategy
@@ -22,3 +23,5 @@ def test_protocols_are_importable() -> None:
     assert MetadataProvider is not None
     assert RankingStrategy is not None
     assert MapBackend is not None
+    assert QualityAnalyzer is not None
+    assert issubclass(PillowQualityAnalyzer, object)

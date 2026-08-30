@@ -60,6 +60,7 @@ class PoolPane(QFrame):
         self._accept_drops = accept_drops
         self.workspace = workspace
         self._items: list[GalleryItem] = []
+        self._apply_rating_tab_enabled = True
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -132,9 +133,10 @@ class PoolPane(QFrame):
         self._sync_show_rejected()
         self._refresh_empty()
 
-    def set_items(self, items: list[GalleryItem]) -> None:
+    def set_items(self, items: list[GalleryItem], *, apply_rating_tab: bool = True) -> None:
         selected = set(self.selected_source_ids())
         self._items = list(items)
+        self._apply_rating_tab_enabled = apply_rating_tab
         self.sync_tab_from_workspace()
         self._sync_show_rejected()
         self._apply_rating_tab()
@@ -175,6 +177,8 @@ class PoolPane(QFrame):
         self.gallery.select_by_source_ids(selected)
 
     def _shown_for_tab(self) -> list[GalleryItem]:
+        if not self._apply_rating_tab_enabled:
+            return list(self._items)
         wanted = rating_status_at(self._tabs.currentIndex())
         include_rejected = self.workspace is not None and self.workspace.show_rejected_in_all()
         return [

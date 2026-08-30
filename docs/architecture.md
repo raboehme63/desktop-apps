@@ -43,7 +43,7 @@ und ändert die JSON-Datei nicht.
 | `timeline` | Tage, Transfers und Aufenthalte als Abschnitte, Mitglieder, Journal-Zeit, Pool (`parked`), Links, Cover, manuelle Edits, Snapshots zum Wiederherstellen (`history`) |
 | `maps` | `MapScene` + Folium/Leaflet; statische OSM-Ausschnitte für Track-Thumbs |
 | `export` | Vertrag `Exporter`; HTML/PDF/LaTeX/CEWE noch Platzhalter |
-| `image_analysis` | Vertrag `QualityAnalyzer` für Phase 9, ohne Engine |
+| `image_analysis` | `PillowQualityAnalyzer`, `analyze_project_photos`, Ampel aus `technical_quality` (`photo_analyses`) |
 | `similarity` | SHA-256-Stapel, 30-s-Szenengruppen, manuelle Gruppen, Overlay (`load_cluster_overlay`), `compute_media_stats` / `MediaStats`; pHash/Embeddings noch ohne Engine |
 
 Lange Aufgaben (Indexierung, Thumbnails) laufen im GUI-Prozess über
@@ -89,7 +89,7 @@ Zuletzt geöffnete Projekte stehen unter
 sie in R3.0.0 noch nicht. Der Fenstertitel lautet `Reisetagebuch R{Version}`
 bzw. `Reisetagebuch R{Version} - {Projekttitel}`. Das Medienregister
 (Timeline und Medienseite) steht in `%LOCALAPPDATA%\TravelJournal\config.json` (`timeline_media_tab`),
-ebenso die Thumbnail-Schieber (`timeline_thumb_zoom`, `map_thumb_zoom`, `media_thumb_zoom`), die
+ebenso die Thumbnail-Schieber (`timeline_thumb_zoom`, `map_thumb_zoom`, `media_thumb_zoom`, `import_thumb_zoom`), die
 eingeklappte linke Navigation (`sidebar_collapsed`), der Medienpool
 (`timeline_pool_visible`, `pool_width`, `inspector_width` / `inspector_height` / `inspector_maximized`, `inspector_show_rejected`).
 Cluster-Sichtbarkeit kommt aus `load_cluster_overlay`: vorgeschlagene Gruppen
@@ -140,8 +140,9 @@ in den Pool oder zurück in die Galerie. Bewertung und Zugehörigkeit
 (Abschnitt vs. Pool) sind unabhängig. **Dubletten stapeln**, **Ähnliche gruppieren**
 und **Auswahl gruppieren** schreiben `similarity_groups`; Galerie-Kennzeichen
 G (grün nach Schlüsseln, sonst gruppenfarben) und ×n (gold) liegen oben rechts
-auf dem Thumbnail. Unten zählt die Statistikleiste projektweit, unabhängig von
-Suche, Jahr und Register.
+auf dem Thumbnail. Die Qualitätsampel ist eine kleine Scheibe unten links
+(`quality_light` aus `photo_analyses.technical_quality`). Unten zählt die
+Statistikleiste projektweit, unabhängig von Suche, Jahr und Register.
 Jede Mitgliedschaft
 trägt eine **Journal-Zeit** (`section_members.journal_at`, initial die Aufnahmezeit
 inkl. Zeitzonenname). Die Timeline sortiert und gruppiert nach dieser Uhr;
@@ -379,7 +380,8 @@ Bereits in Phase 1 angelegt, schrittweise gefüllt:
   keine Ortsnamen an Foto-/Trackpositionen
 - KML/GeoJSON in `travelcore.gps` – Parser für Vorschauen, kein Ingest in `gps_tracks`
 - `travelcore.similarity.clusters` – Stapel/Gruppe, Overlay, Statistik
-- `RankingStrategy` / `QualityAnalyzer` – Verträge für Phase 9 bzw. visuelle Ähnlichkeit
+- `travelcore.image_analysis` – Ampel (Pillow, Process-Pool), Persistenz in `photo_analyses`
+- `RankingStrategy` – Vertrag für Ranking-Gewichte; visuelle Ähnlichkeit (pHash) offen
 
 ## Persistenz
 
@@ -453,8 +455,9 @@ macOS ist kein Ziel (WIC-Vorschauen, AppData-Pfade).
     Rückgängig/Wiederherstellen)
    Windows-Endnutzerpaket: `packaging/` (keine eigene Fachphase)
 8. HTML-Export
-9. Qualitätsanalyse
+9. Qualitätsanalyse  ← Ampel umgesetzt (`PillowQualityAnalyzer`, Knopf
+    **Qualität prüfen**; Ranking-Gewichte weiter Schnittstelle)
 10. Dublettenerkennung  ← R3.0.0 teilweise (SHA-256-Stapel, 30-s-Gruppen,
     manuelle Gruppen, Statistik; keine pHash/Embeddings)
 
-Aktueller Stand: Phase 7 erledigt plus Medien-Pipeline, Software R3.0.0.
+Aktueller Stand: Phase 7 erledigt plus Medien-Pipeline und Qualitätsampel, Software R3.0.0.

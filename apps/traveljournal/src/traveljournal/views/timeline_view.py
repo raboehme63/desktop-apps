@@ -2854,6 +2854,7 @@ def _gallery_item(photo: TimelinePhoto, *, cover_id: int | None = None) -> Galle
         group_size=photo.group_size,
         is_group_key=photo.is_group_key,
         group_status=photo.group_status,
+        quality_light=photo.quality_light,
     )
 
 
