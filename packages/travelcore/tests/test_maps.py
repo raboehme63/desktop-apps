@@ -191,8 +191,12 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
     assert "focusPhoto(next.id, false)" in text
     assert "centerBrowseView" in text
     assert "estimatePopupHeight" in text
+    assert "belowH = thumbH + dateH" in text
+    assert "groupH / 2 - belowH" in text
     assert "lockPopupImageBox" in text
     assert "ensurePhotoAspect" in text
+    assert "aspect-ratio:' + ratio" in text
+    assert "centerBrowseView(current)" in text
     thumb_at = text.find("function openPhotoThumbnail")
     click_at = text.find("function onPhotoMarkerClick", thumb_at)
     thumb_open = text[thumb_at:click_at]

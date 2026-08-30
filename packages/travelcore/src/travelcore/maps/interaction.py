@@ -1007,30 +1007,31 @@ def _photo_cone_js() -> str:
         width = popupThumbWidth();
       }}
       var ratio = photoAspect(entry) || 0.75;
-      var imgH = Math.round(width * ratio);
       if (popup && popup.options) {{
         popup.options.autoPan = false;
         popup.options.minWidth = width;
-        popup.options.maxWidth = Math.max(260, width + 48);
+        popup.options.maxWidth = width + 32;
       }}
       function applyBox(root) {{
         if (!root || !root.querySelector) {{
           return false;
         }}
+        var box = root.querySelector('.tj-popup');
+        if (box && box.style && box.style.setProperty) {{
+          box.style.setProperty('--tj-popup-aspect', String(ratio));
+        }}
         var img = root.querySelector('.tj-popup-thumb');
         if (!img) {{
           return false;
         }}
-        img.style.width = width + 'px';
-        img.style.height = imgH + 'px';
+        img.style.width = '';
+        img.style.height = '';
         img.style.aspectRatio = String(ratio);
-        img.setAttribute('width', String(width));
-        img.setAttribute('height', String(imgH));
+        img.removeAttribute('width');
+        img.removeAttribute('height');
         return true;
       }}
-      if (popup && applyBox(popup.getElement && popup.getElement())) {{
-        return;
-      }}
+      applyBox(popup && popup.getElement && popup.getElement());
       var html = popup && popup.getContent && popup.getContent();
       if (typeof html !== 'string') {{
         return;
@@ -1046,9 +1047,11 @@ def _photo_cone_js() -> str:
       }}
       var tag = html.slice(start, end);
       tag = tag.replace(/ width="[^"]*"/g, '').replace(/ height="[^"]*"/g, '').replace(/ style="[^"]*"/g, '');
-      tag += ' width="' + width + '" height="' + imgH +
-        '" style="width:' + width + 'px;height:' + imgH + 'px;aspect-ratio:' + ratio + '"';
-      popup.setContent(html.slice(0, start) + tag + html.slice(end));
+      tag += ' style="aspect-ratio:' + ratio + '"';
+      var next = html.slice(0, start) + tag + html.slice(end);
+      if (next !== html) {{
+        popup._content = next;
+      }}
     }}
     function estimatePopupHeight(entry) {{
       var width = 180;
@@ -1058,6 +1061,14 @@ def _photo_cone_js() -> str:
       var chrome = 130;
       var ratio = photoAspect(entry) || 0.75;
       return Math.max(140, width * ratio + chrome);
+    }}
+    function estimateDateHeight(entry) {{
+      var tip = entry && entry.marker && entry.marker.getTooltip && entry.marker.getTooltip();
+      var el = tip && tip.getElement && tip.getElement();
+      if (el && el.offsetHeight > 4) {{
+        return el.offsetHeight;
+      }}
+      return 22;
     }}
     function centerBrowseView(entry) {{
       var marker = entry && entry.marker;
@@ -1073,10 +1084,15 @@ def _photo_cone_js() -> str:
       var pad = 20;
       var popupH = estimatePopupHeight(entry);
       var thumbH = PHOTO_THUMB_PX;
-      var groupH = popupH + thumbH;
-      var markerY = size.y / 2 + groupH / 2 - thumbH / 2;
+      var dateH = estimateDateHeight(entry);
+      var belowH = thumbH + dateH;
+      var groupH = popupH + belowH;
+      var markerY = size.y / 2 + groupH / 2 - belowH;
       if (markerY - popupH < pad) {{
         markerY = pad + popupH;
+      }}
+      if (markerY + belowH > size.y - pad) {{
+        markerY = Math.max(pad + popupH, size.y - pad - belowH);
       }}
       thumbCentering = true;
       window.traveljournalKeepFocus = true;
@@ -1105,6 +1121,9 @@ def _photo_cone_js() -> str:
           return;
         }}
         lockPopupImageBox(entry);
+        if (entry.marker.openTooltip) {{
+          entry.marker.openTooltip();
+        }}
         centerBrowseView(entry);
         if (entry.marker.openPopup) {{
           entry.marker.openPopup();
@@ -1547,7 +1566,7 @@ _COVER_CSS = (
   display: block;
   width: 100%;
   height: auto;
-  object-fit: contain;
+  aspect-ratio: var(--tj-popup-aspect, auto);
   background: #111;
   cursor: pointer;
   pointer-events: auto;
@@ -2394,7 +2413,7 @@ def _overview_script(
       if (!popup) {{
         return;
       }}
-      popup.options.maxWidth = Math.max(260, width + 48);
+      popup.options.maxWidth = width + 32;
       popup.options.minWidth = width;
       popup.options.autoPan = false;
       var entry = null;
@@ -2412,6 +2431,9 @@ def _overview_script(
       }}
       if (popup.update) {{
         popup.update();
+      }}
+      if (typeof lockPopupImageBox === 'function') {{
+        lockPopupImageBox(entry, popup);
       }}
       var el = popup.getElement && popup.getElement();
       var content = el && el.querySelector ? el.querySelector('.leaflet-popup-content') : null;
@@ -2591,12 +2613,25 @@ def _overview_script(
       photoEntries.forEach(function(entry) {{
         var popup = entry.marker && entry.marker.getPopup && entry.marker.getPopup();
         if (popup) {{
-          popup.options.maxWidth = Math.max(260, width + 48);
+          popup.options.maxWidth = width + 32;
           popup.options.minWidth = width;
         }}
       }});
       if (map._popup) {{
         applyPopupLayout(map._popup);
+        var current = null;
+        photoEntries.forEach(function(item) {{
+          if (current) {{
+            return;
+          }}
+          var bound = item.marker && item.marker.getPopup && item.marker.getPopup();
+          if (bound === map._popup) {{
+            current = item;
+          }}
+        }});
+        if (current && typeof centerBrowseView === 'function') {{
+          centerBrowseView(current);
+        }}
         return;
       }}
       if (map.eachLayer) {{
@@ -2832,7 +2867,7 @@ def _overview_script(
         }}
         if (item.popup_html) {{
           marker.bindPopup(item.popup_html, {{
-            maxWidth: Math.max(260, popupThumbWidth() + 48),
+            maxWidth: popupThumbWidth() + 32,
             minWidth: popupThumbWidth(),
             autoPan: false
           }});

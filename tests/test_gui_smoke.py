@@ -18,7 +18,7 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
 
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
-    assert window.windowTitle() == "Reisetagebuch R2.1.0"
+    assert window.windowTitle() == "Reisetagebuch R2.1.1"
     assert window.stack.count() == 6
     titles = [action.text() for action in window.menuBar().actions()]
     assert "Projekt" in titles
@@ -130,9 +130,9 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
 def test_app_window_title_includes_version() -> None:
     from traveljournal.__about__ import app_window_title
 
-    assert app_window_title() == "Reisetagebuch R2.1.0"
-    assert app_window_title("Alpen 2025") == "Reisetagebuch R2.1.0 - Alpen 2025"
-    assert app_window_title("  ") == "Reisetagebuch R2.1.0"
+    assert app_window_title() == "Reisetagebuch R2.1.1"
+    assert app_window_title("Alpen 2025") == "Reisetagebuch R2.1.1 - Alpen 2025"
+    assert app_window_title("  ") == "Reisetagebuch R2.1.1"
 
 
 def test_new_project_dialog_preview_and_values(tmp_path: Path) -> None:

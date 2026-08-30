@@ -2,7 +2,7 @@
 
 Produktanforderungen: [pflichtenheft.md](pflichtenheft.md). Leitkonzept: [konzept.md](konzept.md). Tests: [testdokumentation.md](testdokumentation.md). Windows-Paket: [packaging/README.md](../packaging/README.md).
 
-Stand: **Phase 7**, Software **R2.1.0** (29. August 2026). Journal-Modell nach Design-Review; Verbindungslinien und Verkehrssymbole.
+Stand: **Phase 7**, Software **R2.1.1** (30. August 2026). Journal-Modell nach Design-Review; Verbindungslinien; Karten-Popup, Cover-Zoom und Track-Bewertung.
 
 ## Prinzip
 
@@ -32,7 +32,7 @@ und ändert die JSON-Datei nicht.
 | Use Cases | `travelcore.media`, `gps`, `timeline`, `geolocation`, `maps`, `export` | Import, Zuordnung, Timeline, Karte, Export |
 | Persistenz | `travelcore.database` | SQLAlchemy-Modelle, Alembic, Projektordner |
 
-## Module in travelcore (Phase 7, R2.1.0)
+## Module in travelcore (Phase 7, R2.1.1)
 
 | Paket | Inhalt |
 | --- | --- |
@@ -85,10 +85,11 @@ Originaldateien nicht.
 
 Zuletzt geöffnete Projekte stehen unter
 `%LOCALAPPDATA%\TravelJournal\recent.json` (max. 10). Die Oberfläche listet
-sie in R2.1.0 noch nicht. Der Fenstertitel lautet `Reisetagebuch R{Version}`
+sie in R2.1.1 noch nicht. Der Fenstertitel lautet `Reisetagebuch R{Version}`
 bzw. `Reisetagebuch R{Version} - {Projekttitel}`. Das Medienregister
 (Timeline und Medienseite) steht in `%LOCALAPPDATA%\TravelJournal\config.json` (`timeline_media_tab`),
-ebenso die eingeklappte linke Navigation (`sidebar_collapsed`), der Medienpool
+ebenso die Thumbnail-Schieber (`timeline_thumb_zoom`, `map_thumb_zoom`), die
+eingeklappte linke Navigation (`sidebar_collapsed`), der Medienpool
 (`timeline_pool_visible`, `pool_width`, `inspector_width` / `inspector_height` / `inspector_maximized`).
 
 ## Timeline
@@ -240,10 +241,15 @@ zeigt die Datei; die kompakte Leiste (`MapTimelineStrip`) sitzt **unter** dem
 WebView, nicht als Overlay über Chromium — sonst verschluckt die Karte Klicks.
 Zwischen den Leistenkarten sitzt ein **+** (`MapSpine`); Klick öffnet denselben
 Dialog wie in der Timeline und füllt das Datum der Lücke.
-Klick auf eine Leistenkarte ruft `traveljournalFocusCover` auf: Schwenken bei
-**unverändertem Zoom**. Oben auf den Leistenkarten stehen Zähler für Fotos, GPX-Tracks, IGC-Flüge und YouTube-Links; Reserve-Medien zählen nur, wenn **Reserve-Elemente anzeigen** im Zahnrad aktiv ist. Rechts neben der Karte stehen der Tagebucheintrag der
+Klick auf eine Leistenkarte in der Übersicht ruft `traveljournalFocusCover` auf: Schwenken bei
+**unverändertem Zoom**. In der Detailansicht schließt derselbe Klick das Detail
+(`traveljournalCloseSection`) und zoomt auf den Cover-Kreis (`ZoomToCover`);
+der Mauszeiger folgt der Karte zur Mitte. Oben auf den Leistenkarten stehen Zähler für Fotos, GPX-Tracks, IGC-Flüge und YouTube-Links; Reserve-Medien zählen nur, wenn **Reserve-Elemente anzeigen** im Zahnrad aktiv ist. Rechts neben der Karte stehen der Tagebucheintrag der
 fokussierten Karte (nach Bearbeitung Speichern, Abbrechen oder Verwerfen; beim Kartenwechsel als Dialog). YouTube-Vorschaubilder liegen unten rechts auf der Karte übereinander. Doppelklick auf eine Leistenkarte öffnet denselben Eintrag
-in der Timeline mit der Karten-Oberkante bündig unter der Werkzeugleiste (nicht zentriert). Klick auf einen Kreis (`group_key`) öffnet die
+in der Timeline mit der Karten-Oberkante bündig unter der Werkzeugleiste (nicht zentriert). Der erste Klick auf einen Kreis (`group_key`) ruft `ZoomToCover` auf
+(mindestens Zoom 14, ohne Zoomanimation). Überlappen mehrere Cover-Kreise,
+passt `traveljournalFitCoverPack` zuerst die Gruppe ein; ein späterer Klick
+zoomt auf einen Kreis. Der zweite Klick auf denselben Kreis öffnet die
 Detailansicht (`traveljournalShowDetail`): Fotos, Videos, GPX-Linien,
 IGC-Flugtracks ab Zoom 10 (Start/Landung immer sichtbar) und Orte.
 Rechtsklick **Zur Karte…** auf einem Timeline-Thumbnail öffnet dieselbe Detailansicht
@@ -252,7 +258,14 @@ Klick auf einen Transfer-Kreis oder auf das Verkehrssymbol öffnet dieselbe
 Detailansicht (`traveljournalExpand` mit `section:<id>`).
 `resolve_map_group` liest nur den angeklickten Eintrag, nicht die ganze
 Timeline. Klick auf ein einzelnes Foto im Detail öffnet ein Leaflet-Popup mit Thumbnail;
-bei einem Stapel fächert der erste Klick die Bilder auf.
+`centerBrowseView` setzt die Karte **vor** `openPopup` so, dass Popup, kleines
+Karten-Thumb und Datums-Label gemeinsam vertikal zentriert sind. Das Bild
+erscheint nur an dieser Stelle. Pfeile und Pfeiltasten blättern
+(`traveljournalPopupStep`, Wrap-around) ohne den Thumbnail-Modus zu verlassen;
+nur ein Klick in die freie Karte stellt den Stapel wieder her. Der Schieber
+`traveljournalSetThumbZoom` ändert `--tj-popup-thumb` (50–200 %), nicht die
+kleinen Marker. Foto- und Track-Popups haben dieselbe Bewertungsleiste.
+Bei einem Stapel fächert der erste Klick die Bilder auf.
 Doppelklick öffnet den Medieninspektor mit dem Original (wie Timeline).
 Nahe Foto-, Video- und Track-Marker werden bis Zoom 16 gestapelt
 (`PHOTO_STACK_DISABLE_ZOOM` = 17); der Stapel-Marker zeigt die Anzahl.
@@ -260,8 +273,9 @@ Ab Zoom 17 liegen sie einzeln, auch übereinander, mit sichtbaren Fotokegeln.
 Klick auf den Stapel fächert die Bilder rund auseinander, ohne Fotokegel;
 der Fächer bleibt. Klick auf ein Bild im Fächer blendet die übrigen aus und
 setzt Bild und Kegel an den Ursprung; ein weiterer Klick öffnet das Thumbnail-Popup.
-Klick in die Karte stellt den Stapel wieder her. Orte bleiben ungestapelt.
-Übersichtstitelbilder clustern nicht.
+Blättern im Popup funktioniert auch unter Zoom 17 (`revealEntryMarker`).
+Orte bleiben ungestapelt. Übersichtstitelbilder clustern nicht.
+Zwischen Zoom-Plus und Zahnrad sitzt **Ganze Reise** (`tj-fit-trip`).
 
 Online-Kacheln kommen von `tile.openstreetmap.de` (deutsche Namen, sonst
 lateinische Umschrift statt Landesschrift). Ein Layer-Symbol oben rechts öffnet
@@ -334,10 +348,10 @@ Bereits in Phase 1 angelegt, schrittweise gefüllt:
   Cachepfad enthält `_r90` bei nicht-null `rotation_degrees`
 - `VideoMetadataProvider` – ffprobe-Adapter (noch nicht aktiv)
 - `Exporter` – HTML, PDF, LaTeX, CEWE (Implementierung ab Phase 8)
-- `MapBackend` – Folium/Leaflet, Übersicht als Titelbild-Kreise je Tag/Transfer/Aufenthalt, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad für Fotokegel, Reserve, Satelliten-Ortsnamen und Satelliten-Straßen (in `settings.toml`; Fotokegel am Stapel und nach der Auswahl, nicht im Fächer; überlappende Marker ab Zoom 17 per Klick zum Fächer, Klick in die Karte stellt den Stapel wieder her),
+- `MapBackend` – Folium/Leaflet, Übersicht als Titelbild-Kreise je Tag/Transfer/Aufenthalt, Layer-Menü Straßenkarte/Topo/Satellit, Fit-Reise, Zahnrad für Fotokegel, Reserve, Satelliten-Ortsnamen und Satelliten-Straßen (in `settings.toml`; Fotokegel am Stapel und nach der Auswahl, nicht im Fächer; überlappende Marker ab Zoom 17 per Klick zum Fächer, Klick in die Karte stellt den Stapel wieder her),
   Verbindungslinien zwischen Tag- und Aufenthaltskreisen (Richtungsmarker, Zoom-Überdeckung, Transfer-Kreis per dünner Linie am Symbol),
   Qt-Leiste unter der Karte (Tag mit Kalender, Transfer als liegendes Sechseck), Tagebucheintrag rechts, YouTube-Thumbs unten rechts auf der Karte, Detail mit GPX-Polylinien, IGC-Flugtracks ab Zoom 10
-  (Start/Landung immer sichtbar), Foto-Popup und Inspektor, Orte
+  (Start/Landung immer sichtbar), Foto-Popup (Vorab-Zentrierung, Blättern, Schieber-Zoom, Bewertung) und Inspektor, Orte
 - Timeline in `travelcore.timeline` – Tage, Transfers, Aufenthalte, Cover, Links;
   keine Ortsnamen an Foto-/Trackpositionen
 - KML/GeoJSON in `travelcore.gps` – Parser für Vorschauen, kein Ingest in `gps_tracks`
@@ -406,10 +420,11 @@ macOS ist kein Ziel (WIC-Vorschauen, AppData-Pfade).
 4. GPX und GPS-Zuordnung
 5. Thumbnail-Galerie
 6. Karte
-7. Timeline und manuelle Bearbeitung  ← aktueller Stand, Software R2.1.0
+7. Timeline und manuelle Bearbeitung  ← aktueller Stand, Software R2.1.1
    (Tag/Aufenthalt/Transfer als Abschnitte, Medienpool, Journal-Zeit,
-    Verbindungslinien und Verkehrssymbole, Design-Review-UI, Bewertungen,
-    Inspektor, Track-Vorschauen, Anzeigedrehung, Rückgängig/Wiederherstellen)
+    Verbindungslinien und Verkehrssymbole, Design-Review-UI, Bewertungen
+    inkl. Tracks, Inspektor, Track-Vorschauen, Cover-Zoom, Foto-Popup,
+    Anzeigedrehung, Rückgängig/Wiederherstellen)
    Windows-Endnutzerpaket: `packaging/` (keine eigene Fachphase)
 8. HTML-Export
 9. Qualitätsanalyse
