@@ -1663,7 +1663,7 @@ class MapView(QWidget):
                     inspector.activateWindow()
                     return
         items = list(self._detail_items)
-        if not items and self._detail_group_key:
+        if self._detail_group_key:
             items = self.workspace.map_group_gallery_items(self._detail_group_key)
             self._detail_items = items
         current = next((item for item in items if item.source_file_id == source_file_id), None)
@@ -1673,7 +1673,8 @@ class MapView(QWidget):
                 self.status_message.emit("Karte: Medium nicht gefunden")
                 return
             current = fallback[0]
-            items = fallback
+            if current.source_file_id not in {item.source_file_id for item in items}:
+                items = [*items, current]
         window = MediaInspectorWindow(
             current,
             items=items or [current],

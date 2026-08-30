@@ -85,7 +85,7 @@ class PhotoCanvas(QWidget):
         self._moved = False
         self.setMinimumSize(400, 300)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self.setCursor(Qt.CursorShape.ArrowCursor)
@@ -223,8 +223,9 @@ class PhotoCanvas(QWidget):
         if not self._source.isNull():
             target = self._draw_rect()
             painter.drawPixmap(target.toRect(), self._source)
-        if self._hover_side:
-            _draw_nav_arrow(painter, self.rect(), self._hover_side)
+        if self._browse:
+            _draw_nav_arrow(painter, self.rect(), -1, strong=self._hover_side == -1)
+            _draw_nav_arrow(painter, self.rect(), 1, strong=self._hover_side == 1)
 
     def _draw_rect(self) -> QRectF:
         fit = _fit_rect(self.size(), self._source.size())
@@ -385,10 +386,12 @@ class MediaInspectorWindow(QWidget):
         self._rating_row = QHBoxLayout()
         self._rotate_left = QPushButton("↺", self)
         self._rotate_left.setObjectName("rotateChip")
+        self._rotate_left.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self._rotate_left.setToolTip("90° gegen den Uhrzeigersinn (L)")
         self._rotate_left.clicked.connect(lambda: self._rotate(-90))
         self._rotate_right = QPushButton("↻", self)
         self._rotate_right.setObjectName("rotateChip")
+        self._rotate_right.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self._rotate_right.setToolTip("90° im Uhrzeigersinn (R)")
         self._rotate_right.clicked.connect(lambda: self._rotate(90))
         self._rating_row.addWidget(self._rotate_left)
@@ -397,15 +400,25 @@ class MediaInspectorWindow(QWidget):
         for status, label in _RATING_BUTTONS:
             button = QPushButton(label, self)
             button.setObjectName("ratingChip")
+            button.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
             button.setCheckable(True)
             button.clicked.connect(lambda _checked, value=status: self._choose_rating(value))
             self._rating_buttons[status] = button
             self._rating_row.addWidget(button)
         self._pool_button = QPushButton("In den Pool", self)
         self._pool_button.setObjectName("ratingChip")
+        self._pool_button.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self._pool_button.clicked.connect(self._toggle_pool)
         self._rating_row.addWidget(self._pool_button)
         self._rating_row.addStretch(1)
+        for widget in (
+            self._image,
+            self._rotate_left,
+            self._rotate_right,
+            self._pool_button,
+            *self._rating_buttons.values(),
+        ):
+            widget.installEventFilter(self)
         self._size_grip = _CornerGrip(self)
         self._rating_row.addWidget(
             self._size_grip, 0, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight
@@ -485,6 +498,16 @@ class MediaInspectorWindow(QWidget):
         if filled:
             self._image.reset_view()
         self._persist_geometry()
+
+    def eventFilter(self, watched: object, event: QEvent) -> bool:  # noqa: N802
+        if event.type() == QEvent.Type.KeyPress and isinstance(event, QKeyEvent):
+            if event.key() == Qt.Key.Key_Left:
+                self.step(-1)
+                return True
+            if event.key() == Qt.Key.Key_Right:
+                self.step(1)
+                return True
+        return super().eventFilter(watched, event)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
         if event.key() == Qt.Key.Key_Left:
@@ -690,7 +713,7 @@ def _fit_rect(area: QSize, photo: QSize) -> QRectF:
     return QRectF((area.width() - width) / 2, (area.height() - height) / 2, width, height)
 
 
-def _draw_nav_arrow(painter: QPainter, bounds: QRect | QRectF, side: int) -> None:
+def _draw_nav_arrow(painter: QPainter, bounds: QRect | QRectF, side: int, *, strong: bool = True) -> None:
     band = _nav_band_width(int(bounds.width()))
     cx = bounds.left() + band / 2 if side < 0 else bounds.right() - band / 2
     cy = bounds.center().y()
@@ -704,10 +727,12 @@ def _draw_nav_arrow(painter: QPainter, bounds: QRect | QRectF, side: int) -> Non
         path.moveTo(cx - size * 0.28, cy - size)
         path.lineTo(cx + size * 0.45, cy)
         path.lineTo(cx - size * 0.28, cy + size)
+    outline = 200 if strong else 110
+    fill = 235 if strong else 150
     painter.setBrush(Qt.BrushStyle.NoBrush)
     painter.setPen(
         QPen(
-            QColor(0, 0, 0, 150),
+            QColor(0, 0, 0, outline),
             7,
             Qt.PenStyle.SolidLine,
             Qt.PenCapStyle.RoundCap,
@@ -717,7 +742,7 @@ def _draw_nav_arrow(painter: QPainter, bounds: QRect | QRectF, side: int) -> Non
     painter.drawPath(path)
     painter.setPen(
         QPen(
-            QColor(255, 255, 255, 235),
+            QColor(255, 255, 255, fill),
             4,
             Qt.PenStyle.SolidLine,
             Qt.PenCapStyle.RoundCap,

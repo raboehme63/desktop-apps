@@ -1362,6 +1362,7 @@ def test_entry_widget_media_tab_filters_favorites() -> None:
     assert [item.filename for item in widget.gallery.items()] == ["normal.jpg", "fav.jpg"]
     widget.set_media_tab(media_tab_index("favorite"))
     assert [item.filename for item in widget.gallery.items()] == ["fav.jpg"]
+    assert [item.filename for item in widget.inspectable_media()] == ["normal.jpg", "fav.jpg", "weg.jpg"]
     widget.set_media_tab(media_tab_index("reserve"))
     assert [item.filename for item in widget.gallery.items()] == []
     widget.set_media_tab(media_tab_index("rejected"))
@@ -2742,6 +2743,7 @@ def test_media_inspector_browses_section_sequence(tmp_path: Path) -> None:
     from jpeg_fixtures import write_plain_jpeg
     from PySide6.QtCore import QEvent, Qt
     from PySide6.QtGui import QKeyEvent
+    from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication
 
     from travelcore.media.gallery import GalleryItem
@@ -2773,6 +2775,7 @@ def test_media_inspector_browses_section_sequence(tmp_path: Path) -> None:
     window = MediaInspectorWindow(second, items=[first, second])
     assert window.item().filename == "zwei.jpg"
     assert window.windowTitle() == "zwei.jpg · 2 von 2"
+    assert window._image._browse is True
     window.step(1)
     assert window.item().filename == "eins.jpg"
     assert window.windowTitle() == "eins.jpg · 1 von 2"
@@ -2781,8 +2784,11 @@ def test_media_inspector_browses_section_sequence(tmp_path: Path) -> None:
         QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Right, Qt.KeyboardModifier.NoModifier),
     )
     assert window.item().filename == "zwei.jpg"
-    window._image.side_clicked.emit(-1)
+    window._rating_buttons["favorite"].setFocus()
+    QTest.keyClick(window._rating_buttons["favorite"], Qt.Key.Key_Left)
     assert window.item().filename == "eins.jpg"
+    window._image.side_clicked.emit(1)
+    assert window.item().filename == "zwei.jpg"
     _ = app
 
 

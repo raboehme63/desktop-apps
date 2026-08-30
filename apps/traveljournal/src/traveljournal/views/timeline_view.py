@@ -2083,10 +2083,10 @@ class EntryWidget(QFrame):
         return [*self._all_gallery, *self._all_tracks]
 
     def inspectable_media(self) -> list[GalleryItem]:
-        return list(self.gallery.items())
+        return list(self._all_gallery)
 
     def inspectable_tracks(self) -> list[GalleryItem]:
-        return list(self.track_gallery.items())
+        return list(self._all_tracks)
 
     def select_ids(self, wanted: set[int]) -> None:
         self.gallery.select_by_source_ids(wanted)

@@ -428,7 +428,7 @@ class PhotosView(QWidget):
     def _preview(self, item: object) -> None:
         if not isinstance(item, GalleryItem):
             return
-        sequence = self._pool_pane.shown_items() if item.parked else self.gallery.items()
+        sequence = self._pool_pane.shown_items() if item.parked else list(self._items)
         window = MediaInspectorWindow(
             item, items=sequence, workspace=self.workspace, parent=self.window()
         )
