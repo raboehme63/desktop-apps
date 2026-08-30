@@ -541,13 +541,14 @@ def test_gallery_cluster_hotspots() -> None:
 
 def test_gallery_quality_ampel() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from dataclasses import replace
     from pathlib import Path
 
-    from PySide6.QtCore import QRect
+    from PySide6.QtCore import QRect, Qt
     from PySide6.QtWidgets import QApplication
 
     from travelcore.media.gallery import GalleryItem
-    from traveljournal.widgets.gallery import quality_hotspot, quality_light_color
+    from traveljournal.widgets.gallery import GalleryModel, quality_hotspot, quality_light_color
 
     app = QApplication.instance() or QApplication([])
     item = GalleryItem(
@@ -564,6 +565,7 @@ def test_gallery_quality_ampel() -> None:
         used_in_journal=False,
         thumbnail_path=Path("missing.jpg"),
         quality_light="green",
+        quality_tooltip="Qualität gut",
     )
     cell = QRect(0, 0, 184, 214)
     disc = quality_hotspot(cell)
@@ -572,6 +574,20 @@ def test_gallery_quality_ampel() -> None:
     assert quality_light_color("yellow").name() == "#d4a017"
     assert quality_light_color("red").name() == "#d94a4a"
     assert quality_light_color(None) is None
+    model = GalleryModel()
+    model.set_items(
+        [
+            item,
+            replace(
+                item,
+                source_file_id=2,
+                quality_light="red",
+                quality_tooltip="Qualität schwach\nAuflösung schwach",
+            ),
+        ]
+    )
+    assert model.data(model.index(0, 0), Qt.ItemDataRole.ToolTipRole) == "Qualität gut"
+    assert "Auflösung schwach" in model.data(model.index(1, 0), Qt.ItemDataRole.ToolTipRole)
     _ = app
 
 

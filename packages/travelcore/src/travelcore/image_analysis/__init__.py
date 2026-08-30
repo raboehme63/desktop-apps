@@ -17,6 +17,7 @@ from travelcore.image_analysis.quality import (
     analyze_photo,
     quality_light,
     quality_light_label,
+    quality_tooltip,
 )
 
 __all__ = [
@@ -34,4 +35,5 @@ __all__ = [
     "analyze_quality_chunk",
     "quality_light",
     "quality_light_label",
+    "quality_tooltip",
 ]

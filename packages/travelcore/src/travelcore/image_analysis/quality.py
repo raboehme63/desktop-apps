@@ -66,6 +66,102 @@ def quality_light_label(light: str | None) -> str | None:
     return None
 
 
+def quality_tooltip(
+    *,
+    technical_quality: float | None,
+    resolution_score: float | None = None,
+    sharpness: float | None = None,
+    contrast: float | None = None,
+    overexposed: bool | None = None,
+    underexposed: bool | None = None,
+    width: int | None = None,
+    height: int | None = None,
+) -> str | None:
+    """Headline plus the component ratings that explain the Ampel."""
+
+    overall = quality_light(technical_quality)
+    headline = quality_light_label(overall)
+    if headline is None or overall is None:
+        return None
+    notes = _decisive_quality_notes(
+        overall,
+        resolution_score=resolution_score,
+        sharpness=sharpness,
+        contrast=contrast,
+        overexposed=overexposed,
+        underexposed=underexposed,
+        width=width,
+        height=height,
+    )
+    if not notes:
+        return headline
+    return headline + "\n" + " · ".join(notes)
+
+
+def _light_word(light: str) -> str:
+    if light == QUALITY_GREEN:
+        return "gut"
+    if light == QUALITY_YELLOW:
+        return "mittel"
+    return "schwach"
+
+
+def _light_rank(light: str) -> int:
+    if light == QUALITY_GREEN:
+        return 0
+    if light == QUALITY_YELLOW:
+        return 1
+    return 2
+
+
+def _low_resolution(width: int | None, height: int | None) -> bool:
+    if not width or not height:
+        return False
+    return width * height < _RED_MAX_PIXELS or min(width, height) < _RED_MIN_SIDE
+
+
+def _decisive_quality_notes(
+    overall: str,
+    *,
+    resolution_score: float | None,
+    sharpness: float | None,
+    contrast: float | None,
+    overexposed: bool | None,
+    underexposed: bool | None,
+    width: int | None,
+    height: int | None,
+) -> list[str]:
+    candidates: list[tuple[int, str]] = []
+    resolution_light = quality_light(resolution_score)
+    if _low_resolution(width, height):
+        resolution_light = QUALITY_RED
+    if resolution_light is not None and resolution_light != QUALITY_GREEN:
+        candidates.append((_light_rank(resolution_light), f"Auflösung {_light_word(resolution_light)}"))
+    sharp_score = None if sharpness is None else _clamp(sharpness / 28.0)
+    sharp_light = quality_light(sharp_score)
+    if sharp_light is not None and sharp_light != QUALITY_GREEN:
+        candidates.append((_light_rank(sharp_light), f"Schärfe {_light_word(sharp_light)}"))
+    if overexposed or underexposed:
+        if overexposed and underexposed:
+            detail = "über- und unterbelichtet"
+        elif overexposed:
+            detail = "überbelichtet"
+        else:
+            detail = "unterbelichtet"
+        candidates.append((_light_rank(QUALITY_RED), f"Belichtung schwach ({detail})"))
+    contrast_score = None if contrast is None else _clamp(contrast / 0.22)
+    contrast_light = quality_light(contrast_score)
+    if contrast_light is not None and contrast_light != QUALITY_GREEN:
+        candidates.append((_light_rank(contrast_light), f"Kontrast {_light_word(contrast_light)}"))
+    if overall == QUALITY_GREEN:
+        return []
+    need = _light_rank(overall)
+    selected = [note for rank, note in candidates if rank >= need]
+    if selected:
+        return selected
+    return [note for rank, note in candidates if rank >= 1]
+
+
 class PillowQualityAnalyzer:
     """Read-only Pillow analyzer for JPEG/PNG/WebP/TIFF (and any Pillow-openable file)."""
 

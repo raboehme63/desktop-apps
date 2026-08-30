@@ -17,7 +17,10 @@ Verkehrssymbolen, Leiste, Cover-Zoom, Foto-Popup, Detail) und baut eine
 bearbeitbare Timeline aus Tagen, Transfers und Aufenthalten (alle als
 Abschnitte mit Mitgliedern). Nicht zugeordnete Medien liegen im Medienpool.
 Auf der Medienseite stapeln echte Dubletten (SHA-256), gruppieren ähnliche
-Fotos, eine Qualitätsampel bewertet die Technik, und eine Statistikleiste zählt den Bestand. Medieninspektor (Schlüsselfotos,
+Fotos, **Filtern** schränkt nach Qualität, Zeitraum und Bewertung ein, eine
+Qualitätsampel bewertet die Technik (Hover begründet gelb/rot), und eine
+Statistikleiste zählt den Bestand. Der Thumbnail-Schieber gilt auch auf Import.
+Medieninspektor (Schlüsselfotos,
 **Zur Karte**), Bewertungen für Fotos und Tracks, Anzeigedrehung, Drag & Drop,
 Track-Vorschauen und Rückgängig/Wiederherstellen (Strg+Z / Strg+Y) gehören dazu.
 HTML-Export folgt in Phase 8. Unechte Dubletten (pHash) bleiben offen.

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from travelcore.config import DEFAULT_THUMBNAIL_SIZE
 from travelcore.database.models import Photo, PhotoAnalysis, SourceFile
-from travelcore.image_analysis.quality import quality_light
+from travelcore.image_analysis.quality import quality_light, quality_tooltip
 from travelcore.media.orientation import normalize_rotation_degrees
 from travelcore.media.thumbnails import cached_thumbnail_path
 from travelcore.media.types import FileKind
@@ -61,6 +61,7 @@ class GalleryItem:
     is_group_key: bool = False
     group_status: str | None = None
     quality_light: str | None = None
+    quality_tooltip: str | None = None
 
 
 def list_gallery_items(
@@ -132,6 +133,16 @@ def list_gallery_items(
                 group_status=marks.group_status,
                 quality_light=quality_light(
                     analysis.technical_quality if analysis is not None else None
+                ),
+                quality_tooltip=quality_tooltip(
+                    technical_quality=analysis.technical_quality if analysis is not None else None,
+                    resolution_score=analysis.resolution_score if analysis is not None else None,
+                    sharpness=analysis.sharpness if analysis is not None else None,
+                    contrast=analysis.contrast if analysis is not None else None,
+                    overexposed=analysis.overexposed if analysis is not None else None,
+                    underexposed=analysis.underexposed if analysis is not None else None,
+                    width=source.width,
+                    height=source.height,
                 ),
             )
         )

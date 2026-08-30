@@ -307,7 +307,7 @@ class GalleryModel(QAbstractListModel):
         if role == Qt.ItemDataRole.UserRole:
             return item
         if role == Qt.ItemDataRole.ToolTipRole:
-            return quality_light_label(item.quality_light)
+            return item.quality_tooltip or quality_light_label(item.quality_light)
         return None
 
     def item_at(self, index: QModelIndex) -> GalleryItem | None:

@@ -26,7 +26,7 @@ Diese Dokumentation beschreibt **Teststrategie, Automatisierung, manuelle Prüfu
 | --- | --- | --- | --- |
 | Unit | `packages/travelcore/tests/` | pytest | Typen, Hash, Zeit, GPS, Provider, HEIC-Container, GPX/IGC/KML, Interpolation, ExifTool-JSON, Thumbnails, Orientierung, Timeline, Abschnitte, History-Snapshots |
 | Integration | `packages/travelcore/tests/test_indexer.py`, `test_database.py`, `test_timeline.py`; `tests/integration/`; `tests/test_edit_history.py` | pytest | Projektordner, Schema, Index → SQLite, Timeline-Sync, Re-Open, Workspace-Undo |
-| GUI-Rauch | `tests/test_gui_smoke.py` | pytest + Qt offscreen | Hauptfenster, sechs Seiten, Menü **Bearbeiten**, Inspektor, Register, Titel mit Version, Timeline-Speichern nur bei Abschnitten/Texten/Reisetitel/YouTube |
+| GUI-Rauch | `tests/test_gui_smoke.py` | pytest + Qt offscreen | Hauptfenster, sechs Seiten, Menü **Bearbeiten**, Inspektor, Register, Titel mit Version, Timeline-Speichern nur bei Abschnitten/Texten/Reisetitel/YouTube, **Filtern**, Thumbnail-Schieber inkl. Import, Ampel-Hover |
 | Paketierung | `packaging/` | manuell nach `build.ps1` | Frozen-EXE startet, Alembic/Karte, kein Python nötig (MT-22) |
 | Manuell | dieses Dokument, Abschnitt 7 | Windows-Desktop | Import echter HEIC/JPEG, Liste, Timeline, Abschnitte, Karte, Inspektor, Undo/Redo |
 | Statisch | Repository-Wurzel | Ruff, später pyright | Stil, Imports, grundlegende Typen |
@@ -593,13 +593,14 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | Test | Datei | Prüft |
 | --- | --- | --- |
 | `test_quality_light_thresholds` | `packages/travelcore/tests/test_quality.py` | grün ≥ 0,66, gelb ≥ 0,40, sonst rot |
+| `test_quality_tooltip_names_decisive_parts` | `packages/travelcore/tests/test_quality.py` | Hover nennt nur die ausschlaggebenden Einzelwerte |
 | `test_sharp_large_photo_is_green` | `packages/travelcore/tests/test_quality.py` | scharfes Großformat, Original-mtime unverändert |
 | `test_tiny_photo_is_red` | `packages/travelcore/tests/test_quality.py` | sehr geringe Auflösung → rot |
 | `test_dark_photo_is_not_green` | `packages/travelcore/tests/test_quality.py` | Unterbelichtung nicht grün |
 | `test_blurred_photo_scores_below_sharp` | `packages/travelcore/tests/test_quality.py` | Unschärfe senkt den Score |
 | `test_analyze_project_writes_ampel_without_changing_rating` | `packages/travelcore/tests/test_quality.py` | Persistenz, Skip bestehender Analysen, `sort_status` bleibt |
 | `test_analyze_project_reports_progress` | `packages/travelcore/tests/test_quality.py` | Fortschritt 0…n während der Analyse |
-| `test_gallery_quality_ampel` | `tests/test_gui_smoke.py` | Ampelfarben und Position unten links |
+| `test_gallery_quality_ampel` | `tests/test_gui_smoke.py` | Ampelfarben, Position unten links, Hover-Text |
 | `test_main_window_starts` | `tests/test_gui_smoke.py` | Knopf **Qualität prüfen** |
 
 ---
@@ -632,7 +633,9 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 - Anzeigedrehung (Index, Cachepfad, Re-Import, Inspektor ohne Originalschreiben)
 - GUI-Rauch: Fenstertitel mit Version R3.0.0, Menü **Bearbeiten** (Strg+Z/Strg+Y), Pipeline Import→Medien→Timeline, Pool-Spalte, getrennte Medien/Tracks, Register nur per Klick (auch Tracks), Inspektor Blättern/Zoom/Drehen/Pool/Zur Karte (letzter Klick, geladene Karte ohne Neuaufbau), Thumbnail-Schieber
 - Medien-Cluster: SHA-256-Stapel, 30-s-Szenengruppen, manuelle Gruppen ohne Schlüssel, Overlay blendet Nicht-Schlüssel aus, Galerie-Kennzeichen G/×n, Inspektor-Blättern (Links/rechts Schlüssel, hoch/runter Gruppe, Leertaste, Aussortierte-Checkbox), Statistikleiste
-- Qualitätsampel: `technical_quality` in `photo_analyses`, Pillow-Analyse ohne Originalschreiben, Ampel in der Galerie, Knopf **Qualität prüfen**
+- Qualitätsampel: `technical_quality` in `photo_analyses`, Pillow-Analyse ohne Originalschreiben, Ampel in der Galerie, Knopf **Qualität prüfen**, Hover mit ausschlaggebenden Einzelwerten (`quality_tooltip`)
+- Medien-**Filtern**: Qualität, Zeitraum Von–Bis, Bewertung (Mehrfachauswahl) für Galerie und Pool
+- Thumbnail-Schieber auf Timeline, Medien, Karte und Import (`import_thumb_zoom`)
 - Export- und Provider-*Verträge* existieren
 
 ### 5.2 Bewusst noch ohne Automatisierung
@@ -759,7 +762,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Schritt | Erwartung |
 | --- | --- |
 | Seite **Medien**: Filter Jahr / Mit Ort / JPEG / Register Favoriten / Nicht im Tagebuch | sichtbare Menge ändert sich; Statistikleiste bleibt projektweit |
-| **Filtern**: Qualität (mehrere Ampelfarben), Zeitraum Von–Bis, Bewertung (mehrere Stufen) | Galerie und Pool zeigen die Schnittmenge; leere Auswahl hebt den jeweiligen Filter auf; gesetzte Bewertung überstimmt das Register; **Filter zurücksetzen** leert alles |
+| **Filtern**: Qualität (Grün/Gelb/Rot/Ohne Ampel), Zeitraum Von–Bis, Bewertung (Favorit/Reserve/Aussortiert/Ohne) | Galerie und Pool zeigen die Schnittmenge; leere Gruppe = dieser Filter aus; gesetzte Bewertung überstimmt das Register; Jahr und Zeitraum gelten UND; Fotos ohne Datum fallen bei aktivem Zeitraum raus; **Filter zurücksetzen** leert die drei Gruppen; Statistikleiste unverändert |
 | Favorit umschalten, Projekt schließen und öffnen | Favorit bleibt |
 | Bewertung (Favorit/Reserve/Aussortiert) auf **Medien**, dann Seite **Timeline** | dieselbe Bewertung am gleichen Medium; Register Favoriten zeigt es |
 | Doppelklick | Medieninspektor mit Zeit, GPS, Kamera; Originale unverändert |
@@ -997,7 +1000,9 @@ Voraussetzung: Projekt mit Fotos unterschiedlicher Technik (scharfes Original, k
 
 | Schritt | Erwartung |
 | --- | --- |
-| Medien: **Qualität prüfen** | Fortschrittsbalken auf der Seite und in der Statusleiste (`n von m`); danach Statuszeile mit der Zahl; kleine farbige Scheibe unten links am Thumbnail (grün/gelb/rot); Tooltip „Qualität gut/mittel/schwach“ |
+| Medien: **Qualität prüfen** | Fortschrittsbalken auf der Seite und in der Statusleiste (`n von m`); danach Statuszeile mit der Zahl; kleine farbige Scheibe unten links am Thumbnail (grün/gelb/rot) |
+| Hover auf ein grünes Thumbnail | nur „Qualität gut“ |
+| Hover auf gelb oder rot | erste Zeile „Qualität mittel“ bzw. „Qualität schwach“; zweite Zeile die ausschlaggebenden Werte (Auflösung, Schärfe, Belichtung über-/unterbelichtet, Kontrast) |
 | Favorit oder Aussortiert vorher setzen, dann prüfen | Bewertung unverändert; Originale unverändert (mtime) |
 | Erneut **Qualität prüfen** | bereits bewertete Fotos werden übersprungen |
 | Timeline-Galerie | dieselbe Ampel an denselben Fotos |
@@ -1031,9 +1036,10 @@ Diese Fälle werden mit der jeweiligen Phase verbindlich.
 | Verbindungslinien / Symbole | `test_transfer_links.py`, `test_symbols.py`, `test_maps.py` (outbound), `tests/test_gui_smoke.py` (Transfer-Zeile), manuell MT-12, MT-13, MT-25 |
 | Inspektor / Drehung / Register / Zur Karte | `test_orientation.py`, `tests/test_gui_smoke.py`, manuell MT-18–MT-21 |
 | Medien-Cluster / Statistik | `packages/travelcore/tests/test_clusters.py`, `tests/test_gui_smoke.py` (Cluster-Fälle), manuell MT-26 |
-| Qualitätsampel | `packages/travelcore/tests/test_quality.py`, `tests/test_gui_smoke.py` (Ampel, Knopf), manuell MT-27 |
+| Qualitätsampel | `packages/travelcore/tests/test_quality.py` (inkl. `test_quality_tooltip_names_decisive_parts`), `tests/test_gui_smoke.py` (Ampel, Hover), manuell MT-27 |
 | Medien-Filtern | `tests/test_media_filter.py`, `tests/test_gui_smoke.py` (`test_photos_view_filter_panel_quality_and_rating`), manuell MT-09 |
 | Windows-Paket (`packaging/`) | manuell MT-22 (kein pytest) |
+| Thumbnail-Schieber / Import-Vorschau | `tests/test_workspace.py` (`import_thumb_zoom`), `tests/test_gui_smoke.py` (`test_import_view_thumb_zoom_scales_preview`), manuell MT-04 |
 | UI-Importliste | MT-04, MT-23 |
 | Vor Phasenabschluss | pytest grün + manuelle Fälle der Phase + Ruff |
 
@@ -1045,6 +1051,7 @@ Ein Phasenabschluss ohne grüne Automatisierung gilt als nicht abgenommen.
 
 | Datum | Kommando | Ergebnis |
 | --- | --- | --- |
+| 30.08.2026 | `python -m pytest` im Projekt-venv | 443 bestanden (R3.0.0; Filtern, Import-Zoom, Ampel-Hover) |
 | 30.08.2026 | `python -m pytest` im Projekt-venv | 429 bestanden (R3.0.0; Stapel/Gruppe, Inspektor-Cluster, Statistikleiste) |
 | 30.08.2026 | `python -m pytest` im Projekt-venv | 415 bestanden (R2.2.0; Zur Karte letzter Klick, Detail+Foto, geladene Karte ohne Neuaufbau) |
 | 30.08.2026 | `python -m pytest` im Projekt-venv | 400 bestanden (R2.1.1; Cover-Zoom, Foto-Popup, Track-Bewertung, Thumbnail-Schieber) |

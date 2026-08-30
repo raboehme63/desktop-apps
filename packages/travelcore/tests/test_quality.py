@@ -15,6 +15,7 @@ from travelcore.image_analysis.quality import (
     PillowQualityAnalyzer,
     analyze_photo,
     quality_light,
+    quality_tooltip,
 )
 from travelcore.media.gallery import list_gallery_items
 from travelcore.media.indexer import FileIndexer
@@ -36,6 +37,33 @@ def test_quality_light_thresholds() -> None:
     assert quality_light(GREEN_MIN) == QUALITY_GREEN
     assert quality_light(YELLOW_MIN) == QUALITY_YELLOW
     assert quality_light(YELLOW_MIN - 0.01) == QUALITY_RED
+
+
+def test_quality_tooltip_names_decisive_parts() -> None:
+    assert quality_tooltip(technical_quality=None) is None
+    assert quality_tooltip(technical_quality=0.8) == "Qualität gut"
+    tiny = quality_tooltip(
+        technical_quality=0.2,
+        resolution_score=0.1,
+        width=32,
+        height=24,
+    )
+    assert tiny is not None
+    assert tiny.startswith("Qualität schwach")
+    assert "Auflösung schwach" in tiny
+    dark = quality_tooltip(
+        technical_quality=0.5,
+        resolution_score=0.8,
+        sharpness=20.0,
+        contrast=0.2,
+        underexposed=True,
+        width=1920,
+        height=1280,
+    )
+    assert dark is not None
+    assert dark.startswith("Qualität mittel")
+    assert "unterbelichtet" in dark
+    assert "Auflösung" not in dark
 
 
 def test_sharp_large_photo_is_green(tmp_path: Path) -> None:
@@ -115,7 +143,11 @@ def test_analyze_project_writes_ampel_without_changing_rating(open_project, tmp_
         analyses = list(session.scalars(select(PhotoAnalysis)))
         photo = session.scalar(select(Photo).join(SourceFile).where(SourceFile.filename == "good.jpg"))
     assert items["good.jpg"].quality_light == QUALITY_GREEN
+    assert items["good.jpg"].quality_tooltip == "Qualität gut"
     assert items["tiny.jpg"].quality_light == QUALITY_RED
+    assert items["tiny.jpg"].quality_tooltip is not None
+    assert items["tiny.jpg"].quality_tooltip.startswith("Qualität schwach")
+    assert "Auflösung schwach" in items["tiny.jpg"].quality_tooltip
     assert len(analyses) == 2
     assert photo is not None
     assert photo.sort_status == "favorite"

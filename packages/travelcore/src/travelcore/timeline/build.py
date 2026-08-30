@@ -25,7 +25,7 @@ from travelcore.database.models import (
 from travelcore.exceptions import ProjectError
 from travelcore.geolocation.stays import cluster_stays
 from travelcore.gps.ingest import track_urls_by_source
-from travelcore.image_analysis.quality import quality_light
+from travelcore.image_analysis.quality import quality_light, quality_tooltip
 from travelcore.media.gallery import SORT_FAVORITE, SORT_STATUSES, effective_sort_status
 from travelcore.media.orientation import normalize_rotation_degrees
 from travelcore.media.thumbnails import cached_thumbnail_path, ensure_photo_and_video_rows
@@ -592,6 +592,22 @@ def _photo_quality_light(photo: Photo | None) -> str | None:
     return quality_light(photo.analysis.technical_quality)
 
 
+def _photo_quality_tooltip(photo: Photo | None, source: SourceFile | None = None) -> str | None:
+    if photo is None or photo.analysis is None:
+        return None
+    analysis = photo.analysis
+    return quality_tooltip(
+        technical_quality=analysis.technical_quality,
+        resolution_score=analysis.resolution_score,
+        sharpness=analysis.sharpness,
+        contrast=analysis.contrast,
+        overexposed=analysis.overexposed,
+        underexposed=analysis.underexposed,
+        width=None if source is None else source.width,
+        height=None if source is None else source.height,
+    )
+
+
 def _photo_view(
     row: SourceFile,
     photo: Photo | None,
@@ -647,6 +663,7 @@ def _photo_view(
         is_group_key=False if marks is None else marks.is_group_key,
         group_status=None if marks is None else marks.group_status,
         quality_light=_photo_quality_light(photo),
+        quality_tooltip=_photo_quality_tooltip(photo, row),
     )
 
 

@@ -2,7 +2,7 @@
 
 Produktanforderungen: [pflichtenheft.md](pflichtenheft.md). Leitkonzept: [konzept.md](konzept.md). Tests: [testdokumentation.md](testdokumentation.md). Windows-Paket: [packaging/README.md](../packaging/README.md).
 
-Stand: **Phase 7** plus Medien-Pipeline, Software **R3.0.0** (30. August 2026). Journal-Modell nach Design-Review; Verbindungslinien; Karten-Popup, Cover-Zoom, Track-Bewertung; **Zur Karte** ohne Neuaufbau der geladenen Karte; SHA-256-Stapel, Szenen- und manuelle Gruppen, Statistikleiste Medien.
+Stand: **Phase 7** plus Medien-Pipeline, Software **R3.0.0** (30. August 2026). Journal-Modell nach Design-Review; Verbindungslinien; Karten-Popup, Cover-Zoom, Track-Bewertung; **Zur Karte** ohne Neuaufbau der geladenen Karte; SHA-256-Stapel, Szenen- und manuelle Gruppen, Statistikleiste Medien; Qualitätsampel mit Hover-Begründung; **Filtern** auf Medien; Thumbnail-Schieber inkl. Import.
 
 ## Prinzip
 
@@ -141,8 +141,11 @@ in den Pool oder zurück in die Galerie. Bewertung und Zugehörigkeit
 und **Auswahl gruppieren** schreiben `similarity_groups`; Galerie-Kennzeichen
 G (grün nach Schlüsseln, sonst gruppenfarben) und ×n (gold) liegen oben rechts
 auf dem Thumbnail. Die Qualitätsampel ist eine kleine Scheibe unten links
-(`quality_light` aus `photo_analyses.technical_quality`). Unten zählt die
-Statistikleiste projektweit, unabhängig von Suche, Jahr und Register.
+(`quality_light` aus `photo_analyses.technical_quality`; Hover-Text
+`quality_tooltip` mit ausschlaggebenden Einzelwerten). **Filtern**
+(`MediaFilterPanel`) wendet Qualität, Zeitraum und Bewertung auf Galerie und
+Pool an. Unten zählt die
+Statistikleiste projektweit, unabhängig von Suche, Jahr, Register und Filtern.
 Jede Mitgliedschaft
 trägt eine **Journal-Zeit** (`section_members.journal_at`, initial die Aufnahmezeit
 inkl. Zeitzonenname). Die Timeline sortiert und gruppiert nach dieser Uhr;
@@ -380,7 +383,7 @@ Bereits in Phase 1 angelegt, schrittweise gefüllt:
   keine Ortsnamen an Foto-/Trackpositionen
 - KML/GeoJSON in `travelcore.gps` – Parser für Vorschauen, kein Ingest in `gps_tracks`
 - `travelcore.similarity.clusters` – Stapel/Gruppe, Overlay, Statistik
-- `travelcore.image_analysis` – Ampel (Pillow, Process-Pool), Persistenz in `photo_analyses`
+- `travelcore.image_analysis` – Ampel (Pillow, Process-Pool), Persistenz in `photo_analyses`, `quality_tooltip` aus gespeicherten Einzelwerten
 - `RankingStrategy` – Vertrag für Ranking-Gewichte; visuelle Ähnlichkeit (pHash) offen
 
 ## Persistenz
@@ -456,8 +459,8 @@ macOS ist kein Ziel (WIC-Vorschauen, AppData-Pfade).
    Windows-Endnutzerpaket: `packaging/` (keine eigene Fachphase)
 8. HTML-Export
 9. Qualitätsanalyse  ← Ampel umgesetzt (`PillowQualityAnalyzer`, Knopf
-    **Qualität prüfen**; Ranking-Gewichte weiter Schnittstelle)
+    **Qualität prüfen**, Hover mit Einzelwerten; Ranking-Gewichte weiter Schnittstelle)
 10. Dublettenerkennung  ← R3.0.0 teilweise (SHA-256-Stapel, 30-s-Gruppen,
     manuelle Gruppen, Statistik; keine pHash/Embeddings)
 
-Aktueller Stand: Phase 7 erledigt plus Medien-Pipeline und Qualitätsampel, Software R3.0.0.
+Aktueller Stand: Phase 7 erledigt plus Medien-Pipeline, Qualitätsampel, Filtern und Import-Zoom, Software R3.0.0.
