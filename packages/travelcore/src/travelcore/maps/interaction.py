@@ -509,6 +509,7 @@ def _photo_cone_js() -> str:
     var fannedIds = {{}};
     var photoClickGuard = 0;
     var thumbCentering = false;
+    var thumbOpenGen = 0;
     var thumbPlaceTimer = 0;
     var CONE_MIN_ZOOM = {PHOTO_CONE_MIN_ZOOM};
     var CONE_RANGE_M = 80;
@@ -954,18 +955,108 @@ def _photo_cone_js() -> str:
       snapEntriesHome();
       updatePhotoCones();
     }}
+    function photoAspect(entry) {{
+      if (entry && entry._aspect > 0) {{
+        return entry._aspect;
+      }}
+      var node = markerNode(entry && entry.marker);
+      var img = node && node.querySelector ? node.querySelector('img') : null;
+      if (img && img.naturalWidth > 1 && img.naturalHeight > 1) {{
+        entry._aspect = img.naturalHeight / img.naturalWidth;
+        return entry._aspect;
+      }}
+      return 0;
+    }}
+    function photoPreviewSrc(entry) {{
+      var node = markerNode(entry && entry.marker);
+      var img = node && node.querySelector ? node.querySelector('img') : null;
+      if (img && (img.currentSrc || img.src)) {{
+        return img.currentSrc || img.src;
+      }}
+      var html = (entry && entry.item && entry.item.popup_html) || '';
+      var match = html.match(/tj-popup-thumb"[^>]*src="([^"]+)"/);
+      return match ? match[1] : '';
+    }}
+    function ensurePhotoAspect(entry, done) {{
+      var ratio = photoAspect(entry);
+      if (ratio > 0) {{
+        done(ratio);
+        return;
+      }}
+      var src = photoPreviewSrc(entry);
+      if (!src) {{
+        done(0.75);
+        return;
+      }}
+      var probe = new Image();
+      probe.onload = function() {{
+        if (probe.naturalWidth > 1) {{
+          entry._aspect = probe.naturalHeight / probe.naturalWidth;
+        }}
+        done(entry._aspect || 0.75);
+      }};
+      probe.onerror = function() {{
+        done(0.75);
+      }};
+      probe.src = src;
+    }}
+    function lockPopupImageBox(entry, popup) {{
+      popup = popup || (entry && entry.marker && entry.marker.getPopup && entry.marker.getPopup());
+      var width = 180;
+      if (typeof popupThumbWidth === 'function') {{
+        width = popupThumbWidth();
+      }}
+      var ratio = photoAspect(entry) || 0.75;
+      var imgH = Math.round(width * ratio);
+      if (popup && popup.options) {{
+        popup.options.autoPan = false;
+        popup.options.minWidth = width;
+        popup.options.maxWidth = Math.max(260, width + 48);
+      }}
+      function applyBox(root) {{
+        if (!root || !root.querySelector) {{
+          return false;
+        }}
+        var img = root.querySelector('.tj-popup-thumb');
+        if (!img) {{
+          return false;
+        }}
+        img.style.width = width + 'px';
+        img.style.height = imgH + 'px';
+        img.style.aspectRatio = String(ratio);
+        img.setAttribute('width', String(width));
+        img.setAttribute('height', String(imgH));
+        return true;
+      }}
+      if (popup && applyBox(popup.getElement && popup.getElement())) {{
+        return;
+      }}
+      var html = popup && popup.getContent && popup.getContent();
+      if (typeof html !== 'string') {{
+        return;
+      }}
+      var idx = html.indexOf('class="tj-popup-thumb"');
+      if (idx < 0) {{
+        return;
+      }}
+      var start = html.lastIndexOf('<img', idx);
+      var end = html.indexOf('>', idx);
+      if (start < 0 || end < 0) {{
+        return;
+      }}
+      var tag = html.slice(start, end);
+      tag = tag.replace(/ width="[^"]*"/g, '').replace(/ height="[^"]*"/g, '').replace(/ style="[^"]*"/g, '');
+      tag += ' width="' + width + '" height="' + imgH +
+        '" style="width:' + width + 'px;height:' + imgH + 'px;aspect-ratio:' + ratio + '"';
+      popup.setContent(html.slice(0, start) + tag + html.slice(end));
+    }}
     function estimatePopupHeight(entry) {{
       var width = 180;
       if (typeof popupThumbWidth === 'function') {{
         width = popupThumbWidth();
       }}
       var chrome = 130;
-      var ratio = 0.75;
-      var node = markerNode(entry && entry.marker);
-      var img = node && node.querySelector ? node.querySelector('img') : null;
-      if (img && img.naturalWidth > 1 && img.naturalHeight > 1) {{
-        ratio = img.naturalHeight / img.naturalWidth;
-      }}
+      var ratio = photoAspect(entry) || 0.75;
       return Math.max(140, width * ratio + chrome);
     }}
     function centerBrowseView(entry) {{
@@ -1003,15 +1094,22 @@ def _photo_cone_js() -> str:
       if (!entry || !entry.marker) {{
         return;
       }}
+      if (map.closePopup) {{
+        map.closePopup();
+      }}
       revealEntryMarker(entry);
-      var popup = entry.marker.getPopup && entry.marker.getPopup();
-      if (popup && popup.options) {{
-        popup.options.autoPan = false;
-      }}
-      centerBrowseView(entry);
-      if (entry.marker.openPopup) {{
-        entry.marker.openPopup();
-      }}
+      var gen = thumbOpenGen + 1;
+      thumbOpenGen = gen;
+      ensurePhotoAspect(entry, function() {{
+        if (gen !== thumbOpenGen) {{
+          return;
+        }}
+        lockPopupImageBox(entry);
+        centerBrowseView(entry);
+        if (entry.marker.openPopup) {{
+          entry.marker.openPopup();
+        }}
+      }});
     }}
     function onPhotoMarkerClick(entryId) {{
       photoClickGuard = Date.now();
@@ -1449,6 +1547,8 @@ _COVER_CSS = (
   display: block;
   width: 100%;
   height: auto;
+  object-fit: contain;
+  background: #111;
   cursor: pointer;
   pointer-events: auto;
 }
@@ -1481,6 +1581,11 @@ _COVER_CSS = (
 .tj-popup-next {
   right: 0;
   background: linear-gradient(to left, rgba(8, 12, 18, 0.45), transparent);
+}
+.leaflet-popup,
+.leaflet-fade-anim .leaflet-popup {
+  opacity: 1 !important;
+  transition: none !important;
 }
 .leaflet-popup-content:has(.tj-popup) {
   width: var(--tj-popup-thumb) !important;
@@ -1684,6 +1789,8 @@ def _overview_script(
     if (!map || !covers) {{
       return;
     }}
+    map.options.fadeAnimation = false;
+    map._fadeAnimated = false;
     var detail = L.layerGroup().addTo(map);
     {_photo_cluster_js()}
     var savedView = null;
@@ -2290,6 +2397,19 @@ def _overview_script(
       popup.options.maxWidth = Math.max(260, width + 48);
       popup.options.minWidth = width;
       popup.options.autoPan = false;
+      var entry = null;
+      photoEntries.forEach(function(item) {{
+        if (entry) {{
+          return;
+        }}
+        var bound = item.marker && item.marker.getPopup && item.marker.getPopup();
+        if (bound === popup) {{
+          entry = item;
+        }}
+      }});
+      if (typeof lockPopupImageBox === 'function') {{
+        lockPopupImageBox(entry, popup);
+      }}
       if (popup.update) {{
         popup.update();
       }}
@@ -2453,10 +2573,9 @@ def _overview_script(
       browseLock = true;
       window.traveljournalKeepFocus = true;
       if (typeof focusPhoto === 'function') {{
-        focusPhoto(next.id, true);
+        focusPhoto(next.id, false);
       }}
       openEntryPopup(next);
-      applyPopupLayout(next.marker && next.marker.getPopup && next.marker.getPopup());
       browseLock = false;
     }};
     window.traveljournalSetThumbZoom = function(percent) {{

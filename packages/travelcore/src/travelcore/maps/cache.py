@@ -14,7 +14,7 @@ from travelcore.maps.backend import OSM_LATIN_TILES, FoliumMapBackend
 from travelcore.maps.scene import MapScene, build_map_scene
 from travelcore.project_settings import DEFAULT_STAY_LINK_COLOR, normalize_stay_link_color
 
-MAP_CACHE_VERSION = 86
+MAP_CACHE_VERSION = 88
 MAP_HTML_NAME = "map.html"
 MAP_STAMP_NAME = "map.stamp.json"
 
