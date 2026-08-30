@@ -760,6 +760,36 @@ class Workspace:
         data["pool_media_tab"] = normalized
         self._save_ui_config(data)
 
+    def timeline_thumb_zoom(self) -> int:
+        from traveljournal.widgets.thumb_zoom import clamp_thumb_zoom
+
+        return clamp_thumb_zoom(self._load_ui_config().get("timeline_thumb_zoom"))
+
+    def set_timeline_thumb_zoom(self, percent: int) -> None:
+        from traveljournal.widgets.thumb_zoom import clamp_thumb_zoom
+
+        zoom = clamp_thumb_zoom(percent)
+        data = self._load_ui_config()
+        if data.get("timeline_thumb_zoom") == zoom:
+            return
+        data["timeline_thumb_zoom"] = zoom
+        self._save_ui_config(data)
+
+    def map_thumb_zoom(self) -> int:
+        from traveljournal.widgets.thumb_zoom import clamp_thumb_zoom
+
+        return clamp_thumb_zoom(self._load_ui_config().get("map_thumb_zoom"))
+
+    def set_map_thumb_zoom(self, percent: int) -> None:
+        from traveljournal.widgets.thumb_zoom import clamp_thumb_zoom
+
+        zoom = clamp_thumb_zoom(percent)
+        data = self._load_ui_config()
+        if data.get("map_thumb_zoom") == zoom:
+            return
+        data["map_thumb_zoom"] = zoom
+        self._save_ui_config(data)
+
     def show_rejected_in_all(self) -> bool:
         return self._load_ui_config().get("show_rejected_in_all") is True
 

@@ -381,6 +381,24 @@ QToolButton#entryMenu::menu-indicator {
     image: none;
 }
 
+QSlider#thumbZoomSlider {
+    min-height: 22px;
+}
+
+QSlider#thumbZoomSlider::groove:horizontal {
+    height: 4px;
+    background: #2a3144;
+    border-radius: 2px;
+}
+
+QSlider#thumbZoomSlider::handle:horizontal {
+    width: 18px;
+    height: 18px;
+    margin: -7px 0;
+    background: transparent;
+    border: none;
+}
+
 QTabBar#mediaSortTabs {
     background: transparent;
 }

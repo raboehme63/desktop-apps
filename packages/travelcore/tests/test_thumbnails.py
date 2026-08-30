@@ -7,12 +7,22 @@ from igc_fixtures import bozen_points, write_igc
 from jpeg_fixtures import write_jpeg_with_exif, write_plain_jpeg
 from PIL import Image
 
+from travelcore.config import DEFAULT_THUMBNAIL_SIZE, AppSettings
 from travelcore.media.heif_items import extract_heif_jpeg_item
 from travelcore.media.thumbnails import (
     cached_thumbnail_path,
     ensure_thumbnail,
     extract_largest_embedded_jpeg,
 )
+
+
+def test_default_thumbnail_size_covers_double_zoom() -> None:
+    assert DEFAULT_THUMBNAIL_SIZE >= 360
+    assert AppSettings().default_thumbnail_size == DEFAULT_THUMBNAIL_SIZE
+    path = cached_thumbnail_path(
+        Path("thumbs"), source_file_id=1, sha256="abc", size=DEFAULT_THUMBNAIL_SIZE
+    )
+    assert path.name == f"abc_{DEFAULT_THUMBNAIL_SIZE}.jpg"
 
 
 def test_ensure_thumbnail_writes_square_jpeg(tmp_path: Path) -> None:
@@ -102,6 +112,19 @@ def test_extract_largest_embedded_jpeg(tmp_path: Path) -> None:
     assert extracted is not None
     with Image.open(BytesIO(extracted)) as image:
         assert image.size == (48, 32)
+
+
+def test_cached_thumbnail_path_falls_back_to_legacy_size(tmp_path: Path) -> None:
+    thumbs = tmp_path / "thumbs"
+    thumbs.mkdir()
+    legacy = thumbs / "abc123_256.jpg"
+    legacy.write_bytes(b"x")
+    missing = cached_thumbnail_path(thumbs, source_file_id=9, sha256="abc123", size=384)
+    assert missing.name == "abc123_384.jpg"
+    found = cached_thumbnail_path(
+        thumbs, source_file_id=9, sha256="abc123", size=384, prefer_existing=True
+    )
+    assert found == legacy
 
 
 def test_cached_thumbnail_path_uses_hash() -> None:

@@ -66,6 +66,8 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     assert window.timeline_view._media_tabs.count() == 4
     assert window.timeline_view._media_tabs.tabText(0) == "Alle"
     assert window.timeline_view._media_tabs.tabText(1) == "Favoriten"
+    assert window.timeline_view._thumb_zoom.value() == 100
+    assert window.map_view._thumb_zoom.value() == 100
     assert window.timeline_view._pool_toggle.isCheckable()
     assert not window.timeline_view._pool_toggle.isChecked()
     assert window.timeline_view._pool_toggle.objectName() == "poolCollapse"
@@ -464,6 +466,33 @@ def test_gallery_rating_hotspots() -> None:
     _ = app
 
 
+def test_thumb_zoom_slider_marks_default() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from traveljournal.widgets.thumb_zoom import (
+        DEFAULT_THUMB_ZOOM,
+        ThumbZoomSlider,
+        clamp_thumb_zoom,
+        gallery_icon_size,
+    )
+
+    app = QApplication.instance() or QApplication([])
+    assert clamp_thumb_zoom(None) == DEFAULT_THUMB_ZOOM
+    assert clamp_thumb_zoom(12) == 50
+    assert clamp_thumb_zoom(147) == 145
+    assert clamp_thumb_zoom(400) == 200
+    assert gallery_icon_size(DEFAULT_THUMB_ZOOM) == 168
+    assert gallery_icon_size(50) == 84
+    widget = ThumbZoomSlider()
+    assert widget.value() == DEFAULT_THUMB_ZOOM
+    assert widget._slider._default == DEFAULT_THUMB_ZOOM
+    widget.set_value(150)
+    assert widget.value() == 150
+    assert widget._value.text() == "150 %"
+    _ = app
+
+
 def test_pool_source_id_payload_roundtrip() -> None:
     from traveljournal.widgets.gallery import decode_pool_source_ids, encode_pool_source_ids
 
@@ -507,6 +536,11 @@ def test_gallery_wraps_to_multiple_columns_when_wide() -> None:
     app.processEvents()
     xs = {view.visualRect(view.model().index(row, 0)).x() for row in range(4)}
     assert len(xs) >= 2
+    default = view.gridSize()
+    view.set_thumb_zoom(50)
+    assert view.gridSize().width() < default.width()
+    view.set_thumb_zoom(200)
+    assert view.gridSize().width() > default.width()
     _ = app
 
 

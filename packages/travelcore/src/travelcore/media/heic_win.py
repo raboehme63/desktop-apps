@@ -15,6 +15,8 @@ from pathlib import Path
 
 from PIL import Image
 
+from travelcore.config import DEFAULT_THUMBNAIL_SIZE
+
 logger = logging.getLogger(__name__)
 
 _SIIGBF_RESIZETOFIT = 0x00
@@ -71,7 +73,7 @@ _IID_WIC_FACTORY = _guid("ec5ec8a9-c395-4314-9c77-54d7a935ff70")
 _GUID_24BGR = _guid("6fddc324-4e03-4bfe-b185-3d77768dc90c")
 
 
-def decode_heic_preview(path: Path, *, size: int = 256) -> Image.Image | None:
+def decode_heic_preview(path: Path, *, size: int = DEFAULT_THUMBNAIL_SIZE) -> Image.Image | None:
     """Return a Pillow image via Windows Shell/WIC, or None.
 
     Works for HEIC and other formats Explorer can preview (RAW, video).
@@ -86,7 +88,7 @@ def ensure_com() -> None:
     _ensure_com()
 
 
-def decode_windows_thumbnail(path: Path, *, size: int = 256) -> Image.Image | None:
+def decode_windows_thumbnail(path: Path, *, size: int = DEFAULT_THUMBNAIL_SIZE) -> Image.Image | None:
     """Return a Shell/WIC thumbnail for any path Windows can preview."""
 
     if sys.platform != "win32":

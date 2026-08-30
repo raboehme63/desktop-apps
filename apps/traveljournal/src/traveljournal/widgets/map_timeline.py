@@ -34,6 +34,7 @@ from travelcore.timeline.journal import calendar_key
 from travelcore.timeline.sections import KIND_DAY, KIND_MOVEMENT, insert_dates_between
 from traveljournal.widgets.entry_links import start_remote_pixmap
 from traveljournal.widgets.join_plus import MapSpine
+from traveljournal.widgets.thumb_zoom import DEFAULT_THUMB_ZOOM, clamp_thumb_zoom
 
 CARD_WIDTH = 248
 CARD_HEIGHT = 148
@@ -42,6 +43,8 @@ CARD_IDLE_SCALE = 0.70
 HEXAGON_CUT_RATIO = 0.28
 _FOCUS_DELAY_MS = 180
 COVER_FOCUS_ZOOM = 14
+_STRIP_MIN = 164
+_STRIP_MAX = 176
 
 
 def section_card_menu_items(card: MapTimelineCard) -> tuple[tuple[str, bool], ...]:
@@ -116,7 +119,7 @@ class _CardWidget(QFrame):
         super().__init__(parent)
         self.card = card
         self.setObjectName("mapTimelineCard")
-        width, height = _card_size(focused=False)
+        width, height = _card_size(focused=False, zoom=self._zoom_percent())
         self.setFixedSize(width, height)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setProperty("focused", False)
@@ -144,7 +147,7 @@ class _CardWidget(QFrame):
     def set_focused(self, focused: bool) -> None:
         self._focused = focused
         self.setProperty("focused", focused)
-        width, height = _card_size(focused=focused)
+        width, height = _card_size(focused=focused, zoom=self._zoom_percent())
         if self.width() != width or self.height() != height:
             self.setFixedSize(width, height)
         self.style().unpolish(self)
@@ -306,6 +309,10 @@ class _CardWidget(QFrame):
         strip = self._strip()
         return strip is not None and strip.show_reserve()
 
+    def _zoom_percent(self) -> int:
+        strip = self._strip()
+        return strip.thumb_zoom() if strip is not None else DEFAULT_THUMB_ZOOM
+
     def _strip(self) -> MapTimelineStrip | None:
         parent = self.parent()
         while parent is not None:
@@ -329,8 +336,9 @@ class MapTimelineStrip(QScrollArea):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setFrameShape(QFrame.Shape.NoFrame)
-        self.setMinimumHeight(164)
-        self.setMaximumHeight(176)
+        self._thumb_zoom = DEFAULT_THUMB_ZOOM
+        self.setMinimumHeight(_STRIP_MIN)
+        self.setMaximumHeight(_STRIP_MAX)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.viewport().setAutoFillBackground(False)
@@ -372,6 +380,21 @@ class MapTimelineStrip(QScrollArea):
 
     def focused_key(self) -> str:
         return self._focused_key
+
+    def thumb_zoom(self) -> int:
+        return self._thumb_zoom
+
+    def set_thumb_zoom(self, percent: int) -> None:
+        zoom = clamp_thumb_zoom(percent)
+        if zoom == self._thumb_zoom:
+            return
+        self._thumb_zoom = zoom
+        factor = zoom / 100
+        self.setMinimumHeight(max(80, round(_STRIP_MIN * factor)))
+        self.setMaximumHeight(max(88, round(_STRIP_MAX * factor)))
+        for widget in self._widgets:
+            widget.set_focused(widget._focused)
+        self._update_end_padding()
 
     def show_reserve(self) -> bool:
         return self._show_reserve
@@ -439,7 +462,7 @@ class MapTimelineStrip(QScrollArea):
         self._scroll_widget_to_center(widget)
 
     def sizeHint(self) -> QSize:  # noqa: N802
-        return QSize(400, 164)
+        return QSize(400, self.minimumHeight())
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
         super().resizeEvent(event)
@@ -460,7 +483,8 @@ class MapTimelineStrip(QScrollArea):
         self.center_on(self._widgets[0].card.group_key)
 
     def _update_end_padding(self) -> None:
-        pad = max(12, (self.viewport().width() - CARD_WIDTH) // 2)
+        focused_w, _focused_h = _card_size(focused=True, zoom=self._thumb_zoom)
+        pad = max(12, (self.viewport().width() - focused_w) // 2)
         self._left_pad.setFixedWidth(pad)
         self._right_pad.setFixedWidth(pad)
 
@@ -500,8 +524,9 @@ class MapTimelineStrip(QScrollArea):
         self.horizontalScrollBar().setValue(center - self.viewport().width() // 2)
 
 
-def _card_size(*, focused: bool) -> tuple[int, int]:
-    scale = 1.0 if focused else CARD_IDLE_SCALE
+def _card_size(*, focused: bool, zoom: int = DEFAULT_THUMB_ZOOM) -> tuple[int, int]:
+    factor = clamp_thumb_zoom(zoom) / 100
+    scale = (1.0 if focused else CARD_IDLE_SCALE) * factor
     return max(1, round(CARD_WIDTH * scale)), max(1, round(CARD_HEIGHT * scale))
 
 

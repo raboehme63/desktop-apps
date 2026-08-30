@@ -10,7 +10,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from travelcore.config import AppSettings
+from travelcore.config import DEFAULT_THUMBNAIL_SIZE, AppSettings
 from travelcore.database.models import (
     Event,
     Photo,
@@ -36,6 +36,7 @@ from travelcore.timeline.links import (
     serialize_leonardo_urls,
     serialize_youtube_urls,
 )
+from travelcore.timeline.outbound import outbound_from_section
 from travelcore.timeline.sections import (
     KIND_DAY,
     KIND_MOVEMENT,
@@ -50,7 +51,6 @@ from travelcore.timeline.texts import (
     date_from_text_filename,
     read_imported_text,
 )
-from travelcore.timeline.outbound import outbound_from_section
 from travelcore.timeline.transfer_links import load_transfer_links_for_sections
 from travelcore.timeline.types import (
     PendingSectionSpec,
@@ -72,7 +72,7 @@ def sync_timeline(
     project: Project,
     *,
     thumbs_dir: Path | None = None,
-    size: int = 256,
+    size: int = DEFAULT_THUMBNAIL_SIZE,
     suggest_places: bool = False,
     settings: AppSettings | None = None,
 ) -> TimelineSnapshot:
@@ -144,7 +144,7 @@ def load_timeline(
     project: Project,
     *,
     thumbs_dir: Path | None = None,
-    size: int = 256,
+    size: int = DEFAULT_THUMBNAIL_SIZE,
 ) -> TimelineSnapshot | None:
     """Return the persisted timeline, or None if no trip exists yet."""
 
@@ -596,6 +596,7 @@ def _photo_view(
         sha256=row.sha256,
         size=size,
         rotation_degrees=rotation,
+        prefer_existing=True,
     )
     return TimelinePhoto(
         source_file_id=row.id,

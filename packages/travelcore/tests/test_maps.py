@@ -180,7 +180,14 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
     assert '"transfer_key": "section:9"' in text
     assert '"lat": 46.8' in text
     assert "border-radius: 50%" in text
-    assert "width: 47px" in text
+    assert "--tj-cover-inner: 47px" in text
+    assert "--tj-popup-thumb: 180px" in text
+    assert "traveljournalSetThumbZoom" in text
+    assert "traveljournalPopupStep" in text
+    assert "(index + delta + list.length) % list.length" in text
+    assert "bindPopupChrome" in text
+    assert "tj-popup-arrow" in text
+    assert "leaflet-popup-content:has(.tj-popup)" in text
     assert "border: 3px solid #fff" in text
     assert "tj-thumb" in text
     assert "Reiseabschnitt schließen" in text
@@ -309,7 +316,7 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
     assert "zIndex = 550" in text
     assert "removeProperty('margin-left')" not in text
     assert "tj-photo-date" in text
-    assert "tooltipAnchor: [0, 26]" in text or "tooltipAnchor:[0,26]" in text
+    assert "tooltipAnchor: [0, PHOTO_THUMB_PX / 2]" in text
     assert "leaflet-tooltip-bottom.tj-photo-date" in text
     assert "Karteneinstellungen" in text
     assert 'r=\\"11\\"' in text
@@ -393,8 +400,11 @@ def test_leaflet_payload_includes_source_file_id(tmp_path: Path) -> None:
     assert payload["markers"][0]["preview"] == "thumb.jpg"
     html = payload["markers"][0]["popup_html"]
     assert "tj-popup-thumb" in html
+    assert "tj-popup-media" in html
+    assert "tj-popup-arrow" in html
     assert 'data-source-id="7"' in html
     assert 'width="180"' in html
+    assert 'class="tj-popup"' in html
     heading_scene = MapScene(
         markers=(
             MapMarker(

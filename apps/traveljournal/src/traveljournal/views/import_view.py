@@ -590,6 +590,7 @@ class ImportView(QWidget):
             sha256=item.sha256,
             size=size,
             rotation_degrees=item.rotation_degrees,
+            prefer_existing=True,
         )
         key = str(path)
         if self._thumb_cache is not None and self._thumb_cache[0] == key:

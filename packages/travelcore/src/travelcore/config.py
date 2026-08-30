@@ -5,6 +5,9 @@ from pathlib import Path
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Covers 200% zoom: map popup 360px, timeline gallery 336px.
+DEFAULT_THUMBNAIL_SIZE = 384
+
 
 class AppSettings(BaseSettings):
     """Runtime settings loaded from environment or optional TOML later."""
@@ -24,7 +27,7 @@ class AppSettings(BaseSettings):
         text = str(value).strip()
         return text or None
 
-    default_thumbnail_size: int = Field(default=256, ge=64, le=1024)
+    default_thumbnail_size: int = Field(default=DEFAULT_THUMBNAIL_SIZE, ge=64, le=1024)
     hash_chunk_size: int = Field(default=1024 * 1024, ge=4096)
     stay_radius_meters: float = Field(default=150.0, gt=0)
     stay_min_duration_minutes: int = Field(default=30, ge=1)

@@ -36,6 +36,7 @@ from traveljournal.widgets.entry_links import (
 )
 from traveljournal.widgets.map_timeline import COVER_FOCUS_ZOOM, MapTimelineStrip
 from traveljournal.widgets.media_inspector import MediaInspectorWindow
+from traveljournal.widgets.thumb_zoom import ThumbZoomSlider, clamp_thumb_zoom
 
 try:
     from PySide6.QtWebChannel import QWebChannel
@@ -567,11 +568,14 @@ def _map_flags_bootstrap_js(workspace: Workspace) -> str:
     reserve = "true" if workspace.map_show_reserve() else "false"
     sat_labels = "true" if workspace.map_show_sat_labels() else "false"
     sat_streets = "true" if workspace.map_show_sat_streets() else "false"
+    zoom = clamp_thumb_zoom(workspace.map_thumb_zoom())
     return (
         f"window.traveljournalMapFlags={{cones:{cones},reserve:{reserve},"
         f"satLabels:{sat_labels},satStreets:{sat_streets}}};"
+        f"window.traveljournalThumbZoom={zoom};"
         f"if(window.traveljournalApplyStoredMapFlags){{"
         f"window.traveljournalApplyStoredMapFlags({cones},{reserve},{sat_labels},{sat_streets});}}"
+        f"if(window.traveljournalSetThumbZoom){{window.traveljournalSetThumbZoom({zoom});}}"
     )
 
 
@@ -718,7 +722,11 @@ class MapView(QWidget):
         toolbar = QHBoxLayout()
         refresh = QPushButton("Karte aktualisieren")
         refresh.clicked.connect(self._force_refresh)
+        self._thumb_zoom = ThumbZoomSlider(self, value=self.workspace.map_thumb_zoom())
+        self._thumb_zoom.zoom_changed.connect(self._on_thumb_zoom)
         toolbar.addWidget(refresh)
+        toolbar.addSpacing(16)
+        toolbar.addWidget(self._thumb_zoom)
         toolbar.addStretch(1)
         root.addLayout(toolbar)
 
@@ -1090,6 +1098,7 @@ class MapView(QWidget):
             self._web.page().runJavaScript(restore_map_view_js(lat, lon, zoom))
         if self._placing_key:
             self._run_js("if (window.traveljournalSetPlaceMode) traveljournalSetPlaceMode(true);")
+        self._apply_map_thumb_zoom()
 
     def _reload_timeline(self, *, arm_focus: bool) -> None:
         self._map_focus_armed = False
@@ -1223,6 +1232,17 @@ class MapView(QWidget):
             return
         self._restore_view = parse_map_view(view) or self._place_view
         self.refresh(force=True)
+
+    def _on_thumb_zoom(self, percent: int) -> None:
+        self.workspace.set_map_thumb_zoom(percent)
+        self._apply_map_thumb_zoom()
+
+    def _apply_map_thumb_zoom(self) -> None:
+        zoom = clamp_thumb_zoom(self.workspace.map_thumb_zoom())
+        self._run_js(
+            f"window.traveljournalThumbZoom={zoom};"
+            f"if(window.traveljournalSetThumbZoom){{window.traveljournalSetThumbZoom({zoom});}}"
+        )
 
     def _run_js(self, script: str) -> None:
         if self._web is None or self._stack.currentWidget() is not self._web_host:

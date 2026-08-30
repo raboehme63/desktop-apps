@@ -11,6 +11,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from travelcore.config import DEFAULT_THUMBNAIL_SIZE
 from travelcore.database.models import (
     GpsPoint,
     GpsTrack,
@@ -158,7 +159,7 @@ def build_map_scene(
     project_id: int,
     thumbs_dir: Path,
     *,
-    size: int = 256,
+    size: int = DEFAULT_THUMBNAIL_SIZE,
 ) -> MapScene:
     """Overview: one cover per Tag, Aufenthalt or Transfer."""
 
@@ -309,6 +310,7 @@ def _photo_markers(
                     sha256=row.sha256,
                     size=size,
                     rotation_degrees=normalize_rotation_degrees(row.rotation_degrees),
+                    prefer_existing=True,
                 ),
                 day_key=day_key,
                 color=color,

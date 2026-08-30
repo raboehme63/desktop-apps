@@ -11,6 +11,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from travelcore.config import DEFAULT_THUMBNAIL_SIZE
 from travelcore.database.models import (
     Place,
     Project,
@@ -41,6 +42,7 @@ from travelcore.media.types import FileKind
 from travelcore.timeline.build import load_timeline
 from travelcore.timeline.journal import aware, display_positions_for_ids
 from travelcore.timeline.links import is_igc_filename, parse_youtube_urls, youtube_thumbnail_url
+from travelcore.timeline.outbound import outbound_is_hidden
 from travelcore.timeline.sections import (
     KIND_DAY,
     KIND_MOVEMENT,
@@ -49,7 +51,6 @@ from travelcore.timeline.sections import (
     day_section_for_date,
     format_section_span,
 )
-from travelcore.timeline.outbound import outbound_is_hidden
 from travelcore.timeline.transfer_links import OVERVIEW_TRACK_POINTS
 from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelineLink, TimelinePhoto, TimelineSection
 
@@ -107,7 +108,7 @@ def build_map_overview(
     project_id: int,
     thumbs_dir: Path,
     *,
-    size: int = 256,
+    size: int = DEFAULT_THUMBNAIL_SIZE,
 ) -> MapScene:
     """One cover marker per section or leftover day; no individual tracks or photos."""
 
@@ -133,7 +134,7 @@ def build_map_timeline(
     project_id: int,
     thumbs_dir: Path,
     *,
-    size: int = 256,
+    size: int = DEFAULT_THUMBNAIL_SIZE,
 ) -> tuple[MapTimelineCard, ...]:
     """Saved sections and leftover days in timeline order, for the strip under the map."""
 
@@ -151,7 +152,7 @@ def build_map_group_detail(
     group_key: str,
     thumbs_dir: Path,
     *,
-    size: int = 256,
+    size: int = DEFAULT_THUMBNAIL_SIZE,
     resolved: MapGroupRef | None = None,
 ) -> MapScene:
     """Photos, videos, tracks and places that belong to one overview entry."""
@@ -174,7 +175,7 @@ def resolve_map_group(
     group_key: str,
     thumbs_dir: Path,
     *,
-    size: int = 256,
+    size: int = DEFAULT_THUMBNAIL_SIZE,
 ) -> MapGroupRef | None:
     """Ordered source-file ids, leftover day id and YouTube links for one overview entry."""
 
@@ -742,6 +743,7 @@ def _timeline_photo_from_source(row: SourceFile, thumbs_dir: Path, *, size: int)
             sha256=row.sha256,
             size=size,
             rotation_degrees=rotation,
+            prefer_existing=True,
         ),
         captured_at=row.captured_at,
         used_in_journal=False,

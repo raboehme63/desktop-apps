@@ -785,6 +785,7 @@ def test_indexer_keeps_missing_files_without_sync_flag(open_project: OpenProject
 
 
 def test_indexer_sync_removes_missing_photo_from_journal(open_project: OpenProject, tmp_path: Path) -> None:
+    from travelcore.config import DEFAULT_THUMBNAIL_SIZE
     from travelcore.database.models import FileError, SectionMember, TripSection
     from travelcore.media.thumbnails import cached_thumbnail_path
     from travelcore.timeline.sections import park_media
@@ -831,7 +832,7 @@ def test_indexer_sync_removes_missing_photo_from_journal(open_project: OpenProje
         open_project.directory / "thumbnails",
         source_file_id=gone_id,
         sha256=gone_sha,
-        size=256,
+        size=DEFAULT_THUMBNAIL_SIZE,
     )
     assert thumb.is_file()
     gone_path.unlink()

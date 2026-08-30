@@ -50,9 +50,14 @@ from travelcore.media.gallery import (
 from travelcore.media.types import GPS_EXTENSIONS, PHOTO_EXTENSIONS
 from travelcore.timeline.sections import format_scroll_date
 from traveljournal.widgets.scroll_date import ScrollDateChip
+from traveljournal.widgets.thumb_zoom import (
+    DEFAULT_THUMB_ZOOM,
+    clamp_thumb_zoom,
+    gallery_cell_size,
+    gallery_chip_size,
+    gallery_icon_size,
+)
 
-_ICON = 168
-_CELL = QSize(184, 214)
 _PLACEHOLDER = QColor("#243044")
 POOL_MIME = "application/x-traveljournal-source-ids"
 _CHIP = 22
@@ -70,34 +75,41 @@ _CHIP_ACTIVE = {
 }
 
 
-def rating_hotspots(cell: QRect) -> dict[str, QRect]:
+def rating_hotspots(
+    cell: QRect, *, icon: int | None = None, chip: int | None = None
+) -> dict[str, QRect]:
     """Hit targets for ★ / R / × on the thumbnail, right-aligned above the filename."""
 
+    icon_px = gallery_icon_size(DEFAULT_THUMB_ZOOM) if icon is None else icon
+    chip_px = _CHIP if chip is None else chip
     count = len(_RATING_CHIPS)
-    total = count * _CHIP + (count - 1) * _CHIP_GAP
-    y = cell.y() + 8 + _ICON - _CHIP - 2
+    total = count * chip_px + (count - 1) * _CHIP_GAP
+    y = cell.y() + 8 + icon_px - chip_px - 2
     x = cell.x() + cell.width() - 10 - total
     return {
-        status: QRect(x + index * (_CHIP + _CHIP_GAP), y, _CHIP, _CHIP)
+        status: QRect(x + index * (chip_px + _CHIP_GAP), y, chip_px, chip_px)
         for index, (status, _label) in enumerate(_RATING_CHIPS)
     }
 
 
-def hit_rating(cell: QRect, pos: QPoint) -> str | None:
-    for status, rect in rating_hotspots(cell).items():
+def hit_rating(
+    cell: QRect, pos: QPoint, *, icon: int | None = None, chip: int | None = None
+) -> str | None:
+    for status, rect in rating_hotspots(cell, icon=icon, chip=chip).items():
         if rect.contains(pos):
             return status
     return None
 
 
-def cover_hotspot(cell: QRect) -> QRect:
+def cover_hotspot(cell: QRect, *, chip: int | None = None) -> QRect:
     """Hit target for the title-image chip, top-left on the thumbnail."""
 
-    return QRect(cell.x() + 10, cell.y() + 10, _CHIP, _CHIP)
+    chip_px = _CHIP if chip is None else chip
+    return QRect(cell.x() + 10, cell.y() + 10, chip_px, chip_px)
 
 
-def hit_cover(cell: QRect, pos: QPoint) -> bool:
-    return cover_hotspot(cell).contains(pos)
+def hit_cover(cell: QRect, pos: QPoint, *, chip: int | None = None) -> bool:
+    return cover_hotspot(cell, chip=chip).contains(pos)
 
 
 def can_be_cover(item: GalleryItem) -> bool:
@@ -229,10 +241,18 @@ class GalleryDelegate(QStyledItemDelegate):
         self._cache = _PixmapCache()
         self.show_ratings = show_ratings
         self.show_cover = show_cover
+        self._icon = gallery_icon_size(DEFAULT_THUMB_ZOOM)
+        self._cell = gallery_cell_size(DEFAULT_THUMB_ZOOM)
+        self._chip = gallery_chip_size(DEFAULT_THUMB_ZOOM)
+
+    def set_thumb_zoom(self, percent: int) -> None:
+        self._icon = gallery_icon_size(percent)
+        self._cell = gallery_cell_size(percent)
+        self._chip = gallery_chip_size(percent)
 
     def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:  # noqa: N802
         _ = option, index
-        return _CELL
+        return self._cell
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
         item = index.data(Qt.ItemDataRole.UserRole)
@@ -247,7 +267,7 @@ class GalleryDelegate(QStyledItemDelegate):
         if selected:
             painter.setPen(QColor("#2eb8a0"))
             painter.drawRoundedRect(rect.adjusted(3, 3, -3, -3), 8, 8)
-        thumb = self._cache.get(item.thumbnail_path, _ICON)
+        thumb = self._cache.get(item.thumbnail_path, self._icon)
         x = rect.x() + (rect.width() - thumb.width()) // 2
         painter.drawPixmap(x, rect.y() + 8, thumb)
         if current == SORT_REJECTED:
@@ -256,7 +276,7 @@ class GalleryDelegate(QStyledItemDelegate):
                 QColor(18, 21, 28, 140),
             )
         if self.show_cover and can_be_cover(item):
-            chip = cover_hotspot(rect)
+            chip = cover_hotspot(rect, chip=self._chip)
             active = item.is_entry_cover
             painter.setFont(QFont("Segoe UI", 10, QFont.Weight.DemiBold))
             painter.setBrush(_COVER_ACTIVE if active else QColor("#2a3144"))
@@ -266,8 +286,9 @@ class GalleryDelegate(QStyledItemDelegate):
             painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, "T")
         if self.show_ratings:
             painter.setFont(QFont("Segoe UI", 10, QFont.Weight.DemiBold))
+            spots = rating_hotspots(rect, icon=self._icon, chip=self._chip)
             for status, label in _RATING_CHIPS:
-                chip = rating_hotspots(rect)[status]
+                chip = spots[status]
                 active = current == status
                 painter.setBrush(_CHIP_ACTIVE[status] if active else QColor("#2a3144"))
                 painter.setPen(QColor("#3a4458") if not active else Qt.PenStyle.NoPen)
@@ -276,7 +297,7 @@ class GalleryDelegate(QStyledItemDelegate):
                 painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, label)
         painter.setPen(QColor("#c5cddb"))
         painter.setFont(QFont("Segoe UI", 8))
-        label = rect.adjusted(8, 8 + _ICON, -8, -6)
+        label = rect.adjusted(8, 8 + self._icon, -8, -6)
         painter.drawText(label, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, item.filename)
         painter.restore()
 
@@ -305,7 +326,6 @@ class GalleryView(QListView):
         self.setMovement(QListView.Movement.Static)
         self.setUniformItemSizes(True)
         self.setSpacing(8)
-        self.setGridSize(QSize(_CELL.width() + 8, _CELL.height() + 8))
         self.setSelectionMode(QListView.SelectionMode.SingleSelection)
         self.doubleClicked.connect(self._emit_item)
         self._expand_to_fit = False
@@ -314,6 +334,8 @@ class GalleryView(QListView):
         self._accept_pool_drop = False
         self._scroll_date: ScrollDateChip | None = None
         self._to_map_enabled = None
+        self._thumb_zoom = DEFAULT_THUMB_ZOOM
+        self._apply_thumb_zoom()
 
     def set_multi_select(self, enabled: bool) -> None:
         mode = QListView.SelectionMode.MultiSelection if enabled else QListView.SelectionMode.SingleSelection
@@ -415,6 +437,25 @@ class GalleryView(QListView):
                 return format_scroll_date(item.captured_at, item.captured_at)
         return None
 
+    def set_thumb_zoom(self, percent: int) -> None:
+        zoom = clamp_thumb_zoom(percent)
+        if zoom == self._thumb_zoom:
+            return
+        self._thumb_zoom = zoom
+        self._apply_thumb_zoom()
+        self.viewport().update()
+        self._update_expanded_height()
+
+    def _apply_thumb_zoom(self) -> None:
+        cell = gallery_cell_size(self._thumb_zoom)
+        delegate = self.itemDelegate()
+        if isinstance(delegate, GalleryDelegate):
+            delegate.set_thumb_zoom(self._thumb_zoom)
+        self.setGridSize(QSize(cell.width() + 8, cell.height() + 8))
+
+    def _thumb_metrics(self) -> tuple[int, int]:
+        return gallery_icon_size(self._thumb_zoom), gallery_chip_size(self._thumb_zoom)
+
     def set_expand_to_fit(self, enabled: bool) -> None:
         """Grow with the item count so a parent scroll area can own scrolling."""
 
@@ -436,12 +477,13 @@ class GalleryView(QListView):
             item = self._model.item_at(index)
             if item is not None:
                 cell = self.visualRect(index)
-                if self._show_cover and can_be_cover(item) and hit_cover(cell, pos):
+                icon, chip = self._thumb_metrics()
+                if self._show_cover and can_be_cover(item) and hit_cover(cell, pos, chip=chip):
                     self.cover_chosen.emit(item)
                     event.accept()
                     return
                 if self._show_ratings:
-                    status = hit_rating(cell, pos)
+                    status = hit_rating(cell, pos, icon=icon, chip=chip)
                     if status is not None:
                         self.rating_chosen.emit(item, status)
                         event.accept()
@@ -455,10 +497,11 @@ class GalleryView(QListView):
             item = self._model.item_at(index)
             if item is not None:
                 cell = self.visualRect(index)
-                if self._show_cover and can_be_cover(item) and hit_cover(cell, pos):
+                icon, chip = self._thumb_metrics()
+                if self._show_cover and can_be_cover(item) and hit_cover(cell, pos, chip=chip):
                     event.accept()
                     return
-                if self._show_ratings and hit_rating(cell, pos):
+                if self._show_ratings and hit_rating(cell, pos, icon=icon, chip=chip):
                     event.accept()
                     return
         super().mouseDoubleClickEvent(event)
@@ -480,11 +523,12 @@ class GalleryView(QListView):
         if count == 0:
             self.setFixedHeight(8)
             return
-        available = max(self.viewport().width(), self.width() - 16, _CELL.width())
-        cell = _CELL.width() + self.spacing()
-        columns = max(1, available // cell)
+        cell = gallery_cell_size(self._thumb_zoom)
+        available = max(self.viewport().width(), self.width() - 16, cell.width())
+        step = cell.width() + self.spacing()
+        columns = max(1, available // step)
         rows = (count + columns - 1) // columns
-        self.setFixedHeight(rows * (_CELL.height() + self.spacing()) + 8)
+        self.setFixedHeight(rows * (cell.height() + self.spacing()) + 8)
 
     def selected_item(self) -> GalleryItem | None:
         items = self.selected_items()

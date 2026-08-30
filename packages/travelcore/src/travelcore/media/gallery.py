@@ -10,6 +10,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from travelcore.config import DEFAULT_THUMBNAIL_SIZE
 from travelcore.database.models import Photo, SourceFile
 from travelcore.media.orientation import normalize_rotation_degrees
 from travelcore.media.thumbnails import cached_thumbnail_path
@@ -57,7 +58,7 @@ def list_gallery_items(
     project_id: int,
     thumbs_dir: Path,
     *,
-    size: int = 256,
+    size: int = DEFAULT_THUMBNAIL_SIZE,
     source_file_ids: Sequence[int] | None = None,
 ) -> list[GalleryItem]:
     """Return photos, videos, and tracks in capture-time order with cache paths."""
@@ -98,6 +99,7 @@ def list_gallery_items(
                     sha256=source.sha256,
                     size=size,
                     rotation_degrees=rotation,
+                    prefer_existing=True,
                 ),
                 sort_status=effective_sort_status(
                     photo.sort_status if photo is not None else None,

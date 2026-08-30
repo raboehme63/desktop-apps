@@ -359,4 +359,4 @@ def _zoom_script(fmap: folium.Map, group: folium.FeatureGroup, min_zoom: int) ->
 
 
 def _popup_html(marker: MapMarker, html_path: Path) -> folium.Popup:
-    return folium.Popup(_popup_body(marker, html_path), max_width=240)
+    return folium.Popup(_popup_body(marker, html_path), max_width=420)

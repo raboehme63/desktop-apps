@@ -163,6 +163,24 @@ def test_pool_media_tab_persists(tmp_path: Path, monkeypatch) -> None:  # noqa: 
     assert workspace.pool_media_tab() == "all"
 
 
+def test_thumb_zoom_persists(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.widgets.thumb_zoom import DEFAULT_THUMB_ZOOM, clamp_thumb_zoom
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    workspace = Workspace()
+    assert workspace.timeline_thumb_zoom() == DEFAULT_THUMB_ZOOM
+    assert workspace.map_thumb_zoom() == DEFAULT_THUMB_ZOOM
+    workspace.set_timeline_thumb_zoom(150)
+    workspace.set_map_thumb_zoom(75)
+    assert workspace.timeline_thumb_zoom() == 150
+    assert workspace.map_thumb_zoom() == 75
+    workspace.set_timeline_thumb_zoom(12)
+    assert workspace.timeline_thumb_zoom() == clamp_thumb_zoom(12)
+    workspace.set_map_thumb_zoom("nope")
+    assert workspace.map_thumb_zoom() == DEFAULT_THUMB_ZOOM
+
+
 def test_show_rejected_in_all_persists(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     from traveljournal.services import workspace as workspace_mod
 

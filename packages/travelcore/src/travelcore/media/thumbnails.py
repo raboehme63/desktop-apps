@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
+from travelcore.config import DEFAULT_THUMBNAIL_SIZE
 from travelcore.database.models import Photo, Project, SourceFile, Video
 from travelcore.exceptions import GpsError, ProjectError
 from travelcore.gps.geojson import parse_geojson
@@ -62,6 +63,9 @@ class ThumbnailResult:
     failed: int = 0
 
 
+_LEGACY_THUMBNAIL_SIZES = (256,)
+
+
 def cached_thumbnail_path(
     thumbs_dir: Path,
     *,
@@ -69,9 +73,42 @@ def cached_thumbnail_path(
     sha256: str | None,
     size: int,
     rotation_degrees: int | None = 0,
+    prefer_existing: bool = False,
 ) -> Path:
     """Return the cache path for a thumbnail. The file may not exist yet."""
 
+    dest = _thumbnail_cache_path(
+        thumbs_dir,
+        source_file_id=source_file_id,
+        sha256=sha256,
+        size=size,
+        rotation_degrees=rotation_degrees,
+    )
+    if not prefer_existing or dest.is_file():
+        return dest
+    for legacy in _LEGACY_THUMBNAIL_SIZES:
+        if legacy == size:
+            continue
+        candidate = _thumbnail_cache_path(
+            thumbs_dir,
+            source_file_id=source_file_id,
+            sha256=sha256,
+            size=legacy,
+            rotation_degrees=rotation_degrees,
+        )
+        if candidate.is_file():
+            return candidate
+    return dest
+
+
+def _thumbnail_cache_path(
+    thumbs_dir: Path,
+    *,
+    source_file_id: int,
+    sha256: str | None,
+    size: int,
+    rotation_degrees: int | None,
+) -> Path:
     suffix = ""
     degrees = normalize_rotation_degrees(rotation_degrees)
     if degrees:
@@ -85,7 +122,7 @@ def ensure_thumbnail(
     source: Path,
     destination: Path,
     *,
-    size: int = 256,
+    size: int = DEFAULT_THUMBNAIL_SIZE,
     orientation: int | None = None,
     rotation_degrees: int | None = 0,
     tile_cache: Path | None = None,
@@ -230,7 +267,7 @@ def generate_project_thumbnails(
     project: Project,
     thumbs_dir: Path,
     *,
-    size: int = 256,
+    size: int = DEFAULT_THUMBNAIL_SIZE,
     progress: ProgressFn | None = None,
     max_workers: int | None = None,
     pool: WorkerPool | None = None,
@@ -446,7 +483,7 @@ def extract_largest_embedded_jpeg(data: bytes) -> bytes | None:
     return best if best_pixels >= 16 * 16 else None
 
 
-def _open_preview(source: Path, *, size: int = 256) -> Image.Image | None:
+def _open_preview(source: Path, *, size: int = DEFAULT_THUMBNAIL_SIZE) -> Image.Image | None:
     suffix = source.suffix.lower()
     try:
         if suffix in _PILLOW_SUFFIXES:
@@ -457,7 +494,7 @@ def _open_preview(source: Path, *, size: int = 256) -> Image.Image | None:
                     drafted = _draft_or_close(image, size)
                     if drafted is not None:
                         return drafted
-                    windows = decode_windows_thumbnail(source, size=max(int(size), 256))
+                    windows = decode_windows_thumbnail(source, size=max(int(size), DEFAULT_THUMBNAIL_SIZE))
                     if windows is not None:
                         return windows
                 else:
@@ -471,7 +508,7 @@ def _open_preview(source: Path, *, size: int = 256) -> Image.Image | None:
                 return None
             return image
         if suffix in _HEIC_SUFFIXES:
-            windows = decode_windows_thumbnail(source, size=256)
+            windows = decode_windows_thumbnail(source, size=max(int(size), DEFAULT_THUMBNAIL_SIZE))
             if windows is not None:
                 return windows
             payload = source.read_bytes()
@@ -480,14 +517,14 @@ def _open_preview(source: Path, *, size: int = 256) -> Image.Image | None:
                 return Image.open(io.BytesIO(embedded))
             return None
         if suffix in _RAW_SUFFIXES or suffix in VIDEO_EXTENSIONS:
-            windows = decode_windows_thumbnail(source, size=256)
+            windows = decode_windows_thumbnail(source, size=max(int(size), DEFAULT_THUMBNAIL_SIZE))
             if windows is not None:
                 return windows
             limit = _VIDEO_PREVIEW_BYTES if suffix in VIDEO_EXTENSIONS else _RAW_PREVIEW_BYTES
             embedded = extract_largest_embedded_jpeg(_read_prefix(source, limit))
             if embedded is not None:
                 return Image.open(io.BytesIO(embedded))
-            return _type_placeholder(suffix)
+            return _type_placeholder(suffix, size=size)
     except (UnidentifiedImageError, OSError, ValueError, SyntaxError, Image.DecompressionBombError):
         logger.debug("No preview image for %s", source.name)
         return None
@@ -515,7 +552,7 @@ def _read_prefix(source: Path, limit: int) -> bytes:
         return handle.read(limit)
 
 
-def _type_placeholder(suffix: str, *, size: int = 256) -> Image.Image:
+def _type_placeholder(suffix: str, *, size: int = DEFAULT_THUMBNAIL_SIZE) -> Image.Image:
     canvas = Image.new("RGB", (size, size), _THUMB_FILL)
     draw = ImageDraw.Draw(canvas)
     label = suffix.lstrip(".").upper() or "?"

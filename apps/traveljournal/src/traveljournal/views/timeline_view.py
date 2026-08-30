@@ -111,6 +111,12 @@ from traveljournal.widgets.media_tabs import (
 )
 from traveljournal.widgets.pool_pane import PoolCollapse, PoolPane
 from traveljournal.widgets.scroll_date import scrollbar_slider_rect as _scrollbar_slider_rect
+from traveljournal.widgets.thumb_zoom import (
+    DEFAULT_THUMB_ZOOM,
+    ThumbZoomSlider,
+    clamp_thumb_zoom,
+    gallery_icon_size,
+)
 from traveljournal.widgets.transfer_links import OutboundLinkRow, TransferLinkStrip
 from traveljournal.widgets.transport_icons import COMBO_ICON_PX, transport_badge_icon
 
@@ -165,7 +171,6 @@ def timeline_center_date(blocks: list[EntryWidget], host: QWidget, mid_y: int) -
 
 
 _MODE_LABELS = tuple((item.key, item.label) for item in TRANSPORT_SYMBOLS)
-_COVER_HEAD = 168
 _GALLERY_DRAG_HINT = (
     "Ziehen auf eine andere Karte oder in den Pool. T oben links: Titelbild für diesen Tag oder Abschnitt"
 )
@@ -328,6 +333,8 @@ class TimelineView(QWidget):
         self._media_tabs.currentChanged.connect(self._on_global_media_tab)
         self._show_rejected = ShowRejectedCheck(self)
         self._show_rejected.toggled.connect(self._on_show_rejected)
+        self._thumb_zoom = ThumbZoomSlider(self, value=self.workspace.timeline_thumb_zoom())
+        self._thumb_zoom.zoom_changed.connect(self._on_thumb_zoom)
         tab_label = QLabel("Register")
         tab_label.setObjectName("pageSubtitle")
         toolbar.addWidget(refresh)
@@ -339,6 +346,8 @@ class TimelineView(QWidget):
         toolbar.addWidget(tab_label)
         toolbar.addWidget(self._media_tabs)
         toolbar.addWidget(self._show_rejected)
+        toolbar.addSpacing(12)
+        toolbar.addWidget(self._thumb_zoom)
         toolbar.addStretch(1)
         toolbar.addWidget(self._save_button)
         root.addLayout(toolbar)
@@ -389,6 +398,7 @@ class TimelineView(QWidget):
         self._pool_pane.gallery.item_activated.connect(self._open_inspector)
         self._pool_pane.show_rejected_changed.connect(self._on_pool_show_rejected)
         self._pool_pane.items_dropped.connect(self._drop_on_timeline_pool)
+        self._pool_pane.gallery.set_thumb_zoom(self.workspace.timeline_thumb_zoom())
         self._drag_scroll = QTimer(self)
         self._drag_scroll.setInterval(_AUTOSCROLL_INTERVAL_MS)
         self._drag_scroll.timeout.connect(self._on_drag_scroll_tick)
@@ -602,6 +612,7 @@ class TimelineView(QWidget):
                     youtube_override=override,
                     show_outbound=_shows_outbound(entry, following),
                     media_tab=self._media_tabs.currentIndex(),
+                    thumb_zoom=self.workspace.timeline_thumb_zoom(),
                     parent=self._host,
                 )
                 block.selection_changed.connect(self._on_block_selection_changed)
@@ -709,6 +720,12 @@ class TimelineView(QWidget):
         sync_show_rejected_check(
             self._show_rejected, self._media_tabs, checked=self.workspace.show_rejected_in_all()
         )
+
+    def _on_thumb_zoom(self, percent: int) -> None:
+        self.workspace.set_timeline_thumb_zoom(percent)
+        self._pool_pane.gallery.set_thumb_zoom(percent)
+        for block in self._blocks:
+            block.set_thumb_zoom(percent)
 
     def _on_show_rejected(self, checked: bool) -> None:
         self.workspace.set_show_rejected_in_all(checked)
@@ -1711,11 +1728,15 @@ class EntryWidget(QFrame):
         youtube_override: list[str] | None = None,
         show_outbound: bool = False,
         media_tab: int = 0,
+        thumb_zoom: int | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("card")
         self.workspace = workspace
+        if thumb_zoom is None and workspace is not None:
+            thumb_zoom = workspace.timeline_thumb_zoom()
+        self._zoom = clamp_thumb_zoom(thumb_zoom if thumb_zoom is not None else DEFAULT_THUMB_ZOOM)
         section = entry.section
         day = entry.leftover_day
         youtube: tuple[str, ...] = ()
@@ -1807,7 +1828,8 @@ class EntryWidget(QFrame):
         heading_row.setSpacing(12)
         self._cover_thumb = QLabel(self)
         self._cover_thumb.setObjectName("entryCover")
-        self._cover_thumb.setFixedSize(_COVER_HEAD, _COVER_HEAD)
+        cover = gallery_icon_size(self._zoom)
+        self._cover_thumb.setFixedSize(cover, cover)
         self._cover_thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._cover_thumb.setToolTip("Titelbild")
         heading_row.addWidget(self._cover_thumb, 0, Qt.AlignmentFlag.AlignTop)
@@ -1911,6 +1933,7 @@ class EntryWidget(QFrame):
             self._media_tabs.addTab(label)
         self._media_tabs.setVisible(media_count > 0)
         self.gallery = GalleryView(self, show_cover=True)
+        self.gallery.set_thumb_zoom(self._zoom)
         self.gallery.set_expand_to_fit(True)
         self.gallery.set_multi_select(True)
         self.gallery.rating_chosen.connect(self._on_rating)
@@ -1932,6 +1955,7 @@ class EntryWidget(QFrame):
             self._track_tabs.addTab(label)
         self._track_tabs.setVisible(track_count > 0)
         self.track_gallery = GalleryView(self, show_cover=True)
+        self.track_gallery.set_thumb_zoom(self._zoom)
         self.track_gallery.set_expand_to_fit(True)
         self.track_gallery.set_multi_select(True)
         self.track_gallery.rating_chosen.connect(self._on_rating)
@@ -2067,6 +2091,17 @@ class EntryWidget(QFrame):
     def select_ids(self, wanted: set[int]) -> None:
         self.gallery.select_by_source_ids(wanted)
         self.track_gallery.select_by_source_ids(wanted)
+
+    def set_thumb_zoom(self, percent: int) -> None:
+        zoom = clamp_thumb_zoom(percent)
+        if zoom == self._zoom:
+            return
+        self._zoom = zoom
+        self.gallery.set_thumb_zoom(zoom)
+        self.track_gallery.set_thumb_zoom(zoom)
+        cover = gallery_icon_size(zoom)
+        self._cover_thumb.setFixedSize(cover, cover)
+        self._refresh_cover_thumb()
 
     def set_media_tab(self, index: int) -> None:
         index = max(0, min(index, len(RATING_TABS) - 1))
@@ -2243,7 +2278,7 @@ class EntryWidget(QFrame):
         if item is not None and item.thumbnail_path.is_file():
             pixmap = QPixmap(str(item.thumbnail_path))
             if not pixmap.isNull():
-                self._cover_thumb.setPixmap(_scaled_cover(pixmap, _COVER_HEAD))
+                self._cover_thumb.setPixmap(_scaled_cover(pixmap, gallery_icon_size(self._zoom)))
                 return
         youtube = youtube_thumbnail_url(self._youtube_urls[0]) if self._youtube_urls else None
         if youtube:
@@ -2261,7 +2296,7 @@ class EntryWidget(QFrame):
         if pixmap is None or pixmap.isNull():
             self._cover_thumb.clear()
             return
-        self._cover_thumb.setPixmap(_scaled_cover(pixmap, _COVER_HEAD))
+        self._cover_thumb.setPixmap(_scaled_cover(pixmap, gallery_icon_size(self._zoom)))
 
     def _edit_youtube(self) -> None:
         if self.workspace is None or self._entity_id == 0:
