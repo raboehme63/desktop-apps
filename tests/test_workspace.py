@@ -196,3 +196,15 @@ def test_show_rejected_in_all_persists(tmp_path: Path, monkeypatch) -> None:  # 
     assert workspace.show_rejected_in_all() is True
     workspace.set_show_rejected_in_all(False)
     assert workspace.show_rejected_in_all() is False
+
+
+def test_inspector_show_rejected_persists(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    from traveljournal.services import workspace as workspace_mod
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    workspace = Workspace()
+    assert workspace.inspector_show_rejected() is False
+    workspace.set_inspector_show_rejected(True)
+    assert workspace.inspector_show_rejected() is True
+    workspace.set_inspector_show_rejected(False)
+    assert workspace.inspector_show_rejected() is False

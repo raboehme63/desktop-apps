@@ -148,6 +148,8 @@ class PhotosView(QWidget):
         self.gallery.items_dropped.connect(self._drop_on_gallery)
         self.gallery.stack_requested.connect(self._open_stack)
         self.gallery.group_requested.connect(self._open_group)
+        self.gallery.group_create_requested.connect(self._group_selected)
+        self.gallery.group_dissolve_requested.connect(self._dissolve_group)
         gallery_model = self.gallery.selectionModel()
         if gallery_model is not None:
             gallery_model.selectionChanged.connect(self._on_journal_selection)
@@ -165,6 +167,8 @@ class PhotosView(QWidget):
         self._pool_pane.show_rejected_changed.connect(self._on_pool_show_rejected)
         self._pool_pane.gallery.stack_requested.connect(self._open_stack)
         self._pool_pane.gallery.group_requested.connect(self._open_group)
+        self._pool_pane.gallery.group_create_requested.connect(self._group_selected)
+        self._pool_pane.gallery.group_dissolve_requested.connect(self._dissolve_group)
         pool_model = self._pool_pane.gallery.selectionModel()
         if pool_model is not None:
             pool_model.selectionChanged.connect(self._on_pool_selection)
@@ -199,23 +203,28 @@ class PhotosView(QWidget):
         )
         self._group_selected_btn.clicked.connect(self._group_selected)
         self._group_selected_btn.setEnabled(False)
-        self.summary = QLabel("Kein Projekt geöffnet")
-        self.summary.setObjectName("pageSubtitle")
         actions.addWidget(favorite_btn)
         actions.addWidget(pool_btn)
         actions.addWidget(stacks_btn)
         actions.addWidget(groups_btn)
         actions.addWidget(self._group_selected_btn)
         actions.addStretch(1)
-        actions.addWidget(self.summary)
         root.addLayout(actions)
+        self.stats = QLabel("Kein Projekt geöffnet")
+        self.stats.setObjectName("pageSubtitle")
+        self.stats.setWordWrap(True)
+        self.stats.setToolTip(
+            "Projektweit. Galerie: Einzelbilder und Schlüsselfotos ohne Aussortierte. "
+            "Dubletten: Stapel / verborgene Kopien. Deaktiviert: verborgene Stapel- und Gruppenmitglieder."
+        )
+        root.addWidget(self.stats)
 
     def refresh(self) -> None:
         if self.workspace.current is None:
             self._items = []
             self.gallery.set_items([])
             self._pool_pane.set_items([])
-            self.summary.setText("Kein Projekt geöffnet")
+            self.stats.setText("Kein Projekt geöffnet")
             return
         with suppress(ProjectError):
             self.workspace.accept_exact_stacks()
@@ -282,10 +291,17 @@ class PhotosView(QWidget):
         self._pool_excluded.clear()
         self._pool_displayed.clear()
         self._pool_pane.set_items(parked)
-        self.summary.setText(
-            f"{len(shown)} in der Galerie, {len(parked)} im Pool · {len(self._items)} Medien"
-        )
+        self._refresh_stats()
         self._sync_group_button()
+
+    def _refresh_stats(self) -> None:
+        if self.workspace.current is None:
+            self.stats.setText("Kein Projekt geöffnet")
+            return
+        try:
+            self.stats.setText(self.workspace.media_stats().format_line())
+        except ProjectError:
+            self.stats.setText("Kein Projekt geöffnet")
 
     def _partition_filtered(self) -> tuple[list[GalleryItem], list[GalleryItem]]:
         query = self.search.text().strip().lower()
@@ -321,9 +337,9 @@ class PhotosView(QWidget):
         self.gallery.set_items([])
         self._pool_pane.set_items([])
         if self.workspace.current is None:
-            self.summary.setText("Kein Projekt geöffnet")
+            self.stats.setText("Kein Projekt geöffnet")
             return
-        self.summary.setText("Index wird geladen…")
+        self.stats.setText("Index wird geladen…")
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
         super().resizeEvent(event)
@@ -515,6 +531,17 @@ class PhotosView(QWidget):
             f"{len(ids)} Fotos gruppiert. Kennzeichen G öffnet das Original."
         )
 
+    def _dissolve_group(self, item: object) -> None:
+        if not isinstance(item, GalleryItem) or item.group_id is None:
+            return
+        try:
+            self.workspace.dissolve_group(item.group_id)
+        except Exception as error:  # noqa: BLE001
+            QMessageBox.warning(self, "Medien", str(error))
+            return
+        self.refresh()
+        self.status_message.emit("Gruppe aufgelöst.")
+
     def _group_similar(self) -> None:
         if self.workspace.current is None:
             QMessageBox.information(self, "Medien", "Bitte zuerst ein Projekt öffnen.")
@@ -540,8 +567,11 @@ class PhotosView(QWidget):
     def _open_cluster(self, item: object, cluster_type: str) -> None:
         if not isinstance(item, GalleryItem):
             return
+        sequence = self._pool_pane.shown_items() if item.parked else list(self._items)
         try:
-            window = open_cluster_inspector(self.workspace, item, cluster_type, self)
+            window = open_cluster_inspector(
+                self.workspace, item, cluster_type, self, gallery_items=sequence
+            )
         except Exception as error:  # noqa: BLE001
             QMessageBox.warning(self, "Medien", str(error))
             return

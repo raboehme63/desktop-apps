@@ -3,9 +3,9 @@
 | Feld | Inhalt |
 | --- | --- |
 | Produkt | Reisetagebuch (Windows-Desktop) |
-| Version | 2.2 (Software **R2.2.0**) |
+| Version | 3.0 (Software **R3.0.0**) |
 | Stand | 30. August 2026 |
-| Status | verbindlich für die Umsetzung; Phase 7, Software R2.2.0 |
+| Status | verbindlich für die Umsetzung; Phase 7 plus Medien-Pipeline, Software R3.0.0 |
 | Bezug | Auftraggeber-Prompt „Reise-Tagebuch-Anwendung für Windows“ |
 | Begleitdokumente | [konzept.md](konzept.md), [architecture.md](architecture.md), [testdokumentation.md](testdokumentation.md), [dependencies.md](dependencies.md), [packaging/README.md](../packaging/README.md) |
 
@@ -18,6 +18,8 @@ Dieses Pflichtenheft beschreibt **was** das System leisten muss. Das **wie** ste
 **R2.1.1** vertieft die Karten- und Medienbedienung: Tracks tragen dieselbe Bewertung wie Fotos (Register, Inspektor, Linien-Popup). Der Thumbnail-Schieber skaliert in der Timeline die Galerie und auf der Karte nur die große Popup-Vorschau. Cover-Kreise: erster Klick zoomt auf den Kreis (mindestens Zoom 14, ohne Zoomanimation); bei überlappenden Kreisen zuerst die Gruppe einpassen, danach ein Kreis. Zweiter Klick öffnet das Detail. Ein Fit-Reise-Button sitzt zwischen Zoom und Zahnrad. In der Detailansicht schließt ein Leistenklick das Detail, zoomt auf den Abschnitt und führt den Mauszeiger zur Kartenmitte. Foto-Popups blättern wie der Inspektor (Pfeile, Tasten, Wrap-around), bleiben im Thumbnail-Modus, erscheinen erst an der zentrierten Gruppe (großes Bild, kleines Karten-Thumb, Datum) und skalieren mit dem Schieber.
 
 **R2.2.0** macht **Zur Karte** aus dem Medieninspektor und dem Thumbnail-Menü zur gleichen Sprungziel-Aktion: mehrere Original-Fenster gleichzeitig (versetzt), letzter Klick gewinnt. Die zugehörige Leistenkarte wandert in die Mitte, die Karte geht in den Detailmodus und zeigt das Medium (Popup an der Position). Ist die Karte in der Sitzung schon geladen, bleibt das HTML; Abschnittsdaten werden wiederverwendet. Ein Klick auf eine andere Leistenkarte schließt das Detail weiterhin und zoomt auf deren Cover.
+
+**R3.0.0** ist die Medien-Vorauswahl: echte Dubletten (SHA-256) werden zu einem sofort akzeptierten **Stapel** mit einem Schlüsselfoto und Kennzeichen ×n. Ähnliche Fotos bildet **Ähnliche gruppieren** als vorgeschlagene Gruppe (Zeitfenster 30 s); **Auswahl gruppieren** bzw. Rechtsklick **Gruppieren** legt eine manuelle Gruppe ohne Schlüssel an. Schlüsselfotos setzt nur der Inspektor (**Schlüsselfoto** / Leertaste): Links/rechts durch Einzelbilder und alle Schlüssel, hoch/runter nur in der Gruppe. Vorgeschlagene Gruppen tragen keine Schlüssel. **Gruppe auflösen** entfernt die Gruppe, nicht die Fotos. Die Statistikleiste unten auf Medien zählt projektweit Importiert, Galerie, Aussortiert, Pool, Dubletten, Gruppen und Deaktiviert (Alembic `018_media_clusters`). Qualität (Ampel) und unechte Dubletten (pHash) bleiben offen. Die Medien-Anzeigezeit (`media_at`) bleibt geplant.
 
 Prioritäten:
 
@@ -51,7 +53,7 @@ Konkret muss das System:
 
 Die Geschäftslogik muss in der GUI-freien Bibliothek `travelcore` liegen, damit dieselbe Analyse später von **PhotoInspector** wiederverwendet werden kann.
 
-Punkt 5 ist für **manuelle Reiseabschnitte** (Tag / Aufenthalt / Transfer) in der Timeline und als Titelbilder auf der Karte umgesetzt. Automatische Abschnittsvorschläge (über die GPS-Ortscluster hinaus) fehlen noch. Punkte 8 und 10 bleiben Phase 9–10 bzw. 8.
+Punkt 5 ist für **manuelle Reiseabschnitte** (Tag / Aufenthalt / Transfer) in der Timeline und als Titelbilder auf der Karte umgesetzt. Automatische Abschnittsvorschläge (über die GPS-Ortscluster hinaus) fehlen noch. Punkt 8 ist in R3.0.0 teilweise (exakte Dubletten und Zeitszenen; keine pHash-Near-Duplicates). Punkt 10 bleibt Phase 8.
 
 ### 1.2 Wunschkriterien
 
@@ -221,7 +223,7 @@ Auswahlmodell in der Timeline und auf der Medienseite: erster und letzter Klick 
 | ID | Prio | Anforderung | Stand |
 | --- | --- | --- | --- |
 | FA-070 | Soll | Technische Qualität: Auflösung, Seitenverhältnis, Helligkeit, Kontrast, Schärfe, Über-/Unterbelichtung. Nur Empfehlung, nie automatisches Löschen. | geplant (Phase 9) |
-| FA-071 | Soll | Komponente `photo_similarity`: exakte Dubletten (SHA-256), visuelle Ähnlichkeit (dHash/pHash); später Embeddings. | geplant (Phase 10) |
+| FA-071 | Soll | Komponente `photo_similarity`: exakte Dubletten (SHA-256), visuelle Ähnlichkeit (dHash/pHash); später Embeddings. | teilweise (SHA-256-Stapel und 30-s-Szenengruppen in `travelcore.similarity.clusters`; keine pHash/dHash/Embeddings) |
 | FA-072 | Muss | Kein automatisches Löschen von Originalfotos. | umgesetzt (kein Löschpfad) |
 | FA-073 | Soll | Ranking je Ereignis/Ort über austauschbare `RankingStrategy`. | teilweise (Schnittstelle) |
 
@@ -240,7 +242,7 @@ Auswahlmodell in der Timeline und auf der Medienseite: erster und letzter Klick 
 
 | ID | Prio | Anforderung | Stand |
 | --- | --- | --- | --- |
-| FA-090 | Muss | Moderne Windows-UI mit PySide6, Navigation links. Fenstertitel: `Reisetagebuch R{Version}` bzw. `Reisetagebuch R{Version} - {Projekttitel}`. | umgesetzt (Rahmen; Version **R2.2.0**; linke Pipeline mit Symbolen, einklappbar nur Icons, ausgeklappt inhaltsbreit; Zustand in `config.json`) |
+| FA-090 | Muss | Moderne Windows-UI mit PySide6, Navigation links. Fenstertitel: `Reisetagebuch R{Version}` bzw. `Reisetagebuch R{Version} - {Projekttitel}`. | umgesetzt (Rahmen; Version **R3.0.0**; linke Pipeline mit Symbolen, einklappbar nur Icons, ausgeklappt inhaltsbreit; Zustand in `config.json`) |
 | FA-091 | Muss | Bereich Projekt: neu, öffnen, speichern; Menü **Projekt → Einstellungen** (Dialog mit vertikalem Schieber). | teilweise (neu/öffnen/speichern/Einstellungen; zuletzt verwendete Projekte intern in `recent.json`, noch ohne UI-Liste; Projekte-Stammordner in `config.json`) |
 | FA-092 | Muss | Bereich Import: Ordner, Analyse, **Synchronisieren**, Fortschritt, Dateiliste mit Zeit/GPS/Kamera. Klick/Mouseover zeigt Vorschau und Metadaten. Die Liste wird während des Einlesens periodisch aktualisiert, erneut nach GPS-Abgleich, und vor den Vorschaubildern. | umgesetzt (Kamera/Pilot; DHV-Leonardo per Doppelklick auf IGC; Vorschau auch für Video/Track; Sync mit Timeline/Pool) |
 | FA-093 | Muss | Bereiche Medien, Timeline, Karte, Export. | teilweise (Medien, Timeline, Karte umgesetzt; Export Platzhalter bis Phase 8) |
@@ -252,18 +254,18 @@ Auswahlmodell in der Timeline und auf der Medienseite: erster und letzter Klick 
 | ID | Prio | Anforderung | Stand |
 | --- | --- | --- | --- |
 | FA-100 | Muss | Performante Übersicht über gecachte Thumbnails, nicht über Originale. HEIC-Vorschauen über Windows-Shell/WIC oder eingebettetes JPEG. | umgesetzt (Fotos, RAW, Video, GPX/IGC/KML/GeoJSON; Texte ohne Thumbnail; große JPEGs per Decoder-Draft statt Skip) |
-| FA-101 | Soll | Filter: Datum, Ort, Typ, Bewertung, Dubletten, Qualität, Favoriten, im Tagebuch verwendet / nicht verwendet. | teilweise (Dateiname, Jahr, mit/ohne Ort, JPEG/HEIC/PNG/RAW/Video/Tracks, Register Alle/Favoriten/Reserve/Aussortiert, nicht im Tagebuch; Qualität/Dubletten später) |
-| FA-102 | Muss | Doppelklick auf ein Vorschaubild öffnet den **Medieninspektor**: eigenes nicht-modales Fenster mit Original bzw. bester Vorschau (EXIF-Orientierung plus Anzeigedrehung). Bewertungs-Chips für Fotos **und Tracks**; Klick speichert und springt zum nächsten Eintrag (letzter bleibt). **In den Pool** legt das Medium in den Pool und springt zum nächsten Foto (letztes bleibt); **Zurückholen** bleibt auf dem aktuellen. Blättern durch die Bilder des Tags/Abschnitts (Pfeiltasten, Klick in den linken/rechten Rand, weiße Hover-Pfeile). Mausrad zoomt; Doppelklick in die Bildmitte setzt auf fensterfüllend (Einpassen). Ecke unten rechts: proportionales Vergrößern; Fensterränder: frei breiter/höher. Die Fenstergröße (und Maximieren) bleibt in `config.json` (`inspector_width`, `inspector_height`, `inspector_maximized`). Vollbild/Maximieren passt das Foto ein (schwarze Ränder). Drehen 90° (↺/↻, Tasten L/R oder `[`/`]`) speichert `rotation_degrees` sofort, Originale unverändert. Ein zweites Panel (`extra_host`) bleibt für spätere Dublettenarbeit reserviert. Auf der **Karte** öffnet ein Klick auf ein Foto zuerst das Thumbnail-Popup; Doppelklick dort startet denselben Inspektor. Mehrere Inspektor-Fenster können gleichzeitig offen sein (versetzt). **Zur Karte** (nur mit Kartenposition, nicht geparkt) wechselt zur Kartenseite, öffnet das Detail des Abschnitts, zeigt das Medium und zentriert die zugehörige Leistenkarte; der letzte Klick gewinnt. Ist die Karte schon geladen, ohne HTML-Neuaufbau. | umgesetzt |
+| FA-101 | Soll | Filter: Datum, Ort, Typ, Bewertung, Dubletten, Qualität, Favoriten, im Tagebuch verwendet / nicht verwendet. | teilweise (Dateiname, Jahr, mit/ohne Ort, JPEG/HEIC/PNG/RAW/Video/Tracks, Register Alle/Favoriten/Reserve/Aussortiert, nicht im Tagebuch; Stapel/Gruppe und Statistik; Qualität später) |
+| FA-102 | Muss | Doppelklick auf ein Vorschaubild öffnet den **Medieninspektor**: eigenes nicht-modales Fenster mit Original bzw. bester Vorschau (EXIF-Orientierung plus Anzeigedrehung). Bewertungs-Chips für Fotos **und Tracks**; Klick speichert und springt zum nächsten Eintrag (letzter bleibt). **In den Pool** legt das Medium in den Pool und springt zum nächsten Foto (letztes bleibt); **Zurückholen** bleibt auf dem aktuellen. Blättern durch die Bilder des Tags/Abschnitts (Pfeiltasten links/rechts, Klick in den linken/rechten Rand, weiße Hover-Pfeile); Links/rechts durch Einzelbilder und alle Schlüsselfotos einer Gruppe; in einer Gruppe zusätzlich hoch/runter bzw. ▲▼ durch die Mitglieder zur Schlüsselfoto-Wahl; am Original das Gruppen-/Stapel-Kennzeichen oben rechts, groß und mit dunkler Platte; die Leertaste betätigt **Schlüsselfoto**. Checkbox **Aussortierte anzeigen** (in `config.json` als `inspector_show_rejected`, Standard aus) blendet Aussortierte beim Blättern ein. Mausrad zoomt; Doppelklick in die Bildmitte setzt auf fensterfüllend (Einpassen). Ecke unten rechts: proportionales Vergrößern; Fensterränder: frei breiter/höher. Die Fenstergröße (und Maximieren) bleibt in `config.json` (`inspector_width`, `inspector_height`, `inspector_maximized`). Vollbild/Maximieren passt das Foto ein (schwarze Ränder). Drehen 90° (↺/↻, Tasten L/R oder `[`/`]`) speichert `rotation_degrees` sofort, Originale unverändert. Ein zweites Panel (`extra_host`) bleibt für spätere Dublettenarbeit reserviert. Auf der **Karte** öffnet ein Klick auf ein Foto zuerst das Thumbnail-Popup; Doppelklick dort startet denselben Inspektor. Mehrere Inspektor-Fenster können gleichzeitig offen sein (versetzt). **Zur Karte** (nur mit Kartenposition, nicht geparkt) wechselt zur Kartenseite, öffnet das Detail des Abschnitts, zeigt das Medium und zentriert die zugehörige Leistenkarte; der letzte Klick gewinnt. Ist die Karte schon geladen, ohne HTML-Neuaufbau. | umgesetzt |
 | FA-103 | Muss | In der Timeline liegen **Medien** (Fotos, Videos) und **Tracks** (GPX/IGC/KML/GeoJSON) in getrennten Galerien. Die Abschnitt-Auswahl umfasst beide. GPS-Dateien gehören nicht zu den Foto-Häkchen. | umgesetzt |
 | FA-104 | Soll | Track-Vorschauen zeigen die Spur rot auf einem OSM-/Leaflet-Kartenausschnitt (`cache/map_tiles`). `map_provider=offline` lädt keine Kacheln (schwarzer Hintergrund, rote Spur). Fehlgeschlagene Abrufe ebenso. | umgesetzt |
-| FA-105 | Soll | Globales Register **Alle / Favoriten / Reserve / Aussortiert** in der Timeline (neben „Neuen Reiseabschnitt erstellen“) und auf der Medienseite. Gilt für Medien- **und** Track-Galerien aller Timeline-Karten sowie die Galerie der Medienseite; bleibt in `config.json` als `timeline_media_tab` (auch beim Verlassen der Seite). Karten-Register bleiben synchron. Reiter wechseln **nur per Klick**, nicht durch Mausrad oder Mouseover beim Scrollen. Ein Thumbnail-Schieber (50–200 %) skaliert in der Timeline die Galerien, auf der Medienseite Galerie und Pool und auf der Karte nur die große Popup-Vorschau (`map_thumb_zoom` / `timeline_thumb_zoom` / `media_thumb_zoom` in `config.json`). | umgesetzt |
+| FA-105 | Soll | Globales Register **Alle / Favoriten / Reserve / Aussortiert** in der Timeline (neben „Neuen Reiseabschnitt erstellen“) und auf der Medienseite. Gilt für Medien- **und** Track-Galerien aller Timeline-Karten sowie die Galerie der Medienseite; bleibt in `config.json` als `timeline_media_tab` (auch beim Verlassen der Seite). Karten-Register bleiben synchron. Reiter wechseln **nur per Klick**, nicht durch Mausrad oder Mouseover beim Scrollen. Ein Thumbnail-Schieber (50–200 %) skaliert in der Timeline die Galerien, auf der Medienseite Galerie und Pool und auf der Karte nur die große Popup-Vorschau (`map_thumb_zoom` / `timeline_thumb_zoom` / `media_thumb_zoom` in `config.json`). Die Medienseite zeigt unten projektweit Importiert, Galerie, Aussortiert, Pool, Dubletten, Gruppen und Deaktiviert. | umgesetzt |
 
 ### 4.11 Persistenz und Projekt
 
 | ID | Prio | Anforderung | Stand |
 | --- | --- | --- | --- |
 | FA-110 | Muss | SQLite + SQLAlchemy 2 + Alembic-Migrationen. | umgesetzt |
-| FA-111 | Muss | Tabellen u. a. für Projekte, Quelldateien, Fotos, Videos, Tracks, Punkte, Reise, Tage, Orte, Ereignisse, Texte, Analysen, Ähnlichkeitsgruppen, Exportkonfiguration. | teilweise (Schema inkl. `trip_sections`, `section_members` mit `journal_at`, `source_files.parked` und `rotation_degrees`, URL- und Cover-Spalten, `photos.sort_status`, `transfer_links`, `outbound_*`; Alembic 001–017; Analysen/Ähnlichkeit/Exportzeilen ungenutzt bis Phase 8–10) |
+| FA-111 | Muss | Tabellen u. a. für Projekte, Quelldateien, Fotos, Videos, Tracks, Punkte, Reise, Tage, Orte, Ereignisse, Texte, Analysen, Ähnlichkeitsgruppen, Exportkonfiguration. | teilweise (Schema inkl. `trip_sections`, `section_members` mit `journal_at`, `source_files.parked` und `rotation_degrees`, URL- und Cover-Spalten, `photos.sort_status`, `transfer_links`, `outbound_*`; Alembic 001–018; `similarity_groups` mit `cluster_type`/`status`/`origin` und Mitglied `is_key` in Nutzung; Analysen/Exportzeilen ungenutzt bis Phase 8–9) |
 | FA-112 | Muss | Projektordner mit `project.sqlite`, `settings.toml`, `thumbnails/`, `cache/`, `exports/`, `logs/`. | umgesetzt |
 | FA-113 | Muss | Projekt schließen und wieder öffnen erhält Index und Einstellungen. | umgesetzt |
 | FA-114 | Muss | Cache: Thumbnails, Metadaten, Analysen, Hashes; keine Vollanalyse unveränderter Dateien. | teilweise (Hash/mtime/Thumbnails/`cache/map_tiles`; Analysen Phase 9) |
@@ -339,11 +341,11 @@ Mindestens zu speichernde Informationen — Details im Datenbankschema:
 
 ## 7. Benutzeroberfläche — Muss-Inhalte je Bereich
 
-| Bereich | R2.2.0 (Phase 7) | Erste vollständige Version |
+| Bereich | R3.0.0 (Phase 7 plus Medien-Pipeline) | Erste vollständige Version |
 | --- | --- | --- |
-| Projekt | Name, Ordnerpfad, Anlegen, Öffnen, Speichern, Einstellungen (`settings.toml`, Dialog mit Schieber); Fenstertitel mit Version R2.2.0 | plus zuletzt verwendete Projekte in der UI |
+| Projekt | Name, Ordnerpfad, Anlegen, Öffnen, Speichern, Einstellungen (`settings.toml`, Dialog mit Schieber); Fenstertitel mit Version R3.0.0 | plus zuletzt verwendete Projekte in der UI |
 | Import | Pfadwahl, Analyse, Synchronisieren (fehlende entfernen, neue in Timeline oder Pool), Fortschritt, Zähler, vollständige Dateitabelle, Vorschau aller Galerie-Typen außer Text | unverändert |
-| Medien | Galerie links, Medienpool rechts (ein-/ausklappbar), Register Alle/Favoriten/Reserve/Aussortiert je Bereich, Filter (Jahr/Ort/Typ inkl. Video/Tracks/nicht im Tagebuch), Bewertungen, Inspektor, Drag in den Pool und zurück | plus Qualität, Dubletten |
+| Medien | Galerie links, Medienpool rechts (ein-/ausklappbar), Register Alle/Favoriten/Reserve/Aussortiert je Bereich, Filter (Jahr/Ort/Typ inkl. Video/Tracks/nicht im Tagebuch), Bewertungen, Inspektor, Drag in den Pool und zurück, **Dubletten stapeln** / **Ähnliche gruppieren** / **Auswahl gruppieren**, Kennzeichen G/×n, Statistikleiste | plus Qualität (Ampel), unechte Dubletten (pHash) |
 | Timeline | Reisetitel oben, Tage/Transfers/Aufenthalte als Abschnitte mit Mitgliedern, Typ je Karte, Titel/Text, Mehrfachauswahl, Anlegen/Auflösen/Löschen (Löschen → Pool), schlanke Verbindung mit **+**, Drag & Drop Karte↔Karte und Pool (Auto-Scroll am Rand), Journal-Zeit/Originalzeit, Medien vs. Tracks, Register nur per Klick (auch für Tracks), Bewertungen für Fotos und Tracks, Thumbnail-Schieber, T-Titelbild (Foto und Track), Transfer-Verbindungslinien (Liste, Symbol vor dem Namen) und Ausgangslinie an Tag/Aufenthalt, ⋯-Menü YouTube/DHV-Leonardo, Hilfe Verkehrsmittelsymbole, **Speichern** nur bei ungespeicherten Abschnitten/Texten/Reisetitel/YouTube, Medieninspektor (Blättern, Zoom, Drehen, Pool, Track-Bewertung) | plus verdichtete Timeline-Karten auf der Timeline-Seite, Ereignis-Reihenfolge |
 | Karte | Runde Titelbild-Kreise (Cover-Fallback: Foto, Track, YouTube), Verbindungslinien zwischen Tag- und Aufenthaltskreisen (Transfer-Liste oder Ausgangslinie, Verkehrssymbol in Fahrtrichtung bzw. Richtungspfeil, ausgeblendet bei überdeckenden Kreisen), Transfer-Kreis per dünner Linie am Verkehrssymbol, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad (Fotokegel, Reserve, Ortsnamen und Straßen auf Satellit), Fit-Reise zwischen Zoom und Zahnrad, Leiste darunter mit **+** zwischen den Karten, Tagebuchtext rechts, YouTube-Thumbs unten rechts auf der Karte, Einfachklick Leistenkarte → Übersicht ohne Zoomänderung / andere Karte im Detail schließt und zoomt auf den Abschnitt, Doppelklick → Timeline, Cover-Klick → ZoomToCover (Überlappung zuerst einpassen) bzw. Detail, Foto-Popup mit Blättern/Bewertung/Schieber-Zoom dann Inspektor, **Zur Karte** aus Inspektor/Thumbnail (letzter Klick: Detail, Foto, Leistenkarte; geladene Karte ohne Neuaufbau), Platzieren/Verschieben hält Zoom, offline ohne OSM | unverändert |
 | Export | Platzhalter | HTML, PDF, LaTeX, CEWE (CEWE zunächst inaktiv) |
@@ -372,7 +374,7 @@ Das MVP ist erfüllt, wenn alle folgenden Punkte demonstrabel sind:
 16. Das Projekt kann geschlossen und wieder geöffnet werden.
 17. Ein einfacher HTML-Reisebericht kann exportiert werden.
 
-**Aktueller Abnahmestand (Phase 7, Software R2.2.0):** Punkte 1–16 plus Journal-Modell nach Design-Review (Tag/Aufenthalt/Transfer als Abschnitte, Medienpool, Journal-Zeit), Bewertungen für Fotos und Tracks, Eintrags-Titelbild (Foto, Track, YouTube-Fallback), Medieninspektor mit Blättern/Zoom/Drehen und **Zur Karte** (letzter Klick: Detail, Foto, Leistenkarte; geladene Karte ohne Neuaufbau), Track-Vorschauen, Karten-Leiste und Kreis-Detail, Cover-Zoom und Fit-Reise, Foto-Popup mit Vorab-Zentrierung und Blättern, Verbindungslinien (Transfer-Liste und Ausgangslinie) mit Verkehrssymbolen, Drag & Drop mit Auto-Scroll, Fenstertitel mit Version. Windows-Endnutzerpaket (onedir/Zip) ist baubar (FA-140); die Setup-EXE braucht Inno Setup 6 auf dem Build-Rechner (FA-141). Punkt 17 folgt in Phase 8.
+**Aktueller Abnahmestand (Phase 7 plus Medien-Pipeline, Software R3.0.0):** Punkte 1–16 plus Journal-Modell nach Design-Review (Tag/Aufenthalt/Transfer als Abschnitte, Medienpool, Journal-Zeit), Bewertungen für Fotos und Tracks, Eintrags-Titelbild (Foto, Track, YouTube-Fallback), Medieninspektor mit Blättern/Zoom/Drehen, Schlüsselfotos und **Zur Karte** (letzter Klick: Detail, Foto, Leistenkarte; geladene Karte ohne Neuaufbau), Track-Vorschauen, Karten-Leiste und Kreis-Detail, Cover-Zoom und Fit-Reise, Foto-Popup mit Vorab-Zentrierung und Blättern, Verbindungslinien (Transfer-Liste und Ausgangslinie) mit Verkehrssymbolen, Drag & Drop mit Auto-Scroll, SHA-256-Stapel, Szenen- und manuelle Gruppen, Statistikleiste Medien, Fenstertitel mit Version. Windows-Endnutzerpaket (onedir/Zip) ist baubar (FA-140); die Setup-EXE braucht Inno Setup 6 auf dem Build-Rechner (FA-141). Punkt 17 folgt in Phase 8.
 
 ---
 
@@ -388,12 +390,12 @@ Nach jeder Phase: Anwendung startbar, bestehende Tests grün, keine ungenutzten 
 | 4 | GPX und GPS-Zuordnung | erledigt |
 | 5 | Thumbnail-Galerie | erledigt |
 | 6 | Karte | erledigt |
-| 7 | Timeline und manuelle Bearbeitung: Tag/Aufenthalt/Transfer als Abschnitte, Medienpool, Journal-Zeit, Bewertungen, Inspektor, Track-Vorschauen, Karten-Leiste, Verbindungslinien und Verkehrssymbole, Design-Review-UI, Rückgängig/Wiederherstellen | erledigt (HTML-Export nicht enthalten; Software R2.2.0) |
+| 7 | Timeline und manuelle Bearbeitung: Tag/Aufenthalt/Transfer als Abschnitte, Medienpool, Journal-Zeit, Bewertungen, Inspektor, Track-Vorschauen, Karten-Leiste, Verbindungslinien und Verkehrssymbole, Design-Review-UI, Rückgängig/Wiederherstellen | erledigt (HTML-Export nicht enthalten) |
 | 8 | HTML-Export | offen |
 | 9 | Qualitätsanalyse | offen |
-| 10 | Dublettenerkennung | offen |
+| 10 | Dublettenerkennung | teilweise (R3.0.0: SHA-256-Stapel, 30-s-Szenengruppen, manuelle Gruppen, Statistik; keine pHash/Embeddings) |
 
-Windows-Paketierung (`packaging/`) ist **keine eigene Fachphase**. Sie liefert Phase 7 als EXE/Zip (und optional Setup) an Endnutzer, ohne die Phasenfolge zu ändern. Build-Anleitung: [packaging/README.md](../packaging/README.md).
+Windows-Paketierung (`packaging/`) ist **keine eigene Fachphase**. Sie liefert die aktuelle Software (R3.0.0) als EXE/Zip (und optional Setup) an Endnutzer, ohne die Phasenfolge zu ändern. Build-Anleitung: [packaging/README.md](../packaging/README.md).
 
 ---
 

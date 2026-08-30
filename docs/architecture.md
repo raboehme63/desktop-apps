@@ -2,7 +2,7 @@
 
 Produktanforderungen: [pflichtenheft.md](pflichtenheft.md). Leitkonzept: [konzept.md](konzept.md). Tests: [testdokumentation.md](testdokumentation.md). Windows-Paket: [packaging/README.md](../packaging/README.md).
 
-Stand: **Phase 7**, Software **R2.2.0** (30. August 2026). Journal-Modell nach Design-Review; Verbindungslinien; Karten-Popup, Cover-Zoom, Track-Bewertung; **Zur Karte** ohne Neuaufbau der geladenen Karte.
+Stand: **Phase 7** plus Medien-Pipeline, Software **R3.0.0** (30. August 2026). Journal-Modell nach Design-Review; Verbindungslinien; Karten-Popup, Cover-Zoom, Track-Bewertung; **Zur Karte** ohne Neuaufbau der geladenen Karte; SHA-256-Stapel, Szenen- und manuelle Gruppen, Statistikleiste Medien.
 
 ## Prinzip
 
@@ -29,10 +29,10 @@ und ändert die JSON-Datei nicht.
 | UI | `apps/traveljournal/.../ui`, `views`, `widgets` | Darstellung, keine Geschäftslogik |
 | Services | `apps/traveljournal/.../services` | Qt-Threads, Dialoge, Fortschritt, Workspace, Undo-Stack |
 | Domain | `travelcore.trip` | Reise, Kalendertag, Journal-Eintrag (Tag / Aufenthalt / Transfer), Ort, Ereignis (Pydantic) |
-| Use Cases | `travelcore.media`, `gps`, `timeline`, `geolocation`, `maps`, `export` | Import, Zuordnung, Timeline, Karte, Export |
+| Use Cases | `travelcore.media`, `gps`, `timeline`, `geolocation`, `maps`, `similarity`, `export` | Import, Zuordnung, Timeline, Karte, Cluster, Export |
 | Persistenz | `travelcore.database` | SQLAlchemy-Modelle, Alembic, Projektordner |
 
-## Module in travelcore (Phase 7, R2.2.0)
+## Module in travelcore (Phase 7 plus Medien-Pipeline, R3.0.0)
 
 | Paket | Inhalt |
 | --- | --- |
@@ -43,7 +43,8 @@ und ändert die JSON-Datei nicht.
 | `timeline` | Tage, Transfers und Aufenthalte als Abschnitte, Mitglieder, Journal-Zeit, Pool (`parked`), Links, Cover, manuelle Edits, Snapshots zum Wiederherstellen (`history`) |
 | `maps` | `MapScene` + Folium/Leaflet; statische OSM-Ausschnitte für Track-Thumbs |
 | `export` | Vertrag `Exporter`; HTML/PDF/LaTeX/CEWE noch Platzhalter |
-| `image_analysis` / `similarity` | Verträge für Phase 9/10, ohne Engines |
+| `image_analysis` | Vertrag `QualityAnalyzer` für Phase 9, ohne Engine |
+| `similarity` | SHA-256-Stapel, 30-s-Szenengruppen, manuelle Gruppen, Overlay (`load_cluster_overlay`), `compute_media_stats` / `MediaStats`; pHash/Embeddings noch ohne Engine |
 
 Lange Aufgaben (Indexierung, Thumbnails) laufen im GUI-Prozess über
 `QThreadPool`/`QRunnable`. `travelcore` selbst kennt keine Qt-Threads und
@@ -85,12 +86,15 @@ Originaldateien nicht.
 
 Zuletzt geöffnete Projekte stehen unter
 `%LOCALAPPDATA%\TravelJournal\recent.json` (max. 10). Die Oberfläche listet
-sie in R2.2.0 noch nicht. Der Fenstertitel lautet `Reisetagebuch R{Version}`
+sie in R3.0.0 noch nicht. Der Fenstertitel lautet `Reisetagebuch R{Version}`
 bzw. `Reisetagebuch R{Version} - {Projekttitel}`. Das Medienregister
 (Timeline und Medienseite) steht in `%LOCALAPPDATA%\TravelJournal\config.json` (`timeline_media_tab`),
 ebenso die Thumbnail-Schieber (`timeline_thumb_zoom`, `map_thumb_zoom`, `media_thumb_zoom`), die
 eingeklappte linke Navigation (`sidebar_collapsed`), der Medienpool
-(`timeline_pool_visible`, `pool_width`, `inspector_width` / `inspector_height` / `inspector_maximized`).
+(`timeline_pool_visible`, `pool_width`, `inspector_width` / `inspector_height` / `inspector_maximized`, `inspector_show_rejected`).
+Cluster-Sichtbarkeit kommt aus `load_cluster_overlay`: vorgeschlagene Gruppen
+exponieren keine Schlüssel; akzeptierte Gruppen und Stapel zeigen nur Schlüssel.
+`Workspace.media_stats()` liefert die Statistikleiste.
 
 ## Timeline
 
@@ -133,7 +137,11 @@ Reise-Medien, rechts den Medienpool — jeweils mit Alle / Favoriten /
 Reserve / Aussortiert. Mehrfachauswahl wie in der Timeline (erster und letzter
 Klick füllen den Bereich, Strg+Klick nimmt Löcher raus). Ziehen legt Medien
 in den Pool oder zurück in die Galerie. Bewertung und Zugehörigkeit
-(Abschnitt vs. Pool) sind unabhängig.
+(Abschnitt vs. Pool) sind unabhängig. **Dubletten stapeln**, **Ähnliche gruppieren**
+und **Auswahl gruppieren** schreiben `similarity_groups`; Galerie-Kennzeichen
+G (grün nach Schlüsseln, sonst gruppenfarben) und ×n (gold) liegen oben rechts
+auf dem Thumbnail. Unten zählt die Statistikleiste projektweit, unabhängig von
+Suche, Jahr und Register.
 Jede Mitgliedschaft
 trägt eine **Journal-Zeit** (`section_members.journal_at`, initial die Aufnahmezeit
 inkl. Zeitzonenname). Die Timeline sortiert und gruppiert nach dieser Uhr;
@@ -207,7 +215,14 @@ jeweils mit eigenem Bewertungsregister (`pool_media_tab`, unabhängig von
 `timeline_media_tab`). Die Breite überlebt Einklappen und steht in `pool_width`.
 Aussortierte Medien erscheinen nur unter Aussortiert, nicht in Favoriten oder Reserve.
 Im Register Alle blendet die Checkbox **Aussortierte anzeigen** sie ein (Standard aus,
-`show_rejected_in_all` in `config.json`).
+`show_rejected_in_all` in `config.json`). Im Medieninspektor steuert eine eigene
+Checkbox dasselbe fürs Blättern (`inspector_show_rejected`, Standard aus).
+Links/rechts blättert durch Einzelbilder und alle Gruppenschlüssel (sowie
+Stapelschlüssel); hoch/runter nur durch Gruppenmitglieder inklusive verborgener.
+Die Leertaste setzt **Schlüsselfoto**, nachdem der erste Klick das Fenster scharf
+geschaltet hat. Kennzeichen G/×n sitzen groß oben rechts auf dem Foto
+(dunkle Platte, nicht klickbar). Das rechte Hinweis-Panel (`extra_host`) bleibt
+ausgeblendet.
 
 ## Karte
 
@@ -363,7 +378,8 @@ Bereits in Phase 1 angelegt, schrittweise gefüllt:
 - Timeline in `travelcore.timeline` – Tage, Transfers, Aufenthalte, Cover, Links;
   keine Ortsnamen an Foto-/Trackpositionen
 - KML/GeoJSON in `travelcore.gps` – Parser für Vorschauen, kein Ingest in `gps_tracks`
-- `RankingStrategy` / `QualityAnalyzer` – Verträge für Phase 9/10
+- `travelcore.similarity.clusters` – Stapel/Gruppe, Overlay, Statistik
+- `RankingStrategy` / `QualityAnalyzer` – Verträge für Phase 9 bzw. visuelle Ähnlichkeit
 
 ## Persistenz
 
@@ -429,7 +445,7 @@ macOS ist kein Ziel (WIC-Vorschauen, AppData-Pfade).
 4. GPX und GPS-Zuordnung
 5. Thumbnail-Galerie
 6. Karte
-7. Timeline und manuelle Bearbeitung  ← aktueller Stand, Software R2.2.0
+7. Timeline und manuelle Bearbeitung
    (Tag/Aufenthalt/Transfer als Abschnitte, Medienpool, Journal-Zeit,
     Verbindungslinien und Verkehrssymbole, Design-Review-UI, Bewertungen
     inkl. Tracks, Inspektor, Zur Karte letzter Klick / geladene Karte,
@@ -438,4 +454,7 @@ macOS ist kein Ziel (WIC-Vorschauen, AppData-Pfade).
    Windows-Endnutzerpaket: `packaging/` (keine eigene Fachphase)
 8. HTML-Export
 9. Qualitätsanalyse
-10. Dublettenerkennung
+10. Dublettenerkennung  ← R3.0.0 teilweise (SHA-256-Stapel, 30-s-Gruppen,
+    manuelle Gruppen, Statistik; keine pHash/Embeddings)
+
+Aktueller Stand: Phase 7 erledigt plus Medien-Pipeline, Software R3.0.0.

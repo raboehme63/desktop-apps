@@ -10,7 +10,9 @@ from travelcore.media.gallery import list_gallery_items
 from travelcore.media.indexer import FileIndexer
 from travelcore.similarity.clusters import (
     accept_exact_stacks,
+    compute_media_stats,
     create_manual_group,
+    dissolve_group,
     load_cluster,
     load_cluster_overlay,
     propose_scene_groups,
@@ -18,6 +20,7 @@ from travelcore.similarity.clusters import (
     set_stack_key,
 )
 from travelcore.similarity.types import ClusterStatus, ClusterType
+from travelcore.timeline.build import set_photo_sort_status
 
 
 def _index(open_project: OpenProject, source: Path) -> None:
@@ -91,6 +94,11 @@ def test_scene_group_keys_hide_other_members(open_project: OpenProject, tmp_path
     assert group.status == ClusterStatus.SUGGESTED.value
     suggested = [item for item in items if item.group_id == group.id]
     assert len(suggested) == 2
+    with open_project.session_factory() as session:
+        stats = compute_media_stats(session, open_project.project_id)
+    assert stats.imported == 3
+    assert stats.gallery == 3
+    assert stats.groups == 1
 
     key = suggested[0].source_file_id
     with open_project.session_factory() as session:
@@ -166,6 +174,17 @@ def test_manual_group_has_no_keys(open_project: OpenProject, tmp_path: Path) -> 
     assert all(item.is_group_key is False for item in grouped)
     assert all(item.group_status == ClusterStatus.SUGGESTED.value for item in grouped)
 
+    with open_project.session_factory() as session:
+        dissolve_group(session, cluster_id)
+        session.commit()
+    with open_project.session_factory() as session:
+        visible = list_gallery_items(session, open_project.project_id, thumbs)
+        leftover = session.scalar(
+            select(SimilarityGroup).where(SimilarityGroup.id == cluster_id)
+        )
+    assert leftover is None
+    assert all(item.group_id is None for item in visible)
+
 
 def test_manual_group_moves_photos_out_of_previous_group(
     open_project: OpenProject, tmp_path: Path
@@ -235,3 +254,34 @@ def test_stack_key_prefers_richer_original(open_project: OpenProject, tmp_path: 
         visible = list_gallery_items(session, open_project.project_id, thumbs)
     assert len(visible) == 1
     assert visible[0].filename == "IMG_1001.jpg"
+
+
+def test_media_stats_counts_stacks_rejected_and_pool(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    original = write_plain_jpeg(source / "original.jpg", size=(16, 12))
+    copy2(original, source / "copy.jpg")
+    write_plain_jpeg(source / "keep.jpg", size=(20, 14))
+    write_plain_jpeg(source / "weg.jpg", size=(24, 16))
+    write_plain_jpeg(source / "pool.jpg", size=(28, 18))
+    _index(open_project, source)
+
+    with open_project.session_factory() as session:
+        accept_exact_stacks(session, open_project.project_id)
+        weg = session.scalar(select(SourceFile).where(SourceFile.filename == "weg.jpg"))
+        parked = session.scalar(select(SourceFile).where(SourceFile.filename == "pool.jpg"))
+        assert weg is not None and parked is not None
+        set_photo_sort_status(session, weg.id, "rejected")
+        parked.parked = True
+        session.commit()
+        stats = compute_media_stats(session, open_project.project_id)
+    assert stats.imported == 5
+    assert stats.gallery == 2
+    assert stats.rejected == 1
+    assert stats.pool == 1
+    assert stats.stacks == 1
+    assert stats.stack_hidden == 1
+    assert stats.groups == 0
+    assert stats.hidden == 1
+    assert "Importiert 5" in stats.format_line()
+    assert "Dubletten 1 / 1" in stats.format_line()

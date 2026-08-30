@@ -404,6 +404,8 @@ class TimelineView(QWidget):
         self._pool_pane.gallery.item_activated.connect(self._open_inspector)
         self._pool_pane.gallery.stack_requested.connect(self._open_stack)
         self._pool_pane.gallery.group_requested.connect(self._open_group)
+        self._pool_pane.gallery.group_create_requested.connect(self._group_selected_photos)
+        self._pool_pane.gallery.group_dissolve_requested.connect(self._dissolve_photo_group)
         self._pool_pane.show_rejected_changed.connect(self._on_pool_show_rejected)
         self._pool_pane.items_dropped.connect(self._drop_on_timeline_pool)
         self._pool_pane.gallery.set_thumb_zoom(self.workspace.timeline_thumb_zoom())
@@ -639,6 +641,8 @@ class TimelineView(QWidget):
                 block.track_gallery.item_activated.connect(self._open_inspector)
                 block.gallery.stack_requested.connect(self._open_stack)
                 block.gallery.group_requested.connect(self._open_group)
+                block.gallery.group_create_requested.connect(self._group_selected_photos)
+                block.gallery.group_dissolve_requested.connect(self._dissolve_photo_group)
                 block.track_gallery.stack_requested.connect(self._open_stack)
                 block.track_gallery.group_requested.connect(self._open_group)
                 self._wire_drag_scroll(block.gallery)
@@ -763,7 +767,13 @@ class TimelineView(QWidget):
         if not isinstance(item, GalleryItem):
             return
         try:
-            window = open_cluster_inspector(self.workspace, item, cluster_type, self)
+            window = open_cluster_inspector(
+                self.workspace,
+                item,
+                cluster_type,
+                self,
+                gallery_items=self._inspector_sequence(item),
+            )
         except Exception as error:  # noqa: BLE001
             QMessageBox.warning(self, "Timeline", str(error))
             return
@@ -775,10 +785,36 @@ class TimelineView(QWidget):
         window.cluster_changed.connect(self.refresh)
         window.open_media_on_map.connect(self.open_media_on_map.emit)
 
-    def _open_inspector(self, item: object) -> None:
-        if not isinstance(item, GalleryItem):
+    def _group_selected_photos(self) -> None:
+        if self.workspace.current is None:
+            QMessageBox.information(self, "Timeline", "Bitte zuerst ein Projekt öffnen.")
             return
-        sequence = [item]
+        sender = self.sender()
+        items = sender.selected_items() if isinstance(sender, GalleryView) else self._selected_items()
+        photos = [item for item in items if item.extension.lower() in PHOTO_EXTENSIONS]
+        if len(photos) < 2:
+            QMessageBox.information(self, "Timeline", "Bitte mindestens zwei Fotos auswählen.")
+            return
+        try:
+            self.workspace.create_manual_group([item.source_file_id for item in photos])
+        except Exception as error:  # noqa: BLE001
+            QMessageBox.warning(self, "Timeline", str(error))
+            return
+        self.refresh()
+        self.status_message.emit(f"{len(photos)} Fotos gruppiert. Kennzeichen G öffnet das Original.")
+
+    def _dissolve_photo_group(self, item: object) -> None:
+        if not isinstance(item, GalleryItem) or item.group_id is None:
+            return
+        try:
+            self.workspace.dissolve_group(item.group_id)
+        except Exception as error:  # noqa: BLE001
+            QMessageBox.warning(self, "Timeline", str(error))
+            return
+        self.refresh()
+        self.status_message.emit("Gruppe aufgelöst.")
+
+    def _inspector_sequence(self, item: GalleryItem) -> list[GalleryItem]:
         sender = self.sender()
         if isinstance(sender, GalleryView):
             host = sender.parent()
@@ -786,11 +822,27 @@ class TimelineView(QWidget):
                 host = host.parent()
             if isinstance(host, EntryWidget):
                 if sender is host.gallery:
-                    sequence = host.inspectable_media()
-                elif sender is host.track_gallery:
-                    sequence = host.inspectable_tracks()
-            elif isinstance(host, PoolPane):
-                sequence = host.gallery.items()
+                    return host.inspectable_media()
+                if sender is host.track_gallery:
+                    return host.inspectable_tracks()
+            if isinstance(host, PoolPane):
+                return host.gallery.items()
+        for block in self._blocks:
+            media = block.inspectable_media()
+            if any(row.source_file_id == item.source_file_id for row in media):
+                return media
+            tracks = block.inspectable_tracks()
+            if any(row.source_file_id == item.source_file_id for row in tracks):
+                return tracks
+        pool = self._pool_pane.gallery.items()
+        if any(row.source_file_id == item.source_file_id for row in pool):
+            return pool
+        return [item]
+
+    def _open_inspector(self, item: object) -> None:
+        if not isinstance(item, GalleryItem):
+            return
+        sequence = self._inspector_sequence(item)
         window = MediaInspectorWindow(item, items=sequence, workspace=self.workspace, parent=self.window())
         window.rating_changed.connect(self._on_item_rating)
         window.rotation_changed.connect(self._on_item_rating)

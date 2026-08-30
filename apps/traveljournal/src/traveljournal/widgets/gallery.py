@@ -193,6 +193,10 @@ def hit_cluster(
     return None
 
 
+def _is_photo_item(item: GalleryItem) -> bool:
+    return item.extension.lower() in PHOTO_EXTENSIONS
+
+
 def can_be_cover(item: GalleryItem) -> bool:
     suffix = item.extension.lower()
     return suffix in PHOTO_EXTENSIONS or suffix in GPS_EXTENSIONS
@@ -409,6 +413,8 @@ class GalleryView(QListView):
     map_requested = Signal(object)
     stack_requested = Signal(object)
     group_requested = Signal(object)
+    group_create_requested = Signal()
+    group_dissolve_requested = Signal(object)
     drag_started = Signal()
     drag_finished = Signal()
 
@@ -434,8 +440,11 @@ class GalleryView(QListView):
         self._accept_pool_drop = False
         self._scroll_date: ScrollDateChip | None = None
         self._to_map_enabled = None
+        self._show_map_action = False
         self._thumb_zoom = DEFAULT_THUMB_ZOOM
         self._apply_thumb_zoom()
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_context_menu)
 
     def set_multi_select(self, enabled: bool) -> None:
         mode = QListView.SelectionMode.MultiSelection if enabled else QListView.SelectionMode.SingleSelection
@@ -501,25 +510,45 @@ class GalleryView(QListView):
             self.drag_finished.emit()
 
     def enable_to_map_menu(self, enabled_for=None) -> None:  # noqa: ANN001
-        """Right-click a thumbnail to emit ``map_requested`` (Timeline only)."""
+        """Include ``Zur Karte…`` in the thumbnail context menu (Timeline)."""
 
         self._to_map_enabled = enabled_for
-        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.customContextMenuRequested.connect(self._show_to_map_menu)
+        self._show_map_action = True
 
-    def _show_to_map_menu(self, pos: QPoint) -> None:
+    def _show_context_menu(self, pos: QPoint) -> None:
         index = self.indexAt(pos)
         item = self._model.item_at(index)
         if item is None:
             return
-        self.setCurrentIndex(index)
-        menu = QMenu(self)
-        action = menu.addAction("Zur Karte…")
-        if self._to_map_enabled is not None:
-            action.setEnabled(bool(self._to_map_enabled(item)))
+        selected_ids = {row.source_file_id for row in self.selected_items()}
+        if item.source_file_id not in selected_ids:
+            self.clearSelection()
+            self.select_by_source_ids({item.source_file_id})
+        menu, group_act, dissolve_act, map_act = self._build_context_menu(item)
         chosen = menu.exec(self.viewport().mapToGlobal(pos))
-        if chosen is action and action.isEnabled():
+        if chosen is group_act and group_act.isEnabled():
+            self.group_create_requested.emit()
+            return
+        if chosen is dissolve_act and dissolve_act.isEnabled():
+            self.group_dissolve_requested.emit(item)
+            return
+        if map_act is not None and chosen is map_act and map_act.isEnabled():
             self.map_requested.emit(item)
+
+    def _build_context_menu(self, item: GalleryItem) -> tuple[QMenu, object, object, object]:
+        menu = QMenu(self)
+        photos = [row for row in self.selected_items() if _is_photo_item(row)]
+        group_act = menu.addAction("Gruppieren")
+        group_act.setEnabled(len(photos) >= 2)
+        dissolve_act = menu.addAction("Gruppe auflösen")
+        dissolve_act.setEnabled(item.group_id is not None and item.group_status != ClusterStatus.DISMISSED)
+        map_act = None
+        if self._show_map_action:
+            menu.addSeparator()
+            map_act = menu.addAction("Zur Karte…")
+            if self._to_map_enabled is not None:
+                map_act.setEnabled(bool(self._to_map_enabled(item)))
+        return menu, group_act, dissolve_act, map_act
 
     def enable_scroll_date(self) -> None:
         if self._scroll_date is not None:

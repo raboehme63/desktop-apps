@@ -38,7 +38,7 @@ from travelcore.project_settings import (
     save_project_settings,
 )
 from travelcore.similarity import clusters as media_clusters
-from travelcore.similarity.clusters import ClusterRecord
+from travelcore.similarity.clusters import ClusterRecord, MediaStats
 from travelcore.timeline import TimelineSnapshot
 from travelcore.timeline import build as timeline_build
 from travelcore.timeline import history as timeline_history
@@ -200,6 +200,12 @@ class Workspace:
         size = AppSettings().default_thumbnail_size
         with self.current.session_factory() as session:
             return list_gallery_items(session, self.current.project_id, thumbs, size=size)
+
+    def media_stats(self) -> MediaStats:
+        if self.current is None:
+            return MediaStats()
+        with self.current.session_factory() as session:
+            return media_clusters.compute_media_stats(session, self.current.project_id)
 
     def map_provider(self) -> str:
         opened = self._require_open()
@@ -439,6 +445,9 @@ class Workspace:
 
     def dismiss_cluster(self, cluster_id: int) -> None:
         self._mutate(lambda session: media_clusters.dismiss_cluster(session, cluster_id))
+
+    def dissolve_group(self, cluster_id: int) -> None:
+        self._mutate(lambda session: media_clusters.dissolve_group(session, cluster_id))
 
     def sync_timeline(self) -> TimelineSnapshot:
         opened = self._require_open()
@@ -878,6 +887,17 @@ class Workspace:
         if bool(data.get("show_rejected_in_all")) == flag:
             return
         data["show_rejected_in_all"] = flag
+        self._save_ui_config(data)
+
+    def inspector_show_rejected(self) -> bool:
+        return self._load_ui_config().get("inspector_show_rejected") is True
+
+    def set_inspector_show_rejected(self, visible: bool) -> None:
+        flag = bool(visible)
+        data = self._load_ui_config()
+        if bool(data.get("inspector_show_rejected")) == flag:
+            return
+        data["inspector_show_rejected"] = flag
         self._save_ui_config(data)
 
     def inspector_size(self) -> tuple[int, int]:

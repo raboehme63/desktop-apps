@@ -9,13 +9,15 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from travelcore.database.models import SimilarityGroup, SimilarityGroupMember, SourceFile
+from travelcore.database.models import Photo, SimilarityGroup, SimilarityGroupMember, SourceFile
 from travelcore.exceptions import ProjectError
 from travelcore.media.types import FileKind
 from travelcore.similarity.types import ClusterStatus, ClusterType, SimilarityKind, SimilarityMethod
 
 SCENE_WINDOW = timedelta(seconds=30)
 _MEDIA_KINDS = (FileKind.PHOTO.value, FileKind.VIDEO.value)
+_STAT_KINDS = (FileKind.PHOTO.value, FileKind.VIDEO.value, FileKind.GPS.value)
+_REJECTED = "rejected"
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +42,26 @@ class ClusterOverlay:
 
     def is_hidden(self, source_file_id: int) -> bool:
         return source_file_id in self.hidden
+
+
+@dataclass(frozen=True, slots=True)
+class MediaStats:
+    imported: int = 0
+    gallery: int = 0
+    rejected: int = 0
+    pool: int = 0
+    stacks: int = 0
+    stack_hidden: int = 0
+    groups: int = 0
+    hidden: int = 0
+
+    def format_line(self) -> str:
+        return (
+            f"Importiert {self.imported} · Galerie {self.gallery} · "
+            f"Aussortiert {self.rejected} · Pool {self.pool} · "
+            f"Dubletten {self.stacks} / {self.stack_hidden} · "
+            f"Gruppen {self.groups} · Deaktiviert {self.hidden}"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -312,6 +334,12 @@ def dismiss_cluster(session: Session, cluster_id: int) -> None:
     session.flush()
 
 
+def dissolve_group(session: Session, cluster_id: int) -> None:
+    group = _require_cluster(session, cluster_id, ClusterType.GROUP)
+    session.delete(group)
+    session.flush()
+
+
 def _require_cluster(session: Session, cluster_id: int, expected: ClusterType) -> SimilarityGroup:
     group = session.get(SimilarityGroup, cluster_id)
     if group is None or group.cluster_type != expected:
@@ -413,3 +441,47 @@ def _store_suggested_group(session: Session, project_id: int, files: list[Source
             )
         )
     return 1
+
+
+def compute_media_stats(session: Session, project_id: int) -> MediaStats:
+    """Project-wide media counts. Hidden cluster members stay in the index."""
+
+    overlay = load_cluster_overlay(session, project_id)
+    rows = session.execute(
+        select(SourceFile.id, SourceFile.parked, Photo.sort_status)
+        .outerjoin(Photo, Photo.source_file_id == SourceFile.id)
+        .where(SourceFile.project_id == project_id, SourceFile.file_kind.in_(_STAT_KINDS))
+    ).all()
+    imported = 0
+    gallery = 0
+    rejected = 0
+    pool = 0
+    for source_id, parked, status in rows:
+        imported += 1
+        is_rejected = status == _REJECTED
+        if is_rejected:
+            rejected += 1
+        if parked:
+            pool += 1
+        elif not is_rejected and not overlay.is_hidden(source_id):
+            gallery += 1
+    stacks = 0
+    stack_hidden = 0
+    groups = 0
+    for group in session.scalars(select(SimilarityGroup).where(SimilarityGroup.project_id == project_id)):
+        if group.cluster_type == ClusterType.STACK and group.status == ClusterStatus.ACCEPTED:
+            stacks += 1
+            stack_hidden += sum(1 for member in group.members if not member.is_key)
+            continue
+        if group.cluster_type == ClusterType.GROUP and group.status != ClusterStatus.DISMISSED:
+            groups += 1
+    return MediaStats(
+        imported=imported,
+        gallery=gallery,
+        rejected=rejected,
+        pool=pool,
+        stacks=stacks,
+        stack_hidden=stack_hidden,
+        groups=groups,
+        hidden=len(overlay.hidden),
+    )

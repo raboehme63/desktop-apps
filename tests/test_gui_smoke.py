@@ -18,7 +18,7 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
 
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
-    assert window.windowTitle() == "Reisetagebuch R2.2.0"
+    assert window.windowTitle() == "Reisetagebuch R3.0.0"
     assert window.stack.count() == 6
     titles = [action.text() for action in window.menuBar().actions()]
     assert "Projekt" in titles
@@ -138,9 +138,9 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
 def test_app_window_title_includes_version() -> None:
     from traveljournal.__about__ import app_window_title
 
-    assert app_window_title() == "Reisetagebuch R2.2.0"
-    assert app_window_title("Alpen 2025") == "Reisetagebuch R2.2.0 - Alpen 2025"
-    assert app_window_title("  ") == "Reisetagebuch R2.2.0"
+    assert app_window_title() == "Reisetagebuch R3.0.0"
+    assert app_window_title("Alpen 2025") == "Reisetagebuch R3.0.0 - Alpen 2025"
+    assert app_window_title("  ") == "Reisetagebuch R3.0.0"
 
 
 def test_new_project_dialog_preview_and_values(tmp_path: Path) -> None:
@@ -509,10 +509,217 @@ def test_gallery_cluster_hotspots() -> None:
     _ = app
 
 
-def test_cluster_inspector_browses_group() -> None:
+def test_gallery_context_menu_group_actions() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from pathlib import Path
 
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.widgets.gallery import GalleryView
+
+    app = QApplication.instance() or QApplication([])
+
+    def _item(source_id: int, name: str, *, group_id: int | None = None) -> GalleryItem:
+        return GalleryItem(
+            source_file_id=source_id,
+            path=name,
+            filename=name,
+            extension=".jpg",
+            captured_at=None,
+            timezone_unknown=True,
+            gps_latitude=None,
+            gps_longitude=None,
+            camera=None,
+            is_favorite=False,
+            used_in_journal=False,
+            thumbnail_path=Path("missing.jpg"),
+            group_id=group_id,
+            group_size=2 if group_id is not None else 0,
+            group_status="suggested" if group_id is not None else None,
+        )
+
+    first = _item(1, "a.jpg")
+    second = _item(2, "b.jpg", group_id=8)
+    view = GalleryView()
+    view.set_multi_select(True)
+    view.set_items([first, second])
+    view.select_by_source_ids({1})
+    menu, group_act, dissolve_act, map_act = view._build_context_menu(first)
+    assert group_act.text() == "Gruppieren"
+    assert not group_act.isEnabled()
+    assert not dissolve_act.isEnabled()
+    assert map_act is None
+    view.select_by_source_ids({1, 2})
+    menu, group_act, dissolve_act, _map_act = view._build_context_menu(second)
+    assert group_act.isEnabled()
+    assert dissolve_act.isEnabled()
+    _ = menu
+    _ = app
+
+
+def test_cluster_inspector_browses_group() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from dataclasses import replace
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.widgets.media_inspector import MediaInspectorWindow
+
+    app = QApplication.instance() or QApplication([])
+
+    def _item(source_id: int, name: str, *, grouped: bool = False) -> GalleryItem:
+        return GalleryItem(
+            source_file_id=source_id,
+            path=name,
+            filename=name,
+            extension=".jpg",
+            captured_at=None,
+            timezone_unknown=True,
+            gps_latitude=None,
+            gps_longitude=None,
+            camera=None,
+            is_favorite=False,
+            used_in_journal=False,
+            thumbnail_path=Path("missing.jpg"),
+            group_id=8 if grouped else None,
+            group_size=2 if grouped else 0,
+            group_status="suggested" if grouped else None,
+        )
+
+    first = _item(1, "a.jpg", grouped=True)
+    sibling = _item(2, "b.jpg", grouped=True)
+    other = _item(3, "c.jpg")
+    workspace = MagicMock()
+    workspace.inspector_size.return_value = (800, 600)
+    workspace.inspector_maximized.return_value = False
+    workspace.cluster_items.return_value = [first, sibling]
+    window = MediaInspectorWindow(
+        first,
+        items=[first, sibling, other],
+        workspace=workspace,
+        cluster_type="group",
+        cluster_id=8,
+        cluster_members=[first, sibling],
+    )
+    assert "a.jpg" in window.windowTitle()
+    assert "Gruppe 1 von 2" in window.windowTitle()
+    assert not window._key_button.isChecked()
+    assert not window.extra_host.isVisible()
+    window._key_button.click()
+    workspace.set_group_keys.assert_not_called()
+    window.step_cluster(1)
+    assert "b.jpg" in window.windowTitle()
+    assert "Gruppe 2 von 2" in window.windowTitle()
+    window.step(1)
+    assert "c.jpg" in window.windowTitle()
+    assert "Gruppe" not in window.windowTitle()
+    window.close()
+
+    keyed = replace(first, is_group_key=True, group_status="accepted")
+    other_key = replace(_item(4, "d.jpg", grouped=True), is_group_key=True, group_status="accepted")
+    hidden = replace(sibling, group_status="accepted")
+    workspace.cluster_items.return_value = [keyed, hidden, other_key]
+    accepted = MediaInspectorWindow(
+        keyed,
+        items=[keyed, hidden, other_key, other],
+        workspace=workspace,
+        cluster_type="group",
+        cluster_id=8,
+        cluster_members=[keyed, hidden, other_key],
+    )
+    accepted.step_cluster(1)
+    assert "b.jpg" in accepted.windowTitle()
+    accepted.step(1)
+    assert "d.jpg" in accepted.windowTitle()
+    accepted.step(1)
+    assert "c.jpg" in accepted.windowTitle()
+    accepted.step(-1)
+    assert "d.jpg" in accepted.windowTitle()
+    accepted.close()
+
+    only_one_in_gallery = MediaInspectorWindow(
+        keyed,
+        items=[keyed, other],
+        workspace=workspace,
+        cluster_type="group",
+        cluster_id=8,
+        cluster_members=[keyed, hidden, other_key],
+    )
+    assert only_one_in_gallery._image.cluster_badge_kinds() == ("group",)
+    only_one_in_gallery.step(1)
+    assert "d.jpg" in only_one_in_gallery.windowTitle()
+    only_one_in_gallery.close()
+    _ = app
+
+
+def test_cluster_inspector_stack_ignores_vertical() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.widgets.media_inspector import MediaInspectorWindow
+
+    app = QApplication.instance() or QApplication([])
+
+    def _item(source_id: int, name: str, *, stacked: bool = False, key: bool = False) -> GalleryItem:
+        return GalleryItem(
+            source_file_id=source_id,
+            path=name,
+            filename=name,
+            extension=".jpg",
+            captured_at=None,
+            timezone_unknown=True,
+            gps_latitude=None,
+            gps_longitude=None,
+            camera=None,
+            is_favorite=False,
+            used_in_journal=False,
+            thumbnail_path=Path("missing.jpg"),
+            stack_id=5 if stacked else None,
+            stack_size=2 if stacked else 0,
+            is_stack_key=key,
+        )
+
+    key_photo = _item(1, "a.jpg", stacked=True, key=True)
+    copy = _item(2, "b.jpg", stacked=True)
+    solo = _item(3, "c.jpg")
+    workspace = MagicMock()
+    workspace.inspector_size.return_value = (800, 600)
+    workspace.inspector_maximized.return_value = False
+    workspace.cluster_items.return_value = [key_photo, copy]
+    window = MediaInspectorWindow(
+        key_photo,
+        items=[key_photo, copy, solo],
+        workspace=workspace,
+        cluster_type="stack",
+        cluster_id=5,
+        cluster_members=[key_photo, copy],
+    )
+    assert "a.jpg" in window.windowTitle()
+    assert window._image.cluster_badge_kinds() == ("stack",)
+    assert window._cluster_prev.isHidden()
+    window.step_cluster(1)
+    assert "a.jpg" in window.windowTitle()
+    window.step(1)
+    assert "c.jpg" in window.windowTitle()
+    window.close()
+    _ = app
+
+
+def test_cluster_inspector_space_toggles_key() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication
 
     from travelcore.media.gallery import GalleryItem
@@ -536,31 +743,93 @@ def test_cluster_inspector_browses_group() -> None:
             thumbnail_path=Path("missing.jpg"),
             group_id=8,
             group_size=2,
+            group_status="suggested",
         )
 
-    from unittest.mock import MagicMock
-
     first = _item(1, "a.jpg")
-    second = _item(2, "b.jpg")
+    hidden = _item(2, "b.jpg")
     workspace = MagicMock()
     workspace.inspector_size.return_value = (800, 600)
     workspace.inspector_maximized.return_value = False
+    workspace.cluster_items.return_value = [first, hidden]
     window = MediaInspectorWindow(
         first,
-        items=[first, second],
+        items=[first],
         workspace=workspace,
         cluster_type="group",
         cluster_id=8,
+        cluster_members=[first, hidden],
     )
-    assert window.windowTitle().startswith("Gruppe")
-    assert "1 von 2" in window.windowTitle()
-    assert not window._key_button.isChecked()
-    assert "kein Schlüsselfoto" in window._cluster_hint.text()
-    window._key_button.click()
-    workspace.set_group_keys.assert_not_called()
+    window._arm_key_clicks()
+    window._rating_buttons["favorite"].setFocus()
+    QTest.keyClick(window._rating_buttons["favorite"], Qt.Key.Key_Space)
+    workspace.set_group_keys.assert_called_once_with(8, [1])
+    window.close()
+    _ = app
+
+
+def test_media_inspector_skips_rejected_unless_checked() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from pathlib import Path
+
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.media.gallery import GalleryItem
+    from traveljournal.widgets.media_inspector import MediaInspectorWindow
+
+    app = QApplication.instance() or QApplication([])
+
+    class StubWorkspace:
+        def __init__(self) -> None:
+            self.flag = False
+
+        def inspector_size(self) -> tuple[int, int]:
+            return (800, 600)
+
+        def inspector_maximized(self) -> bool:
+            return False
+
+        def inspector_show_rejected(self) -> bool:
+            return self.flag
+
+        def set_inspector_show_rejected(self, visible: bool) -> None:
+            self.flag = bool(visible)
+
+        def set_inspector_geometry(self, width: int, height: int, *, maximized: bool = False) -> None:
+            return None
+
+    def _item(source_id: int, name: str, *, rejected: bool = False) -> GalleryItem:
+        return GalleryItem(
+            source_file_id=source_id,
+            path=name,
+            filename=name,
+            extension=".jpg",
+            captured_at=None,
+            timezone_unknown=True,
+            gps_latitude=None,
+            gps_longitude=None,
+            camera=None,
+            is_favorite=False,
+            used_in_journal=False,
+            thumbnail_path=Path("missing.jpg"),
+            sort_status="rejected" if rejected else None,
+        )
+
+    first = _item(1, "a.jpg")
+    dropped = _item(2, "b.jpg", rejected=True)
+    third = _item(3, "c.jpg")
+    workspace = StubWorkspace()
+    window = MediaInspectorWindow(first, items=[first, dropped, third], workspace=workspace)
+    assert not window._show_rejected.isChecked()
     window.step(1)
-    assert "b.jpg" in window.windowTitle()
-    assert not window._key_button.isChecked()
+    assert window.item().filename == "c.jpg"
+    window._show_rejected.setChecked(True)
+    assert workspace.flag is True
+    window.step(-1)
+    assert window.item().filename == "b.jpg"
+    window._show_rejected.setChecked(False)
+    assert workspace.flag is False
+    assert window.item().filename == "c.jpg"
     window.close()
     _ = app
 
@@ -2396,6 +2665,8 @@ def test_photos_view_multi_select_and_pool_drag(tmp_path: Path, monkeypatch) -> 
         item("pool.jpg", 5, parked=True),
     ]
     view._apply_filters()
+    assert view.stats.objectName() == "pageSubtitle"
+    assert view.stats.text() == "Kein Projekt geöffnet"
     assert view.gallery.selectionMode() == QAbstractItemView.SelectionMode.MultiSelection
     assert view.gallery.dragEnabled()
     assert view.gallery.acceptDrops()

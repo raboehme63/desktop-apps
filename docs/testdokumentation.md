@@ -2,9 +2,9 @@
 
 | Feld | Inhalt |
 | --- | --- |
-| Version | 2.2 |
+| Version | 3.0 |
 | Stand | 30. August 2026 |
-| Bezugsversion Software | Phase 7, Software **R2.2.0** |
+| Bezugsversion Software | Phase 7 plus Medien-Pipeline, Software **R3.0.0** |
 | Bezug | [pflichtenheft.md](pflichtenheft.md), [konzept.md](konzept.md), [packaging/README.md](../packaging/README.md) |
 
 Diese Dokumentation beschreibt **Teststrategie, Automatisierung, manuelle Prüfung und Abdeckungslücken**. Sie ist die Testdoku zum Pflichtenheft, kein Ersatz für pytest-Ausgaben.
@@ -191,7 +191,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | --- | --- | --- |
 | `test_create_project_layout_and_row` | `test_database.py` | Ordnerlayout + Projektzeile + `settings.toml` |
 | `test_open_existing_project` | `test_database.py` | Öffnen bestehender DB |
-| `test_schema_contains_core_tables` | `test_database.py` | Kern-Tabellen inkl. `source_files`, `trips`, `trip_sections`, `photo_analyses`; Spalten `rotation_degrees`, `sort_status`, Cover- und URL-Felder |
+| `test_schema_contains_core_tables` | `test_database.py` | Kern-Tabellen inkl. `source_files`, `trips`, `trip_sections`, `photo_analyses`, `similarity_groups`; Spalten `rotation_degrees`, `sort_status`, Cover- und URL-Felder, Cluster `cluster_type`/`status`/`origin`/`is_key` |
 | `test_folder_name_from_project_name_strips_invalid_chars` | `test_database.py` | ungültige Ordnerzeichen entfernt |
 | `test_create_under_uses_name_as_subdirectory` | `test_database.py` | Anlegen unter Stammordner |
 | `test_create_under_sanitizes_folder_but_keeps_display_name` | `test_database.py` | Anzeigename bleibt, Ordnername bereinigt |
@@ -207,7 +207,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_project_survives_close_and_reopen` | `tests/integration/test_project_lifecycle.py` | Index überlebt Re-Open |
 | `test_exporters_share_interface` | `test_interfaces.py` | HTML/PDF/LaTeX/CEWE sind `Exporter` |
 | `test_protocols_are_importable` | `test_interfaces.py` | `MetadataProvider`, `RankingStrategy`, `MapBackend` |
-| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R2.2.0, Menü **Bearbeiten** mit Strg+Z/Strg+Y, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren** |
+| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R3.0.0, Menü **Bearbeiten** mit Strg+Z/Strg+Y, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren** |
 
 ### 4.7 GPX und zeitliche Zuordnung — FA-040 bis FA-042
 
@@ -456,7 +456,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 
 | Test | Datei | Prüft |
 | --- | --- | --- |
-| `test_app_window_title_includes_version` | `tests/test_gui_smoke.py` | `Reisetagebuch R2.2.0` |
+| `test_app_window_title_includes_version` | `tests/test_gui_smoke.py` | `Reisetagebuch R3.0.0` |
 | `test_source_sync_dialog_defaults_to_timeline` | `tests/test_gui_smoke.py` | Sync-Dialog: Timeline vorausgewählt, Pool wählbar |
 | `test_source_sync_dialog_hides_destination_without_new_files` | `tests/test_gui_smoke.py` | ohne neue Dateien keine Timeline/Pool-Wahl |
 | `test_entry_widget_separates_tracks_from_media` | `tests/test_gui_smoke.py` | getrennte Galerien |
@@ -505,7 +505,8 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_timeline_autoscroll_step_near_edges` | `tests/test_gui_smoke.py` | Auto-Scroll-Schritt am Rand |
 | `test_timeline_drag_autoscroll_timer` | `tests/test_gui_smoke.py` | Timer startet und stoppt mit dem Drag |
 | `test_timeline_map_anchor_uses_ordered_items_not_entry_attr` | `tests/test_gui_smoke.py` | GPS-Rückfrage ohne `entry`-Attribut |
-| `test_photos_view_multi_select_and_pool_drag` | `tests/test_gui_smoke.py` | Medien: Bereichsauswahl, Ziehen in den Pool und zurück |
+| `test_photos_view_multi_select_and_pool_drag` | `tests/test_gui_smoke.py` | Medien: Bereichsauswahl, Ziehen in den Pool und zurück; Statistikleiste |
+| `test_media_stats_counts_stacks_rejected_and_pool` | `packages/travelcore/tests/test_clusters.py` | Statistik: Import, Galerie, Aussortiert, Pool, Stapel |
 | `test_media_inspector_shows_original_and_ratings` | `tests/test_gui_smoke.py` | Inspektor mit Chips |
 | `test_media_inspector_shows_ratings_for_tracks` | `tests/test_gui_smoke.py` | Track-Bewertung im Inspektor |
 | `test_entry_widget_track_tab_filters_and_reactivates` | `tests/test_gui_smoke.py` | Track-Reiter wie Medien-Register |
@@ -514,6 +515,10 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_media_inspector_opens_current_item_on_map` | `tests/test_gui_smoke.py` | Inspektor: Zur Karte sendet Abschnitt und Medium |
 | `test_media_inspector_rotates_display_without_writing_original` | `tests/test_gui_smoke.py` | Drehen, Original-mtime gleich |
 | `test_media_inspector_browses_section_sequence` | `tests/test_gui_smoke.py` | Blättern in der Sequenz |
+| `test_cluster_inspector_browses_group` | `tests/test_gui_smoke.py` | Links/rechts alle Schlüsselfotos; hoch/runter nur in der Gruppe; Kennzeichen oben rechts |
+| `test_cluster_inspector_stack_ignores_vertical` | `tests/test_gui_smoke.py` | Hoch/runter im Stapel ohne Wirkung |
+| `test_cluster_inspector_space_toggles_key` | `tests/test_gui_smoke.py` | Leertaste betätigt Schlüsselfoto |
+| `test_media_inspector_skips_rejected_unless_checked` | `tests/test_gui_smoke.py` | Inspektor blendet Aussortierte nur mit Checkbox ein |
 | `test_media_inspector_rating_advances_to_next_photo` | `tests/test_gui_smoke.py` | Bewertung im Inspektor springt zum nächsten Foto, letztes bleibt |
 | `test_media_inspector_pool_advances_to_next_photo` | `tests/test_gui_smoke.py` | In den Pool im Inspektor springt zum nächsten Foto |
 | `test_inspector_keeps_photo_aspect_on_resize` | `tests/test_gui_smoke.py` | Eckgriff proportional |
@@ -539,6 +544,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_inspector_remembers_window_size` | `tests/test_gui_smoke.py` | nächstes Öffnen mit derselben Fenstergröße |
 | `test_pool_media_tab_persists` | `tests/test_workspace.py` | `config.json` hält das Pool-Bewertungsregister |
 | `test_show_rejected_in_all_persists` | `tests/test_workspace.py` | `config.json` hält „Aussortierte anzeigen“ |
+| `test_inspector_show_rejected_persists` | `tests/test_workspace.py` | `config.json` hält Inspektor „Aussortierte anzeigen“ |
 | `test_map_display_flags_persist_in_project` | `tests/test_workspace.py` | Zahnrad-Optionen in `settings.toml` |
 
 ### 4.16 Rückgängig und Wiederherstellen — FA-085
@@ -558,11 +564,30 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_workspace_undo_dissolve_journal_notes_cover_rotation` | `tests/test_edit_history.py` | Workspace: Auflösen, Journal-Zeit, Texte, Reisetitel, Titelbild, Drehung |
 | `test_main_window_starts` | `tests/test_gui_smoke.py` | Menü **Bearbeiten**, Standard-Shortcuts Undo/Redo |
 
+### 4.17 Medien-Cluster — FA-071, FA-101, FA-102, FA-105
+
+| Test | Datei | Prüft |
+| --- | --- | --- |
+| `test_exact_stacks_keep_one_key_visible` | `packages/travelcore/tests/test_clusters.py` | SHA-256-Stapel: ein Schlüssel sichtbar, Kopien verborgen |
+| `test_scene_group_keys_hide_other_members` | `packages/travelcore/tests/test_clusters.py` | akzeptierte Gruppe blendet Nicht-Schlüssel aus |
+| `test_suggested_group_ignores_stale_keys` | `packages/travelcore/tests/test_clusters.py` | vorgeschlagene Gruppe exponiert keine Schlüssel |
+| `test_manual_group_has_no_keys` | `packages/travelcore/tests/test_clusters.py` | manuelle Gruppe ohne Schlüssel, `origin=manual` |
+| `test_manual_group_moves_photos_out_of_previous_group` | `packages/travelcore/tests/test_clusters.py` | Gruppieren zieht Fotos aus der alten Gruppe |
+| `test_stack_key_prefers_richer_original` | `packages/travelcore/tests/test_clusters.py` | Stapelschlüssel bevorzugt das reichere Original |
+| `test_media_stats_counts_stacks_rejected_and_pool` | `packages/travelcore/tests/test_clusters.py` | Statistik: Import, Galerie, Aussortiert, Pool, Stapel |
+| `test_gallery_cluster_hotspots` | `tests/test_gui_smoke.py` | Galerie-Kennzeichen G und ×n |
+| `test_gallery_context_menu_group_actions` | `tests/test_gui_smoke.py` | Rechtsklick Gruppieren / Gruppe auflösen |
+| `test_cluster_inspector_browses_group` | `tests/test_gui_smoke.py` | Links/rechts alle Schlüsselfotos; hoch/runter nur in der Gruppe; Kennzeichen oben rechts |
+| `test_cluster_inspector_stack_ignores_vertical` | `tests/test_gui_smoke.py` | Hoch/runter im Stapel ohne Wirkung |
+| `test_cluster_inspector_space_toggles_key` | `tests/test_gui_smoke.py` | Leertaste betätigt Schlüsselfoto |
+| `test_media_inspector_skips_rejected_unless_checked` | `tests/test_gui_smoke.py` | Inspektor blendet Aussortierte nur mit Checkbox ein |
+| `test_inspector_show_rejected_persists` | `tests/test_workspace.py` | `inspector_show_rejected` in `config.json` |
+
 ---
 
 ## 5. Abdeckung gegen das Pflichtenheft
 
-### 5.1 Gut abgedeckt (Phase 7, R2.2.0)
+### 5.1 Gut abgedeckt (Phase 7 plus Medien-Pipeline, R3.0.0)
 
 - Dateiklassifikation und rekursiver Scan
 - SHA-256 und Skip unveränderter Dateien
@@ -586,7 +611,8 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 - Reiseabschnitte, Pending-Vorschau, Eintrags-Titelbild (Foto und Track, YouTube-Fallback)
 - YouTube- und DHV-Leonardo-URL-Normalisierung
 - Anzeigedrehung (Index, Cachepfad, Re-Import, Inspektor ohne Originalschreiben)
-- GUI-Rauch: Fenstertitel mit Version R2.2.0, Menü **Bearbeiten** (Strg+Z/Strg+Y), Pipeline Import→Medien→Timeline, Pool-Spalte, getrennte Medien/Tracks, Register nur per Klick (auch Tracks), Inspektor Blättern/Zoom/Drehen/Pool/Zur Karte (letzter Klick, geladene Karte ohne Neuaufbau), Thumbnail-Schieber
+- GUI-Rauch: Fenstertitel mit Version R3.0.0, Menü **Bearbeiten** (Strg+Z/Strg+Y), Pipeline Import→Medien→Timeline, Pool-Spalte, getrennte Medien/Tracks, Register nur per Klick (auch Tracks), Inspektor Blättern/Zoom/Drehen/Pool/Zur Karte (letzter Klick, geladene Karte ohne Neuaufbau), Thumbnail-Schieber
+- Medien-Cluster: SHA-256-Stapel, 30-s-Szenengruppen, manuelle Gruppen ohne Schlüssel, Overlay blendet Nicht-Schlüssel aus, Galerie-Kennzeichen G/×n, Inspektor-Blättern (Links/rechts Schlüssel, hoch/runter Gruppe, Leertaste, Aussortierte-Checkbox), Statistikleiste
 - Export- und Provider-*Verträge* existieren
 
 ### 5.2 Bewusst noch ohne Automatisierung
@@ -600,7 +626,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | Zuletzt verwendete Projekte in der UI | FA-091 | `recent.json` ohne Oberfläche; manuell nicht zwingend |
 | HTML-/PDF-/LaTeX-Ausgabe | FA-121–FA-123 | Phase 8 |
 | Qualitätskennzahlen | FA-070 | Phase 9 |
-| pHash/dHash, Dublettengruppen | FA-071 | Phase 10 |
+| pHash/dHash, unechte Dubletten | FA-071 | SHA-256-Stapel und Zeitszenen automatisiert; visuelle Near-Duplicates Phase 10 |
 | Importliste „alle Dateien“ (kein 250er-Limit) | FA-025 | nur manuell / GUI, kein Unit-Test der Qt-Tabelle |
 | Originale unverändert | FA-023 | implizit (nur Lese-APIs); Thumbnail- und Inspektor-Tests prüfen mtime |
 | IPTC | FA-030 | ausstehend |
@@ -608,7 +634,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | pytest-qt Bedienung Import-Button | FA-092 | geplant |
 | KML/GeoJSON auf der interaktiven Karte | FA-013, FA-043 | bewusst nicht; Parser + Thumbs automatisiert |
 
-Qualität und perceptual hashing entstehen mit den Phasen 9–10; die Verträge `QualityAnalyzer` und `RankingStrategy` sind importierbar.
+Qualität und perceptual hashing entstehen mit den Phasen 9–10; SHA-256-Stapel und Zeitszenen sind in R3.0.0 automatisiert. Die Verträge `QualityAnalyzer` und `RankingStrategy` sind importierbar.
 
 ---
 
@@ -632,7 +658,7 @@ Schweregrade für manuelle Funde:
 
 ---
 
-## 7. Manuelle Testfälle (Phase 3 bis 7, Software R2.2.0, inkl. Windows-Paket und Undo/Redo)
+## 7. Manuelle Testfälle (Phase 3 bis 7 plus Medien-Pipeline, Software R3.0.0, inkl. Windows-Paket und Undo/Redo)
 
 Voraussetzung: App starten mit
 
@@ -858,6 +884,10 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | **Zur Karte** bei einem Medium mit Ort | Seite **Karte**, Detailansicht, Foto-Popup, zugehörige Leistenkarte mittig; ohne Ort oder im Pool deaktiviert |
 | Zweites Original-Fenster, **Zur Karte** im zweiten | versetzt; letzter Klick gewinnt Detail, Foto und Leistenkarte |
 | **Zur Karte**, Karte war in der Sitzung schon offen | sofort Detail und Foto, kein langes Neuzeichnen |
+| Gruppe mit mehreren Mitgliedern öffnen | Links/rechts nur Einzelbilder und Schlüsselfotos; hoch/runter bzw. ▲▼ durch alle Mitglieder inkl. verborgener; Kennzeichen G oben rechts auf dem Foto, groß, dunkle Platte, nicht klickbar |
+| Stapel öffnen, hoch/runter | keine Wirkung; Links/rechts wie die Galerie |
+| Leertaste nach Klick ins Fenster | betätigt **Schlüsselfoto** |
+| Checkbox **Aussortierte anzeigen** aus | Aussortierte werden übersprungen; mit Häkchen erscheinen sie; Zustand bleibt nach Schließen |
 
 ### MT-19 Anzeigedrehung
 
@@ -878,8 +908,8 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| App ohne Projekt | Titelleiste `Reisetagebuch R2.2.0` |
-| Projekt öffnen | `Reisetagebuch R2.2.0 - {Projekttitel}` |
+| App ohne Projekt | Titelleiste `Reisetagebuch R3.0.0` |
+| Projekt öffnen | `Reisetagebuch R3.0.0 - {Projekttitel}` |
 
 ### MT-22 Windows-Paket (FA-140–FA-144)
 
@@ -887,7 +917,7 @@ Voraussetzung: `packaging/build.ps1` erfolgreich; optional Inno Setup 6 für die
 
 | Schritt | Erwartung |
 | --- | --- |
-| `dist/Reisetagebuch/Reisetagebuch.exe` starten (ohne venv, ohne `python` auf dem PATH) | Fenster `Reisetagebuch R2.2.0`; kein Python-Fehlerdialog |
+| `dist/Reisetagebuch/Reisetagebuch.exe` starten (ohne venv, ohne `python` auf dem PATH) | Fenster `Reisetagebuch R3.0.0`; kein Python-Fehlerdialog |
 | Neues Projekt anlegen, JPEG-Ordner importieren | Index und Thumbnails wie in der Entwicklungsumgebung; Originale unverändert |
 | Seite **Karte** | WebEngine zeigt die Karte (nicht nur den HTML-Pfad) |
 | `%LOCALAPPDATA%\TravelJournal` | `config.json` / `recent.json` wie bisher, nicht im Programmordner |
@@ -925,6 +955,21 @@ Voraussetzung: Projekt mit Timeline (mindestens ein Tag mit Foto, ein gespeicher
 | Transfer-Zeile und Ausgangslinie: Combobox Verkehrsmittel | dasselbe Badge vor dem Namen; „Pfeil“ zeigt das Richtungssymbol |
 | Karte: Linie nach Osten mit Auto, dann Camper | beide Nasen zur Folgeposition; nach Westen Räder/Kiel unten, Nase weiter in Fahrtrichtung |
 
+### MT-26 Medien-Pipeline: Stapel, Gruppe, Statistik (FA-071, FA-101, FA-105)
+
+Voraussetzung: Projekt mit mehreren Fotos, darunter mindestens eine echte Kopie (gleicher Dateiinhalt) und eine Serie ähnlicher Aufnahmen innerhalb von 30 Sekunden.
+
+| Schritt | Erwartung |
+| --- | --- |
+| Medien: **Dubletten stapeln** | echte Kopien verschwinden aus der Galerie; ein Schlüsselfoto bleibt mit Kennzeichen ×n (gold); Originale unverändert; Statistik **Dubletten** n / m |
+| Medien: **Ähnliche gruppieren** | Serienfotos tragen dasselbe Gruppen-Kennzeichen G (eigene Farbe, nicht grün); kein Schlüsselfoto automatisch; Mitglieder bleiben sichtbar |
+| Zwei oder mehr Fotos markieren, **Auswahl gruppieren** oder Rechtsklick **Gruppieren** | manuelle Gruppe ohne Schlüssel; dieselben Fotos verlassen eine frühere Gruppe |
+| Gruppe im Inspektor öffnen, ein oder mehrere **Schlüsselfoto** setzen | Kennzeichen wird grün; nach Schließen nur die Schlüssel in der Galerie; übrige Mitglieder bleiben im Index |
+| Rechtsklick **Gruppe auflösen** | Gruppe weg; alle Fotos wieder einzeln sichtbar; Index unverändert |
+| Stapel: anderes Mitglied im Inspektor zum Schlüssel machen | Galerie zeigt das neue Schlüsselbild mit ×n |
+| Suche, Jahr oder Register wechseln | Statistikleiste unten bleibt projektweit (Importiert · Galerie · Aussortiert · Pool · Dubletten · Gruppen · Deaktiviert) |
+| Timeline: Rechtsklick **Gruppieren** auf zwei Fotos | dieselbe manuelle Gruppe wie auf Medien |
+
 ---
 
 ## 8. Manuelle Fälle ab Phase 8 (Vorschau)
@@ -936,7 +981,7 @@ Diese Fälle werden mit der jeweiligen Phase verbindlich.
 | MT-14 | 8 | HTML-Export öffnet sich im Browser, lokale Bilder, kein Server |
 | MT-15 | 8 | Export schreibt nach `exports/`, Originale unverändert |
 | MT-16 | 9 | Qualitätswerte sind Empfehlung, kein Löschen |
-| MT-17 | 10 | Dublettengruppe, Originale bleiben |
+| MT-17 | 10 | unechte Dubletten per pHash, Originale bleiben (SHA-256 und Zeitszenen: MT-26) |
 
 ---
 
@@ -952,6 +997,7 @@ Diese Fälle werden mit der jeweiligen Phase verbindlich.
 | Karte / Leiste / Kreis-Detail | `test_maps.py`, `tests/test_gui_smoke.py` (Map-Fälle), manuell MT-12 |
 | Verbindungslinien / Symbole | `test_transfer_links.py`, `test_symbols.py`, `test_maps.py` (outbound), `tests/test_gui_smoke.py` (Transfer-Zeile), manuell MT-12, MT-13, MT-25 |
 | Inspektor / Drehung / Register / Zur Karte | `test_orientation.py`, `tests/test_gui_smoke.py`, manuell MT-18–MT-21 |
+| Medien-Cluster / Statistik | `packages/travelcore/tests/test_clusters.py`, `tests/test_gui_smoke.py` (Cluster-Fälle), manuell MT-26 |
 | Windows-Paket (`packaging/`) | manuell MT-22 (kein pytest) |
 | UI-Importliste | MT-04, MT-23 |
 | Vor Phasenabschluss | pytest grün + manuelle Fälle der Phase + Ruff |
@@ -964,6 +1010,7 @@ Ein Phasenabschluss ohne grüne Automatisierung gilt als nicht abgenommen.
 
 | Datum | Kommando | Ergebnis |
 | --- | --- | --- |
+| 30.08.2026 | `python -m pytest` im Projekt-venv | 429 bestanden (R3.0.0; Stapel/Gruppe, Inspektor-Cluster, Statistikleiste) |
 | 30.08.2026 | `python -m pytest` im Projekt-venv | 415 bestanden (R2.2.0; Zur Karte letzter Klick, Detail+Foto, geladene Karte ohne Neuaufbau) |
 | 30.08.2026 | `python -m pytest` im Projekt-venv | 400 bestanden (R2.1.1; Cover-Zoom, Foto-Popup, Track-Bewertung, Thumbnail-Schieber) |
 | 29.08.2026 | `python -m pytest` im Projekt-venv | 393 bestanden (R2.1.0; Verbindungslinien, Ausgangslinie, Verkehrssymbole) |

@@ -25,6 +25,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import (
     QCloseEvent,
     QColor,
+    QFont,
     QHoverEvent,
     QImage,
     QKeyEvent,
@@ -41,6 +42,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -65,6 +67,7 @@ from travelcore.media.orientation import can_rotate_media, normalize_rotation_de
 from travelcore.media.types import PHOTO_EXTENSIONS, VIDEO_EXTENSIONS
 from travelcore.similarity.types import ClusterStatus, ClusterType
 from traveljournal.services.workspace import Workspace
+from traveljournal.widgets.gallery import group_badge_color, group_badge_text_color
 
 _MAX_EDGE = 1920
 _INSPECTOR_EDGE = 6000
@@ -86,6 +89,11 @@ _MIN_IMAGE = QSize(240, 180)
 INSPECTOR_DEFAULT_SIZE = (960, 720)
 INSPECTOR_MIN_SIZE = (520, 400)
 INSPECTOR_MAX_SIZE = (8000, 8000)
+_STACK_CHIP = QColor("#d4a017")
+_BADGE = 48
+_BADGE_GAP = 10
+_BADGE_INSET = 16
+_BADGE_PLATE = QColor(8, 10, 16, 170)
 
 
 class _PixmapCache:
@@ -173,6 +181,7 @@ class PhotoCanvas(QWidget):
         self._drag_last: QPointF | None = None
         self._moved = False
         self._nav_clicked = False
+        self._badge_item: GalleryItem | None = None
         self.setMinimumSize(400, 300)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -192,6 +201,13 @@ class PhotoCanvas(QWidget):
         if not enabled:
             self._hover_side = 0
         self.update()
+
+    def set_cluster_item(self, item: GalleryItem | None) -> None:
+        self._badge_item = item
+        self.update()
+
+    def cluster_badge_kinds(self) -> tuple[str, ...]:
+        return _inspector_badge_kinds(self._badge_item)
 
     def set_source(self, pixmap: QPixmap, *, keep_view: bool = False) -> None:
         self._source = pixmap
@@ -330,6 +346,7 @@ class PhotoCanvas(QWidget):
         if self._browse:
             _draw_nav_arrow(painter, self.rect(), -1, strong=self._hover_side == -1)
             _draw_nav_arrow(painter, self.rect(), 1, strong=self._hover_side == 1)
+        self._paint_cluster_markers(painter)
 
     def _draw_rect(self) -> QRectF:
         fit = _fit_rect(self.size(), self._source.size())
@@ -359,6 +376,40 @@ class PhotoCanvas(QWidget):
             self.update()
         if self._drag_last is None:
             self._refresh_cursor()
+
+    def _paint_cluster_markers(self, painter: QPainter) -> None:
+        item = self._badge_item
+        kinds = _inspector_badge_kinds(item)
+        if item is None or not kinds or self._source.isNull():
+            return
+        photo = self._draw_rect().toRect()
+        if photo.width() < 72 or photo.height() < 72:
+            return
+        chips: list[tuple[str, QRect]] = []
+        x = photo.right() - _BADGE_INSET
+        y = photo.top() + _BADGE_INSET
+        for kind in reversed(kinds):
+            width = _BADGE + (18 if kind == "stack" else 0)
+            x -= width
+            chips.append((kind, QRect(x, y, width, _BADGE)))
+            x -= _BADGE_GAP
+        plate = chips[0][1].united(chips[-1][1]).adjusted(-8, -8, 8, 8)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(_BADGE_PLATE)
+        painter.drawRoundedRect(plate, 12, 12)
+        painter.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
+        for kind, chip in chips:
+            painter.setPen(Qt.PenStyle.NoPen)
+            if kind == "stack":
+                painter.setBrush(_STACK_CHIP)
+                painter.drawRoundedRect(chip, 10, 10)
+                painter.setPen(QColor("#2a2108"))
+                painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, f"×{item.stack_size}")
+            else:
+                painter.setBrush(group_badge_color(item))
+                painter.drawRoundedRect(chip, 10, 10)
+                painter.setPen(group_badge_text_color(item))
+                painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, "G")
 
     def _refresh_cursor(self) -> None:
         if self._drag_last is not None:
@@ -441,6 +492,8 @@ class MediaInspectorWindow(QWidget):
         thumbnail_first: bool = False,
         cluster_type: str | None = None,
         cluster_id: int | None = None,
+        cluster_members: list[GalleryItem] | None = None,
+        start_source_id: int | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowFlags(
@@ -458,7 +511,13 @@ class MediaInspectorWindow(QWidget):
         self._thumbnail_first = thumbnail_first
         self._cluster_type = cluster_type
         self._cluster_id = cluster_id
+        self._cluster_members: list[GalleryItem] = list(cluster_members or [])
+        self._cluster_index = 0
+        self._cluster_cache: dict[tuple[str, int], list[GalleryItem]] = {}
+        if self._cluster_members and cluster_type is not None and cluster_id is not None:
+            self._cluster_cache[(cluster_type, cluster_id)] = list(self._cluster_members)
         self._key_clicks_armed = False
+        self._start_source_id = start_source_id
         self._showing_original = not thumbnail_first
         self._items = _sequence_for(item, items)
         self._index = next(
@@ -503,7 +562,6 @@ class MediaInspectorWindow(QWidget):
         extra_hint.setWordWrap(True)
         extra_layout.addWidget(extra_hint)
         extra_layout.addStretch(1)
-        self._cluster_hint = extra_hint
         self.extra_host.hide()
         split.addWidget(self.extra_host)
         split.setStretchFactor(0, 1)
@@ -538,13 +596,37 @@ class MediaInspectorWindow(QWidget):
             button.clicked.connect(lambda _checked, value=status: self._choose_rating(value))
             self._rating_buttons[status] = button
             self._rating_row.addWidget(button)
+        self._cluster_prev = QPushButton("▲", self)
+        self._cluster_prev.setObjectName("rotateChip")
+        self._cluster_prev.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self._cluster_prev.setAutoDefault(False)
+        self._cluster_prev.setDefault(False)
+        self._cluster_prev.setToolTip("In Gruppe oder Stapel zurück (↑)")
+        self._cluster_prev.clicked.connect(lambda: self.step_cluster(-1))
+        self._cluster_prev.hide()
+        self._cluster_pos = QLabel(self)
+        self._cluster_pos.setObjectName("pageSubtitle")
+        self._cluster_pos.hide()
+        self._cluster_next = QPushButton("▼", self)
+        self._cluster_next.setObjectName("rotateChip")
+        self._cluster_next.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self._cluster_next.setAutoDefault(False)
+        self._cluster_next.setDefault(False)
+        self._cluster_next.setToolTip("In Gruppe oder Stapel weiter (↓)")
+        self._cluster_next.clicked.connect(lambda: self.step_cluster(1))
+        self._cluster_next.hide()
+        self._rating_row.addWidget(self._cluster_prev)
+        self._rating_row.addWidget(self._cluster_pos)
+        self._rating_row.addWidget(self._cluster_next)
         self._key_button = QPushButton("Schlüsselfoto", self)
         self._key_button.setObjectName("ratingChip")
         self._key_button.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self._key_button.setCheckable(True)
         self._key_button.setAutoDefault(False)
         self._key_button.setDefault(False)
-        self._key_button.setToolTip("Als Schlüsselfoto festlegen. In der Gruppe sind mehrere möglich.")
+        self._key_button.setToolTip(
+            "Als Schlüsselfoto festlegen (Leertaste). In der Gruppe sind mehrere möglich."
+        )
         self._key_button.clicked.connect(self._toggle_key)
         self._key_button.hide()
         self._rating_row.addWidget(self._key_button)
@@ -558,6 +640,13 @@ class MediaInspectorWindow(QWidget):
         self._to_map_button.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self._to_map_button.clicked.connect(self._request_open_on_map)
         self._rating_row.addWidget(self._to_map_button)
+        self._show_rejected = QCheckBox("Aussortierte anzeigen", self)
+        self._show_rejected.setObjectName("inspectorShowRejected")
+        self._show_rejected.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self._show_rejected.setToolTip("Auch als Aussortiert markierte Bilder anblättern")
+        self._show_rejected.setChecked(self._include_rejected())
+        self._show_rejected.toggled.connect(self._on_show_rejected)
+        self._rating_row.addWidget(self._show_rejected)
         self._rating_row.addStretch(1)
         for widget in (
             self,
@@ -567,6 +656,9 @@ class MediaInspectorWindow(QWidget):
             self._rotate_right,
             self._pool_button,
             self._to_map_button,
+            self._show_rejected,
+            self._cluster_prev,
+            self._cluster_next,
             self._key_button,
             *self._rating_buttons.values(),
         ):
@@ -576,9 +668,16 @@ class MediaInspectorWindow(QWidget):
             self._size_grip, 0, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight
         )
         root.addLayout(self._rating_row)
+        self._bind_cluster(
+            self._items[self._index],
+            start_id=self._start_source_id or item.source_file_id,
+            prefer=(cluster_type, cluster_id),
+        )
         self._show_current()
 
     def item(self) -> GalleryItem:
+        if self._cluster_members:
+            return self._cluster_members[self._cluster_index]
         return self._items[self._index]
 
     def showing_original(self) -> bool:
@@ -592,9 +691,21 @@ class MediaInspectorWindow(QWidget):
         self._image.reset_view()
 
     def step(self, delta: int, *, keep_view: bool = False) -> None:
-        if len(self._items) < 2 or delta == 0:
+        nxt = self._gallery_step_index(delta)
+        if nxt is None:
             return
-        self._index = (self._index + delta) % len(self._items)
+        self._index = nxt
+        self._bind_cluster(self._items[self._index])
+        if self._thumbnail_first and not keep_view:
+            self._showing_original = False
+        self._image.reset_view()
+        self._show_current()
+
+    def step_cluster(self, delta: int, *, keep_view: bool = False) -> None:
+        nxt = self._cluster_step_index(delta)
+        if nxt is None:
+            return
+        self._cluster_index = nxt
         if self._thumbnail_first and not keep_view:
             self._showing_original = False
         self._image.reset_view()
@@ -658,22 +769,37 @@ class MediaInspectorWindow(QWidget):
         self._persist_geometry()
 
     def eventFilter(self, watched: object, event: QEvent) -> bool:  # noqa: N802
-        if isinstance(event, QKeyEvent) and event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
-            if event.type() == QEvent.Type.ShortcutOverride:
-                event.accept()
-                return True
-            if event.type() == QEvent.Type.KeyPress:
-                self.step(-1 if event.key() == Qt.Key.Key_Left else 1)
-                return True
+        if isinstance(event, QKeyEvent):
+            if event.key() in (
+                Qt.Key.Key_Left,
+                Qt.Key.Key_Right,
+                Qt.Key.Key_Up,
+                Qt.Key.Key_Down,
+            ):
+                if event.type() == QEvent.Type.ShortcutOverride:
+                    event.accept()
+                    return True
+                if event.type() == QEvent.Type.KeyPress:
+                    self._browse_key(event.key())
+                    return True
+            if event.key() == Qt.Key.Key_Space and self._space_toggles_key():
+                if event.type() == QEvent.Type.ShortcutOverride:
+                    event.accept()
+                    return True
+                if event.type() == QEvent.Type.KeyPress:
+                    if not event.isAutoRepeat():
+                        self._press_key_button()
+                    return True
         return super().eventFilter(watched, event)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
-        if event.key() == Qt.Key.Key_Left:
-            self.step(-1)
+        if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down):
+            self._browse_key(event.key())
             event.accept()
             return
-        if event.key() == Qt.Key.Key_Right:
-            self.step(1)
+        if event.key() == Qt.Key.Key_Space and self._space_toggles_key():
+            if not event.isAutoRepeat():
+                self._press_key_button()
             event.accept()
             return
         if event.key() in (Qt.Key.Key_L, Qt.Key.Key_BracketLeft):
@@ -693,14 +819,94 @@ class MediaInspectorWindow(QWidget):
             return
         super().keyPressEvent(event)
 
-    def sync_from_item(self, item: GalleryItem) -> None:
-        for index, existing in enumerate(self._items):
-            if existing.source_file_id != item.source_file_id:
-                continue
-            self._items[index] = item
+    def _gallery_step_index(self, delta: int) -> int | None:
+        if delta == 0 or len(self._items) < 2:
+            return None
+        direction = 1 if delta > 0 else -1
+        index = self._index
+        for _ in range(len(self._items)):
+            index = (index + direction) % len(self._items)
             if index == self._index:
-                self._show_current()
+                return None
+            if self._is_gallery_browse_item(self._items[index]):
+                return index
+        return None
+
+    def _cluster_step_index(self, delta: int) -> int | None:
+        if not self._cluster_vertical() or delta == 0 or len(self._cluster_members) < 2:
+            return None
+        direction = 1 if delta > 0 else -1
+        index = self._cluster_index
+        for _ in range(len(self._cluster_members)):
+            index = (index + direction) % len(self._cluster_members)
+            if index == self._cluster_index:
+                return None
+            if self._is_cluster_browse_item(self._cluster_members[index]):
+                return index
+        return None
+
+    def _include_rejected(self) -> bool:
+        if self.workspace is None:
+            return False
+        getter = getattr(self.workspace, "inspector_show_rejected", None)
+        return callable(getter) and getter() is True
+
+    def _is_gallery_browse_item(self, item: GalleryItem) -> bool:
+        return _is_gallery_browse_item(item, include_rejected=self._include_rejected())
+
+    def _is_cluster_browse_item(self, item: GalleryItem) -> bool:
+        return self._include_rejected() or not _is_rejected(item)
+
+    def _on_show_rejected(self, checked: bool) -> None:
+        setter = getattr(self.workspace, "set_inspector_show_rejected", None) if self.workspace else None
+        if callable(setter):
+            setter(checked)
+        if checked or self._is_cluster_browse_item(self.item()):
+            self._show_current()
             return
+        if self._gallery_step_index(1) is not None:
+            self.step(1)
+            return
+        if self._gallery_step_index(-1) is not None:
+            self.step(-1)
+            return
+        nxt = self._cluster_step_index(1) or self._cluster_step_index(-1)
+        if nxt is not None:
+            self.step_cluster(1 if self._cluster_step_index(1) == nxt else -1)
+            return
+        self._show_current()
+
+    def _browse_key(self, key: int) -> None:
+        if key == Qt.Key.Key_Left:
+            self.step(-1)
+            return
+        if key == Qt.Key.Key_Right:
+            self.step(1)
+            return
+        if not self._cluster_vertical():
+            return
+        if key == Qt.Key.Key_Up:
+            self.step_cluster(-1)
+            return
+        self.step_cluster(1)
+
+    def sync_from_item(self, item: GalleryItem) -> None:
+        if not self._store_item(item):
+            return
+        if self.item().source_file_id == item.source_file_id:
+            self._show_current()
+
+    def _store_item(self, item: GalleryItem) -> bool:
+        found = False
+        for index, existing in enumerate(self._items):
+            if existing.source_file_id == item.source_file_id:
+                self._items[index] = item
+                found = True
+        for index, existing in enumerate(self._cluster_members):
+            if existing.source_file_id == item.source_file_id:
+                self._cluster_members[index] = item
+                found = True
+        return found
 
     def _chrome_size(self) -> QSize:
         return QSize(max(0, self.width() - self._image.width()), max(0, self.height() - self._image.height()))
@@ -719,7 +925,7 @@ class MediaInspectorWindow(QWidget):
             return
         favorite = next_status == SORT_FAVORITE
         updated = replace(current_item, sort_status=next_status, is_favorite=favorite)
-        self._items[self._index] = updated
+        self._store_item(updated)
         self.rating_changed.emit(updated)
         self._advance_to_next()
 
@@ -742,7 +948,7 @@ class MediaInspectorWindow(QWidget):
         else:
             degrees = normalize_rotation_degrees(current_item.rotation_degrees + delta)
             updated = replace(current_item, rotation_degrees=degrees)
-        self._items[self._index] = updated
+        self._store_item(updated)
         self._show_current()
         self.rotation_changed.emit(updated)
 
@@ -759,7 +965,7 @@ class MediaInspectorWindow(QWidget):
             QMessageBox.warning(self, "Medien", str(exc))
             return
         updated = replace(current_item, parked=not current_item.parked)
-        self._items[self._index] = updated
+        self._store_item(updated)
         self.park_changed.emit(updated)
         if updated.parked:
             self._advance_to_next()
@@ -769,11 +975,19 @@ class MediaInspectorWindow(QWidget):
 
     def _show_current(self) -> None:
         item = self.item()
-        title = _window_title(item, self._index, len(self._items))
+        title = _gallery_window_title(item, self._items, include_rejected=self._include_rejected())
+        if self._cluster_members:
+            label = "Gruppe" if self._cluster_type == ClusterType.GROUP else "Stapel"
+            title = (
+                f"{title} · {label} {self._cluster_index + 1} von {len(self._cluster_members)}"
+            )
         if self._thumbnail_first and not self._showing_original:
             title = f"{title} · Vorschau"
-        self.setWindowTitle(self._cluster_title(title))
-        self._image.set_browse_enabled(len(self._items) >= 2)
+        self.setWindowTitle(title)
+        self._image.set_browse_enabled(
+            self._gallery_step_index(1) is not None or self._gallery_step_index(-1) is not None
+        )
+        self._image.set_cluster_item(self._badge_source())
         if self._wants_original():
             self._present_original(item)
         else:
@@ -858,11 +1072,14 @@ class MediaInspectorWindow(QWidget):
         self._request_decode(item, _INSPECTOR_EDGE)
 
     def _prefetch_neighbors(self) -> None:
-        if len(self._items) < 2:
-            return
         edge = self._display_edge()
-        for delta in (-1, 1):
-            self._request_decode(self._items[(self._index + delta) % len(self._items)], edge)
+        if len(self._items) >= 2:
+            for delta in (-1, 1):
+                self._request_decode(self._items[(self._index + delta) % len(self._items)], edge)
+        if len(self._cluster_members) >= 2:
+            for delta in (-1, 1):
+                neighbor = (self._cluster_index + delta) % len(self._cluster_members)
+                self._request_decode(self._cluster_members[neighbor], edge)
 
     def _request_decode(self, item: GalleryItem, max_edge: int) -> None:
         if self._closed:
@@ -964,15 +1181,60 @@ class MediaInspectorWindow(QWidget):
             "Medium auf der Karte zeigen" if key else "Nach dem Speichern auf der Karte sichtbar"
         )
 
-    def _cluster_title(self, title: str) -> str:
-        if self._cluster_type == ClusterType.STACK:
-            return f"Stapel · {title}"
-        if self._cluster_type == ClusterType.GROUP:
-            return f"Gruppe · {title}"
-        return title
-
     def _in_cluster(self) -> bool:
-        return self._cluster_type is not None and self._cluster_id is not None
+        return bool(self._cluster_members) and self._cluster_id is not None
+
+    def _cluster_vertical(self) -> bool:
+        return self._in_cluster() and self._cluster_type == ClusterType.GROUP
+
+    def _badge_source(self) -> GalleryItem | None:
+        item = self.item()
+        size = len(self._cluster_members)
+        if self._cluster_type == ClusterType.GROUP and self._cluster_id is not None and size >= 2:
+            return replace(item, group_id=self._cluster_id, group_size=max(item.group_size, size))
+        if self._cluster_type == ClusterType.STACK and self._cluster_id is not None and size >= 2:
+            return replace(item, stack_id=self._cluster_id, stack_size=max(item.stack_size, size))
+        if item.group_id is not None or (item.stack_id is not None and item.stack_size >= 2):
+            return item
+        return None
+
+    def _merge_group_keys_into_items(self) -> None:
+        if self._cluster_type != ClusterType.GROUP or self._cluster_id is None:
+            return
+        keys = [entry for entry in self._cluster_members if entry.is_group_key]
+        if not keys:
+            return
+        key_ids = {entry.source_file_id for entry in keys}
+        prefer = self._items[self._index].source_file_id if self._items else None
+        merged: list[GalleryItem] = []
+        inserted = False
+        seen: set[int] = set()
+        for entry in self._items:
+            in_group = entry.group_id == self._cluster_id or entry.source_file_id in key_ids
+            if in_group:
+                if not inserted:
+                    for key in keys:
+                        if key.source_file_id not in seen:
+                            merged.append(key)
+                            seen.add(key.source_file_id)
+                    inserted = True
+                continue
+            if entry.source_file_id in seen:
+                continue
+            merged.append(entry)
+            seen.add(entry.source_file_id)
+        if not inserted:
+            merged.extend(key for key in keys if key.source_file_id not in seen)
+        self._items = merged
+        if prefer is not None:
+            found = next((i for i, entry in enumerate(self._items) if entry.source_file_id == prefer), None)
+            if found is not None:
+                self._index = found
+                return
+        self._index = next(
+            (i for i, entry in enumerate(self._items) if entry.source_file_id in key_ids),
+            min(self._index, max(len(self._items) - 1, 0)),
+        )
 
     def _is_current_key(self) -> bool:
         item = self.item()
@@ -982,32 +1244,84 @@ class MediaInspectorWindow(QWidget):
             return item.is_group_key
         return False
 
+    def _bind_cluster(
+        self,
+        item: GalleryItem,
+        *,
+        start_id: int | None = None,
+        prefer: tuple[str | None, int | None] | None = None,
+    ) -> None:
+        kind, cluster_id = _cluster_ref(item, prefer)
+        target = start_id or item.source_file_id
+        if kind is None or cluster_id is None:
+            self._cluster_type = None
+            self._cluster_id = None
+            self._cluster_members = []
+            self._cluster_index = 0
+            return
+        reused = (
+            self._cluster_members
+            and self._cluster_type == kind
+            and self._cluster_id == cluster_id
+        )
+        cache_key = (kind, cluster_id)
+        if not reused and self.workspace is not None:
+            try:
+                loaded = self.workspace.cluster_items(cluster_id)
+            except ProjectError:
+                loaded = []
+            self._cluster_members = loaded if isinstance(loaded, list) else []
+            if self._cluster_members:
+                self._cluster_cache[cache_key] = list(self._cluster_members)
+        elif not reused:
+            cached = self._cluster_cache.get(cache_key)
+            self._cluster_members = list(cached) if cached else [
+                entry
+                for entry in self._items
+                if (entry.group_id if kind == ClusterType.GROUP else entry.stack_id) == cluster_id
+            ]
+        self._cluster_type = kind
+        self._cluster_id = cluster_id
+        self._cluster_index = next(
+            (
+                index
+                for index, entry in enumerate(self._cluster_members)
+                if entry.source_file_id == target
+            ),
+            0,
+        )
+        self._merge_group_keys_into_items()
+
     def _sync_cluster(self) -> None:
-        active = self._in_cluster() and self.workspace is not None
-        self._key_button.setVisible(active)
-        self._key_button.setEnabled(active and self._key_clicks_armed)
+        active = self._in_cluster()
+        vertical = self._cluster_vertical()
+        can_step = vertical and (
+            self._cluster_step_index(1) is not None or self._cluster_step_index(-1) is not None
+        )
+        self._cluster_prev.setVisible(vertical)
+        self._cluster_next.setVisible(vertical)
+        self._cluster_pos.setVisible(vertical)
+        self._cluster_prev.setEnabled(can_step)
+        self._cluster_next.setEnabled(can_step)
+        if vertical:
+            label = "Gruppe" if self._cluster_type == ClusterType.GROUP else "Stapel"
+            self._cluster_pos.setText(
+                f"{label} {self._cluster_index + 1}/{len(self._cluster_members)}"
+            )
+        can_key = active and self.workspace is not None
+        self._key_button.setVisible(can_key)
+        self._key_button.setEnabled(can_key and self._key_clicks_armed)
         if not active:
-            self.extra_host.hide()
             return
         self._key_button.blockSignals(True)
         self._key_button.setChecked(self._is_current_key())
         self._key_button.blockSignals(False)
-        if self._cluster_type == ClusterType.STACK:
-            self._cluster_hint.setText(
-                "Pfeile blättern durch den Stapel. Schlüsselfoto legt das eine sichtbare Bild fest."
-            )
-        else:
-            keys = sum(1 for item in self._items if item.is_group_key)
-            if keys:
-                self._cluster_hint.setText(
-                    f"Pfeile blättern durch die Gruppe. Schlüsselfoto ein- oder ausschalten "
-                    f"({keys} gewählt). Das Kennzeichen ist grün."
-                )
-            else:
-                self._cluster_hint.setText(
-                    "Pfeile blättern durch die Gruppe. Noch kein Schlüsselfoto festgelegt."
-                )
-        self.extra_host.show()
+
+    def _space_toggles_key(self) -> bool:
+        return not self._key_button.isHidden()
+
+    def _press_key_button(self) -> None:
+        self._toggle_key()
 
     def _arm_key_clicks(self) -> None:
         if QApplication.mouseButtons() != Qt.MouseButton.NoButton:
@@ -1025,12 +1339,18 @@ class MediaInspectorWindow(QWidget):
         try:
             if self._cluster_type == ClusterType.STACK:
                 self.workspace.set_stack_key(self._cluster_id, current.source_file_id)
+                self._cluster_members = [
+                    replace(entry, is_stack_key=entry.source_file_id == current.source_file_id)
+                    for entry in self._cluster_members
+                ]
                 self._items = [
-                    replace(item, is_stack_key=item.source_file_id == current.source_file_id)
-                    for item in self._items
+                    replace(entry, is_stack_key=entry.source_file_id == current.source_file_id)
+                    if entry.stack_id == self._cluster_id
+                    else entry
+                    for entry in self._items
                 ]
             elif self._cluster_type == ClusterType.GROUP:
-                keys = [item.source_file_id for item in self._items if item.is_group_key]
+                keys = [entry.source_file_id for entry in self._cluster_members if entry.is_group_key]
                 if current.is_group_key:
                     keys = [item_id for item_id in keys if item_id != current.source_file_id]
                 else:
@@ -1038,10 +1358,17 @@ class MediaInspectorWindow(QWidget):
                 self.workspace.set_group_keys(self._cluster_id, keys)
                 chosen = set(keys)
                 status = ClusterStatus.ACCEPTED if chosen else ClusterStatus.SUGGESTED
-                self._items = [
-                    replace(item, is_group_key=item.source_file_id in chosen, group_status=status)
-                    for item in self._items
+                self._cluster_members = [
+                    replace(entry, is_group_key=entry.source_file_id in chosen, group_status=status)
+                    for entry in self._cluster_members
                 ]
+                self._items = [
+                    replace(entry, is_group_key=entry.source_file_id in chosen, group_status=status)
+                    if entry.group_id == self._cluster_id
+                    else entry
+                    for entry in self._items
+                ]
+                self._merge_group_keys_into_items()
         except ProjectError as exc:
             QMessageBox.warning(self, "Medien", str(exc))
             self._sync_cluster()
@@ -1155,6 +1482,8 @@ def open_cluster_inspector(
     item: GalleryItem,
     cluster_type: str,
     parent: QWidget | None = None,
+    *,
+    gallery_items: list[GalleryItem] | None = None,
 ) -> MediaInspectorWindow | None:
     cluster_id = item.stack_id if cluster_type == ClusterType.STACK else item.group_id
     if cluster_id is None:
@@ -1163,19 +1492,51 @@ def open_cluster_inspector(
     if not members:
         return None
     current = next((entry for entry in members if entry.source_file_id == item.source_file_id), members[0])
+    sequence = list(gallery_items or [])
+    anchor = next((entry for entry in sequence if entry.source_file_id == current.source_file_id), None)
+    if anchor is None:
+        anchor = next(
+            (
+                entry
+                for entry in sequence
+                if (entry.stack_id if cluster_type == ClusterType.STACK else entry.group_id) == cluster_id
+            ),
+            None,
+        )
+    if anchor is None:
+        sequence = members
+        anchor = current
     window = MediaInspectorWindow(
-        current,
-        items=members,
+        anchor,
+        items=sequence,
         workspace=workspace,
         parent=parent.window() if parent is not None else None,
         cluster_type=cluster_type,
         cluster_id=cluster_id,
+        cluster_members=members,
+        start_source_id=current.source_file_id,
     )
     cascade_inspector(window, parent.window() if parent is not None else parent)
     window.show()
     window.raise_()
     window.activateWindow()
     return window
+
+
+def _cluster_ref(
+    item: GalleryItem, prefer: tuple[str | None, int | None] | None = None
+) -> tuple[str | None, int | None]:
+    if prefer is not None:
+        kind, cluster_id = prefer
+        if kind == ClusterType.STACK and item.stack_id == cluster_id:
+            return kind, cluster_id
+        if kind == ClusterType.GROUP and item.group_id == cluster_id:
+            return kind, cluster_id
+    if item.group_id is not None:
+        return ClusterType.GROUP, item.group_id
+    if item.stack_id is not None:
+        return ClusterType.STACK, item.stack_id
+    return None, None
 
 
 def _sequence_for(item: GalleryItem, items: list[GalleryItem] | None) -> list[GalleryItem]:
@@ -1185,10 +1546,49 @@ def _sequence_for(item: GalleryItem, items: list[GalleryItem] | None) -> list[Ga
     return sequence or [item]
 
 
+def _inspector_badge_kinds(item: GalleryItem | None) -> tuple[str, ...]:
+    if item is None:
+        return ()
+    kinds: list[str] = []
+    if item.group_id is not None and item.group_status != ClusterStatus.DISMISSED:
+        kinds.append("group")
+    if item.stack_id is not None and item.stack_size >= 2:
+        kinds.append("stack")
+    return tuple(kinds)
+
+
+def _is_rejected(item: GalleryItem) -> bool:
+    return effective_sort_status(item.sort_status, item.is_favorite) == SORT_REJECTED
+
+
+def _is_gallery_browse_item(item: GalleryItem, *, include_rejected: bool = False) -> bool:
+    """Left/right: standalone photos and chosen key photos, not other group members."""
+    if item.group_id is not None and not item.is_group_key:
+        return False
+    if item.stack_id is not None and not item.is_stack_key:
+        return False
+    return include_rejected or not _is_rejected(item)
+
+
 def _window_title(item: GalleryItem, index: int, total: int) -> str:
     if total <= 1:
         return item.filename
     return f"{item.filename} · {index + 1} von {total}"
+
+
+def _gallery_window_title(
+    item: GalleryItem, items: list[GalleryItem], *, include_rejected: bool = False
+) -> str:
+    browse = [
+        entry for entry in items if _is_gallery_browse_item(entry, include_rejected=include_rejected)
+    ]
+    index = next(
+        (i for i, entry in enumerate(browse) if entry.source_file_id == item.source_file_id),
+        None,
+    )
+    if index is None:
+        return item.filename
+    return _window_title(item, index, len(browse))
 
 
 def inspector_display_edge(width: int, height: int, device_pixel_ratio: float = 1.0) -> int:
