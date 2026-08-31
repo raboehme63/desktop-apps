@@ -24,7 +24,7 @@ Diese Dokumentation beschreibt **Teststrategie, Automatisierung, manuelle Prüfu
 
 | Stufe | Ort | Werkzeug | Was |
 | --- | --- | --- | --- |
-| Unit | `packages/travelcore/tests/` | pytest | Typen, Hash, Zeit, GPS, Provider, HEIC-Container, GPX/IGC/KML, Interpolation, ExifTool-JSON, Thumbnails, Orientierung, Timeline, Abschnitte, History-Snapshots, Länderkatalog |
+| Unit | `packages/travelcore/tests/` | pytest | Typen, Hash, Zeit, GPS, Provider, HEIC-Container, GPX/IGC/KML, Interpolation, ExifTool-JSON, Thumbnails, Orientierung, Timeline, Abschnitte, History-Snapshots, Länderkatalog, Travelbook-PDF, CEWE-`.mcf` |
 | Integration | `packages/travelcore/tests/test_indexer.py`, `test_database.py`, `test_timeline.py`; `tests/integration/`; `tests/test_edit_history.py` | pytest | Projektordner, Schema, Index → SQLite, Timeline-Sync, Re-Open, Workspace-Undo |
 | GUI-Rauch | `tests/test_gui_smoke.py` | pytest + Qt offscreen | Hauptfenster, sechs Seiten, Menü **Bearbeiten**, Inspektor, Register, Titel mit Version, Timeline-Speichern nur bei Abschnitten/Texten/Reisetitel/YouTube, Sichtbarkeits-Schalter, Verlassen-Dialog, Karten-Refresh ohne Live-Reuse, **Filtern**, Thumbnail-Schieber inkl. Import, Ampel-Hover, Länderauswahl und Reise von–bis |
 | Paketierung | `packaging/` | manuell nach `build.ps1` | Frozen-EXE startet, Alembic/Karte, kein Python nötig (MT-22) |
@@ -101,7 +101,7 @@ Hilfsmodul: `packages/travelcore/tests/jpeg_fixtures.py`. GPX-Hilfen: `gpx_fixtu
 
 ## 4. Abbildungsmatrix Pflichtenheft → automatisierte Tests
 
-Stand nach `pytest --collect-only`: **452 Tests** (31. August 2026). Neue Tests sind ergänzend zu führen, nicht still zu löschen.
+Stand nach `pytest --collect-only`: **560 Tests** (31. August 2026). Neue Tests sind ergänzend zu führen, nicht still zu löschen.
 
 ### 4.1 Dateitypen und Scan — FA-010 bis FA-016
 
@@ -222,13 +222,19 @@ Stand nach `pytest --collect-only`: **452 Tests** (31. August 2026). Neue Tests 
 | `test_hidden_section_is_omitted_from_pdf_pages` | `test_export_pdf.py` | Ausgeblendete Abschnitte fehlen im PDF |
 | `test_pdf_writes_one_image_page_per_sheet` | `test_export_pdf.py` | Raster-PDF, Fortschritt, Originale unberührt, Doppelseite (`TwoPageRight`) |
 | `test_pdf_qualities_magazine_is_300dpi_full_chroma` | `test_export_pdf.py` | Beste Qualität: 300 dpi, JPEG 4:4:4 |
+| `test_padded_content_count_is_26_or_4k_plus_2` | `test_export_cewe.py` | CEWE Groß: mindestens 26 Innenseiten, `4k+2` |
+| `test_content_pages_drop_cover_blank_and_pad` | `test_export_cewe.py` | Cover getrennt; leere Titelseite-Verso entfällt; Pad auf 26 |
+| `test_mcf_writes_fotobook_and_image_folder` | `test_export_cewe.py` | `.mcf` + `Name_mcf-Dateien`, ALB82, Text- und Bildflächen, Originale unberührt, Fortschritt |
+| `test_mcf_photo_page_keeps_native_image_and_cutout` | `test_export_cewe.py` | Fotoseite: `safecontainer:`-Bild und Cutout |
+| `test_mcf_rejects_yearbook_and_non_a4` | `test_export_cewe.py` | Jahrbuch und Querformat abgelehnt |
+| `test_mcf_filename_helpers` | `test_export_cewe.py` | Dateiname `.mcf`, Ordner `…_mcf-Dateien` |
 | `test_catalog_includes_core_travel_countries` | `test_country_catalog.py` | 200+ Länder, DE/IT/FR/NO/TW/ZA mit Flagge und Umriss |
 | `test_resolve_token_accepts_code_german_english_and_alias` | `test_country_catalog.py` | ISO, DE/EN-Name, Alias USA, Suche Slowenien und Südafrika |
 | `test_parse_countries_stores_iso_codes` | `test_country_catalog.py` | Freitext und Codes werden als ISO gespeichert |
 | `test_catalog_files_live_next_to_module` | `test_country_catalog.py` | `catalog.json`, NOTICE, `flags/de.svg`, `shapes/de.svg` |
 | `test_country_at_uses_silhouette_outline` | `test_country_catalog.py` | Hochries/München → DE trotz AT in der Reise; Wien → AT; Vaduz → LI; Kapstadt → ZA; Mailand → IT |
 | `test_protocols_are_importable` | `test_interfaces.py` | `MetadataProvider`, `RankingStrategy`, `MapBackend` |
-| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R3.1.0, Menü **Bearbeiten** mit Strg+Z/Strg+Y, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren**, Export ohne Kopfzeile, Modus Vorschau/Editiermodus, einklappbare Auswahl, Blättern mit Pfeilen links/rechts, Cover dann Titelseite dann Seitenzahlen ab Reiseübersicht 1–2/n, Seitenformat DIN A4 Hochformat, Dateiformat erst im Export-Dialog, Länderauswahl und Reise von–bis deaktiviert ohne Projekt |
+| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R3.1.0, Menü **Bearbeiten** mit Strg+Z/Strg+Y, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren**, Export ohne Kopfzeile, Modus Vorschau/Editiermodus, einklappbare Auswahl, Blättern mit Pfeilen links/rechts, Cover dann Titelseite dann Seitenzahlen ab Reiseübersicht 1–2/n, Seitenformat DIN A4 Hochformat, Dateiformat erst im Export-Dialog (HTML/PDF/CEWE; CEWE-Hinweis, Qualität nur bei PDF), Länderauswahl und Reise von–bis deaktiviert ohne Projekt |
 | `test_country_picker_adds_flag_and_shape` | `tests/test_gui_smoke.py` | Länderauswahl: Italien und Slowenien mit Flagge und Umriss |
 | `test_project_span_edits_update_duration` | `tests/test_gui_smoke.py` | Projektseite: von–bis setzt Dauer (2 Tage) |
 | `test_summary_countries_stack_evenly_with_flag_in_outline` | `tests/test_gui_smoke.py` | Reiseübersicht: Umriss, Name in Versalien, kleine Flagge hinter dem Namen |
@@ -677,7 +683,7 @@ Stand nach `pytest --collect-only`: **452 Tests** (31. August 2026). Neue Tests 
 - Qualitätsampel: `technical_quality` in `photo_analyses`, Pillow-Analyse ohne Originalschreiben, Ampel in der Galerie, Knopf **Qualität prüfen**, Hover mit ausschlaggebenden Einzelwerten (`quality_tooltip`)
 - Medien-**Filtern**: Qualität, Zeitraum Von–Bis, Bewertung (Mehrfachauswahl) für Galerie und Pool
 - Thumbnail-Schieber auf Timeline, Medien, Karte und Import (`import_thumb_zoom`)
-- Export- und Provider-*Verträge* existieren
+- Export- und Provider-*Verträge* existieren; Travelbook-PDF rasterisiert; CEWE-Projekt (`.mcf` + Bilderordner, Hybrid, nur A4 hoch)
 - Länderkatalog: 200+ ISO-2 mit DE/EN-Namen, Flagge und Umriss (inkl. Südafrika); Projektseite-Auswahl; Reiseübersicht Umriss + Name + Flagge; Reise von–bis und Kennzahl Tage; Gleitschirmflüge/IGC inkl. Pool und Pilotenzahl in Klammern
 
 ### 5.2 Bewusst noch ohne Automatisierung
@@ -689,7 +695,7 @@ Stand nach `pytest --collect-only`: **452 Tests** (31. August 2026). Neue Tests 
 | Windows-Endnutzerpaket | FA-140–FA-144 | kein pytest; manuell MT-22 nach `packaging/build.ps1` |
 | Galeriefilter in der UI | FA-101 | Logik der Liste und **Filtern**-Panel automatisiert; visuell MT-09 |
 | Zuletzt verwendete Projekte in der UI | FA-091 | `recent.json` ohne Oberfläche; manuell nicht zwingend |
-| HTML-/PDF-/LaTeX-Ausgabe | FA-121–FA-127 | HTML und LaTeX offen; Travelbook-PDF rasterisiert (`test_export_pdf.py`) |
+| HTML-/PDF-/LaTeX-/CEWE-Ausgabe | FA-121–FA-127 | HTML und LaTeX offen; Travelbook-PDF rasterisiert (`test_export_pdf.py`); CEWE-`.mcf` Hybrid (`test_export_cewe.py`); Jahrbuch und `.mcfx` offen |
 | pHash/dHash, unechte Dubletten | FA-071 | SHA-256-Stapel und Zeitszenen automatisiert; visuelle Near-Duplicates Phase 10 |
 | Importliste „alle Dateien“ (kein 250er-Limit) | FA-025 | nur manuell / GUI, kein Unit-Test der Qt-Tabelle |
 | Originale unverändert | FA-023 | implizit (nur Lese-APIs); Thumbnail- und Inspektor-Tests prüfen mtime |
@@ -1066,7 +1072,8 @@ Diese Fälle werden mit der jeweiligen Phase verbindlich.
 | ID | Phase | Kurzbeschreibung |
 | --- | --- | --- |
 | MT-14 | 8 | HTML-Export öffnet sich im Browser, lokale Bilder, kein Server |
-| MT-15 | 8 | Export schreibt nach `exports/` (PDF Travelbook), Originale unverändert |
+| MT-15 | 8 | Export schreibt nach `exports/` (PDF Travelbook und CEWE `.mcf` + Bilderordner), Originale unverändert |
+| MT-28 | 8 | CEWE-Projekt im Creator öffnen: Fotos und Texte verschiebbar; Karte/Umriss/Zeitleiste als Bild austauschbar; A4-hoch Travelbook |
 | MT-16 | 9 | erledigt als MT-27 (Ampel, kein Löschen) |
 | MT-17 | 10 | unechte Dubletten per pHash, Originale bleiben (SHA-256 und Zeitszenen: MT-26) |
 
@@ -1087,6 +1094,7 @@ Diese Fälle werden mit der jeweiligen Phase verbindlich.
 | Medien-Cluster / Statistik | `packages/travelcore/tests/test_clusters.py`, `tests/test_gui_smoke.py` (Cluster-Fälle), manuell MT-26 |
 | Qualitätsampel | `packages/travelcore/tests/test_quality.py` (inkl. `test_quality_tooltip_names_decisive_parts`), `tests/test_gui_smoke.py` (Ampel, Hover), manuell MT-27 |
 | Medien-Filtern | `tests/test_media_filter.py`, `tests/test_gui_smoke.py` (`test_photos_view_filter_panel_quality_and_rating`), manuell MT-09 |
+| Travelbook-PDF / CEWE-`.mcf` | `test_export_pdf.py`, `test_export_cewe.py`, Export-Dialog in `tests/test_gui_smoke.py`, manuell MT-15, MT-28 |
 | Windows-Paket (`packaging/`) | manuell MT-22 (kein pytest) |
 | Thumbnail-Schieber / Import-Vorschau | `tests/test_workspace.py` (`import_thumb_zoom`), `tests/test_gui_smoke.py` (`test_import_view_thumb_zoom_scales_preview`), manuell MT-04 |
 | UI-Importliste | MT-04, MT-23 |
@@ -1100,6 +1108,7 @@ Ein Phasenabschluss ohne grüne Automatisierung gilt als nicht abgenommen.
 
 | Datum | Kommando | Ergebnis |
 | --- | --- | --- |
+| 31.08.2026 | `python -m pytest --collect-only -q` im Projekt-venv | 560 Tests gesammelt (R3.1.0; CEWE-`.mcf` Hybrid, Travelbook-PDF, Sichtbarkeit) |
 | 31.08.2026 | `python -m pytest --collect-only -q` im Projekt-venv | 452 Tests gesammelt (R3.1.0; Sichtbarkeit, Speichern/Verlassen, Karten-Refresh) |
 | 30.08.2026 | `python -m pytest` im Projekt-venv | 443 bestanden (R3.0.0; Filtern, Import-Zoom, Ampel-Hover) |
 | 30.08.2026 | `python -m pytest` im Projekt-venv | 429 bestanden (R3.0.0; Stapel/Gruppe, Inspektor-Cluster, Statistikleiste) |

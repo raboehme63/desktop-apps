@@ -51,11 +51,11 @@ Konkret muss das System:
 7. Geeignete Fotos für das Tagebuch vorschlagen.
 8. Dubletten und sehr ähnliche Fotos erkennen.
 9. Eine bearbeitbare Reisechronik erzeugen.
-10. Das Tagebuch in HTML, PDF, LaTeX und (später) CEWE exportieren.
+10. Das Tagebuch in HTML, PDF, LaTeX und CEWE exportieren.
 
 Die Geschäftslogik muss in der GUI-freien Bibliothek `travelcore` liegen, damit dieselbe Analyse später von **PhotoInspector** wiederverwendet werden kann.
 
-Punkt 5 ist für **manuelle Reiseabschnitte** (Tag / Aufenthalt / Transfer) in der Timeline und als Titelbilder auf der Karte umgesetzt. Automatische Abschnittsvorschläge (über die GPS-Ortscluster hinaus) fehlen noch. Punkt 8 ist in R3.0.0 teilweise (exakte Dubletten und Zeitszenen; keine pHash-Near-Duplicates). Punkt 10 bleibt Phase 8.
+Punkt 5 ist für **manuelle Reiseabschnitte** (Tag / Aufenthalt / Transfer) in der Timeline und als Titelbilder auf der Karte umgesetzt. Automatische Abschnittsvorschläge (über die GPS-Ortscluster hinaus) fehlen noch. Punkt 8 ist in R3.0.0 teilweise (exakte Dubletten und Zeitszenen; keine pHash-Near-Duplicates). Punkt 10: Travelbook-PDF und CEWE-Projekt (`.mcf`) sind da; HTML und LaTeX bleiben Phase 8.
 
 ### 1.2 Wunschkriterien
 
@@ -70,7 +70,7 @@ Nicht Bestandteil des Produkts und ausdrücklich **nicht** zu implementieren:
 - KI-Modelle im MVP
 - automatische semantische Bilderkennung / Gesichtserkennung
 - Cloud-Dienste ohne explizite Aktivierung
-- vollständiger CEWE-Export ohne vorherige Format- und Lizenzprüfung
+- offizieller CEWE-Bestellweg oder Creator-SDK; `.mcfx` als erstes Zielformat; CEWE für Jahrbuch, Querformat oder Quadrat; Reverse-Engineering der Creator-EXE
 - komplexes PDF-Layout in Version 1
 - Videoinhaltsanalyse (Schnitt, Objekterkennung)
 - automatisches Löschen von Originaldateien
@@ -247,7 +247,7 @@ Auswahlmodell in der Timeline und auf der Medienseite: erster und letzter Klick 
 | FA-090 | Muss | Moderne Windows-UI mit PySide6, Navigation links. Fenstertitel: `Reisetagebuch R{Version}` bzw. `Reisetagebuch R{Version} - {Projekttitel}`. | umgesetzt (Rahmen; Version **R3.1.0**; linke Pipeline mit Symbolen, einklappbar nur Icons, ausgeklappt inhaltsbreit; Zustand in `config.json`) |
 | FA-091 | Muss | Bereich Projekt: neu, öffnen, speichern; **Reise von–bis** aus den indexierten Daten vorbefüllt und editierbar (daraus inklusiv die Reisedauer); **bereiste Länder** aus dem eingebetteten Katalog (ISO-2, deutscher Name, Flagge, Umriss — kein Freitext); Menü **Projekt → Einstellungen** (Dialog mit vertikalem Schieber). | teilweise (neu/öffnen/speichern/von–bis/Länderkatalog/Einstellungen; zuletzt verwendete Projekte intern in `recent.json`, noch ohne UI-Liste; Projekte-Stammordner in `config.json`) |
 | FA-092 | Muss | Bereich Import: Ordner, Analyse, **Synchronisieren**, Fortschritt, Dateiliste mit Zeit/GPS/Kamera. Klick/Mouseover zeigt Vorschau und Metadaten. Die Liste wird während des Einlesens periodisch aktualisiert, erneut nach GPS-Abgleich, und vor den Vorschaubildern. | umgesetzt (Kamera/Pilot; DHV-Leonardo per Doppelklick auf IGC; Vorschau auch für Video/Track; Sync mit Timeline/Pool) |
-| FA-093 | Muss | Bereiche Medien, Timeline, Karte, Export. | teilweise (Medien, Timeline, Karte umgesetzt; Export Platzhalter bis Phase 8) |
+| FA-093 | Muss | Bereiche Medien, Timeline, Karte, Export. | teilweise (Medien, Timeline, Karte umgesetzt; Export: Vorschau/Editiermodus, Travelbook-PDF und CEWE-`.mcf`; HTML folgt) |
 | FA-094 | Muss | Lange Aufgaben laufen über `QThreadPool`/`QRunnable`; die GUI bleibt bedienbar. | umgesetzt (Import) |
 | FA-095 | Muss | Eine defekte Datei bricht den Import nicht ab; Fehler sind geloggt, in der DB und in der UI sichtbar. | umgesetzt |
 
@@ -280,7 +280,7 @@ Auswahlmodell in der Timeline und auf der Medienseite: erster und letzter Klick 
 | FA-121 | Muss | HTML-Export als erstes vollständiges Format, Ausgabetyp **Travelbook**: Buchdeckel, Titelseite (links leer, rechts Reisetitel mittig, ohne Seitenzahl), Reiseübersicht (links Länder aus Katalog mit Umriss, Name und Flagge + Kennzahlen Tage/Abschnitte/Fotos/YouTube/Gleitschirmflüge, rechts statische Karte; **Seitenzahlen ab hier** 1–2/n). Kennzahl Tage aus Projekt **von–bis** (inklusiv; sonst Abschnittsspanne). Chronik. Pro veröffentlichtem Abschnitt zuerst eine Doppelseite (links Block Länderumriss mit Position plus Flagge/Land, Titelbild rechts daneben im Bildformat, Abschnittsname, Datum 01.01.1900 bzw. 01.01.1900 bis 22.02.1900, graue Tagebuchbox, unten dieselbe Angabe auf der Reise-Zeitleiste; rechts Fotos des Abschnitts). Weitere Doppelseiten im **Editiermodus** mit Templates 1–8 Medien (Foto/Video/Track) oder Tagebucheintrag, Befüllen per Drag-and-drop. Blättern wie in einem Buch. Templates HTML/CSS getrennt (Jinja2). Ausgeblendete Abschnitte fehlen wie auf der Karte. | geplant (Phase 8) |
 | FA-122 | Soll | PDF über austauschbares Backend; **kein** PyMuPDF als Zwangsabhängigkeit. Nur für Buch-Ausgabetypen (Travelbook, Jahrbuch). Erster Renderer: Rasterseiten (Pillow) → JPEG-PDF. Qualität im Export-Dialog (Bildschirm 150 dpi / Druck 250 dpi / Beste Qualität 300 dpi 4:4:4). HTML-Druck und LaTeX später hinter `PdfRenderer`. | teilweise (Travelbook Raster-PDF; Jahrbuch folgt) |
 | FA-123 | Soll | LaTeX: kompilierbares `main.tex`, Kapitel, Bilderverzeichnis; PDF-Lauf optional. | geplant |
-| FA-124 | Kann | CEWE nur als Platzhalter, bis das Zielformat geprüft ist. | teilweise (Platzhalter) |
+| FA-124 | Kann | Travelbook als CEWE-Projekt zum Feinschliff im Creator: klassisches `.mcf` plus `Name_mcf-Dateien`. **Editierbarer Hybrid:** Fotos und Texte als native Flächen; Länderumriss, Flagge, Intro-Zeitleiste und Übersichtskarte als austauschbare Bilder. Nur **DIN A4 Hochformat** (CEWE Fotobuch Groß, Produktcode ALB82, Innenmaß ca. 21×28 cm). Innenseiten 26–202 (`4k+2`). Kein offizielles SDK, keine stillen Bestellung. Originale nur lesen. | teilweise (Travelbook A4; Jahrbuch, andere Maße, `.mcfx` offen) |
 | FA-125 | Muss | Ausgabetyp und Ausgabeformat sind getrennt. Ein Typ ist ein JSON-Template unter `travelcore/export/templates/` (neuer Typ = neue Datei). Nicht jede Kombination ist erlaubt (Katalog-Matrix). **Travelbook (interaktiv)** ist die Read-only-Kartenwebsite (schwenken, zoomen), nur HTML, kein Buch. | teilweise (Templates + Katalog; Renderer Phase 8) |
 | FA-126 | Kann | EPUB (feste Doppelseiten eines Buches) und Video (linearer Durchlauf eines Buches). | geplant |
 | FA-127 | Muss | Travelbook-Editiermodus vor dem Export: Komposition in `travelbook.json` im Projektordner. Erste Doppelseite je Abschnitt vorgegeben (linke Abschnittsseite gesperrt). Doppelseiten hinzufügen/entfernen, Seiten-Layout wechseln. Medien und Tracks des Abschnitts als Thumbnails; Befüllen der Slots per Drag-and-drop. Originale und Timeline unverändert. | geplant (Phase 8) |
@@ -353,7 +353,7 @@ Mindestens zu speichernde Informationen — Details im Datenbankschema:
 | Medien | Galerie links, Medienpool rechts (ein-/ausklappbar), Register Alle/Favoriten/Reserve/Aussortiert je Bereich, Filter (Jahr/Ort/Typ inkl. Video/Tracks/nicht im Tagebuch), **Filtern** (Qualität, Zeitraum, Bewertung), Bewertungen, Inspektor, Drag in den Pool und zurück, **Dubletten stapeln** / **Ähnliche gruppieren** / **Auswahl gruppieren**, Kennzeichen G/×n, **Qualität prüfen** (Ampel unten links, Hover mit Einzelwerten), Statistikleiste | plus unechte Dubletten (pHash) |
 | Timeline | Reisetitel oben, Tage/Transfers/Aufenthalte als Abschnitte mit Mitgliedern, Typ je Karte, Titel/Text, Mehrfachauswahl, Anlegen/Auflösen/Löschen (Löschen → Pool), schlanke Verbindung mit **+**, Drag & Drop Karte↔Karte und Pool (Auto-Scroll am Rand), Journal-Zeit/Originalzeit, Medien vs. Tracks, Register nur per Klick (auch für Tracks), Bewertungen für Fotos und Tracks, Thumbnail-Schieber, T-Titelbild (Foto und Track), Transfer-Verbindungslinien (Liste, Symbol vor dem Namen) und Ausgangslinie an Tag/Aufenthalt, Sichtbarkeits-Schalter (ein = Karte/Export, aus = nur Timeline), **Menü** YouTube/DHV-Leonardo, Hilfe Verkehrsmittelsymbole, **Speichern** nur bei ungespeicherten Abschnitten/Texten/Reisetitel/YouTube (sonst grau; Undo/Redo schaltet mit), beim Verlassen Speichern/Verwerfen/Abbrechen, Medieninspektor (Blättern, Zoom, Drehen, Pool, Track-Bewertung) | plus verdichtete Timeline-Karten auf der Timeline-Seite, Ereignis-Reihenfolge |
 | Karte | Runde Titelbild-Kreise (Cover-Fallback: Foto, Track, YouTube), Verbindungslinien zwischen Tag- und Aufenthaltskreisen (Transfer-Liste oder Ausgangslinie, Verkehrssymbol in Fahrtrichtung bzw. Richtungspfeil, ausgeblendet bei überdeckenden Kreisen), Transfer-Kreis per dünner Linie am Verkehrssymbol, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad (Fotokegel, Reserve, Ortsnamen und Straßen auf Satellit), Fit-Reise zwischen Zoom und Zahnrad, Leiste darunter mit **+** zwischen den Karten, Tagebuchtext rechts, YouTube-Thumbs unten rechts auf der Karte, Einfachklick Leistenkarte → Übersicht ohne Zoomänderung / andere Karte im Detail schließt und zoomt auf den Abschnitt, Doppelklick → Timeline, Cover-Klick → ZoomToCover (Überlappung zuerst einpassen) bzw. Detail, Foto-Popup mit Blättern/Bewertung/Schieber-Zoom dann Inspektor, **Zur Karte** aus Inspektor/Thumbnail (letzter Klick: Detail, Foto, Leistenkarte; geladene Karte ohne Neuaufbau), Platzieren/Verschieben hält Zoom, offline ohne OSM | unverändert |
-| Export | Ausgabetyp, Modus **Vorschau** / **Editiermodus**, blätterbare Travelbook-Vorschau; Format erst beim Exportieren; Travelbook-PDF nach `exports/` | HTML-Schreiben, Drag-and-drop, LaTeX/CEWE, Jahrbuch-PDF |
+| Export | Ausgabetyp, Modus **Vorschau** / **Editiermodus**, blätterbare Travelbook-Vorschau; Format erst beim Exportieren; Travelbook-PDF und CEWE-Projekt (`.mcf` + Bilderordner) nach `exports/` | HTML-Schreiben, Drag-and-drop, LaTeX, Jahrbuch-PDF, CEWE für andere Maße |
 
 ---
 
@@ -409,7 +409,7 @@ Windows-Paketierung (`packaging/`) ist **keine eigene Fachphase**. Sie liefert d
 | ID | Thema | Klärung |
 | --- | --- | --- |
 | OP-01 | Reverse-Geocoding | Nur offline (z. B. lokale DB) oder opt-in Online? |
-| OP-02 | CEWE-Zielformat | Technische und lizenzrechtliche Prüfung vor Implementierung |
+| OP-02 | CEWE-Zielformat | entschieden: klassisches `.mcf` + Bilderordner; editierbarer Hybrid (Fotos/Text nativ, Grafikinseln als Bild); ein Produkt Groß/A4 (ALB82), Maß 21×28 cm; inoffiziell zum Öffnen im Creator (kein SDK). `.mcfx`, Jahrbuch und Querformat/Quadrat später. |
 | OP-03 | PDF-Renderer | entschieden: erster Pfad Raster (Pillow-Seiten → JPEG-PDF) hinter `PdfRenderer`; HTML-Druckengine und LaTeX-Lauf bleiben spätere Backends |
 | OP-04 | PhotoInspector | Eigener Zeitplan nach Phase 10 |
 | OP-05 | Abbruch laufender Imports | Noch nicht spezifiziert als UI-Muss |

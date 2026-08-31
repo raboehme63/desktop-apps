@@ -253,7 +253,7 @@ Ein **Ausgabetyp** ist ein Produkt-Template (Seitenfolge, Slots, Stil). Ein neue
 
 | Typ | HTML | PDF | EPUB | LaTeX | CEWE | Video |
 | --- | --- | --- | --- | --- | --- | --- |
-| Travelbook | ja (erster Pfad) | ja | später | ja | später | nein |
+| Travelbook | ja (erster Pfad) | ja | später | ja | ja (A4 hoch, `.mcf`) | nein |
 | Jahrbuch | ja | ja | später | ja | später | nein |
 | Travelbook (interaktiv) | ja | nein | nein | nein | nein | nein |
 
@@ -272,7 +272,8 @@ flowchart LR
   Editor --> Document["travelbook.json im Projekt"]
   Document --> HTML
   Document --> PDF
-  Document --> Other["EPUB / LaTeX / CEWE / Video"]
+  Document --> CEWE["CEWE .mcf"]
+  Document --> Other["EPUB / LaTeX / Video"]
 ```
 
 Slots vom Typ `trip.*` kommen aus der Timeline, `export.*` aus dem Export-Dialog (`export_configs.settings_json`), `stats.*` berechnet der Binder. Autoren und Heimatort gibt es am Trip noch nicht.
@@ -305,7 +306,7 @@ Formate:
 - **PDF:** nicht über AGPL-Zwang (kein PyMuPDF als zentrale Abhängigkeit). Erster Pfad: Rasterseiten aus `travelbook.json` (Fotoseiten wie die Vorschau, Cover/Titel/Journal/Intro/Übersicht in Pillow) → JPEG-PDF hinter `PdfRenderer`. Qualität wählt man beim Export: Bildschirm 150 dpi, Druck 250 dpi, **Beste Qualität** 300 dpi mit voller Farbauflösung (JPEG 4:4:4) für Fotodruck auf einem guten Farblaser. HTML-Buch→Druckengine und LaTeX→PDF bleiben spätere Renderer.
 - **EPUB:** geplant, feste Doppelseiten (EPUB3), kein Fließtext-Umbau des Buches.
 - **LaTeX:** kompilierbares Projekt; der PDF-Lauf darf extern bleiben.
-- **CEWE:** Schnittstelle und Platzhalter, bis das echte Format geprüft ist. Keine geratenen proprietären Binärformate.
+- **CEWE:** Travelbook wird in ein **Creator-Projekt** transformiert (klassisches `.mcf` plus `Name_mcf-Dateien`), zum Feinschliff öffnen, nicht still bestellen. Kein offizielles SDK. **Editierbarer Hybrid:** Fotos und Texte bleiben native Flächen (Rahmen, Zuschnitt, Schrift); Länderumriss, Flagge, Intro-Zeitleiste und Übersichtskarte sind austauschbare Bilder. Nur DIN A4 Hochformat → CEWE Fotobuch Groß (ALB82, ca. 21×28 cm); Innenseiten auf mindestens 26 (`4k+2`) aufgefüllt. Jahrbuch, Querformat, Quadrat und `.mcfx` später. Originale nur lesen, Kopien in den Bilderordner. Keine geratenen Binärformate, keine Creator-EXE.
 - **Video:** später, linearer Durchlauf eines Buches, nicht der Karten-Website.
 
 Kennzahlen der Reiseübersicht, die der Binder in Phase 8 schon liefern kann: Dauer, Abschnittzahl, Fotos, eindeutige YouTube-Links, IGC-Flüge. **0 wird nicht angezeigt.** Bei Gleitschirmflügen von mehr als einem Piloten steht hinter dem Label `(n Piloten)`. IGC zählen auch, wenn sie im Medienpool liegen, solange sie ein Kalendertag haben. Die Dauer folgt dem Reisezeitraum auf der Projektseite (von–bis, vorbefüllt aus den indexierten Daten, danach editierbar, inklusiv). Länder wählt man auf der Projektseite aus dem Katalog (ISO-Code, deutscher Name, Flagge, Umriss). Kilometer und weitesten Punkt bleiben optionale spätere Slots. Der weiteste Punkt braucht den Heimatort als Export-Slot.

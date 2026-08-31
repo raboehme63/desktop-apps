@@ -26,7 +26,7 @@ Statistikleiste zählt den Bestand. Der Thumbnail-Schieber gilt auch auf Import.
 Medieninspektor (Schlüsselfotos,
 **Zur Karte**), Bewertungen für Fotos und Tracks, Anzeigedrehung, Drag & Drop,
 Track-Vorschauen und Rückgängig/Wiederherstellen (Strg+Z / Strg+Y) gehören dazu.
-HTML-Export folgt in Phase 8. Unechte Dubletten (pHash) bleiben offen.
+Travelbook-PDF und CEWE-Projekt (`.mcf`, zum Feinschliff im Creator) sind da; HTML-Export folgt in Phase 8. Unechte Dubletten (pHash) bleiben offen.
 
 ## Voraussetzungen
 
