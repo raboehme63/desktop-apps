@@ -2,9 +2,9 @@
 
 | Feld | Inhalt |
 | --- | --- |
-| Version | 3.0 |
-| Stand | 30. August 2026 |
-| Bezugsversion Software | Phase 7 plus Medien-Pipeline, Software **R3.0.0** |
+| Version | 3.1 |
+| Stand | 31. August 2026 |
+| Bezugsversion Software | Phase 7 plus Medien-Pipeline, Software **R3.1.0** |
 | Bezug | [pflichtenheft.md](pflichtenheft.md), [konzept.md](konzept.md), [packaging/README.md](../packaging/README.md) |
 
 Diese Dokumentation beschreibt **Teststrategie, Automatisierung, manuelle Prüfung und Abdeckungslücken**. Sie ist die Testdoku zum Pflichtenheft, kein Ersatz für pytest-Ausgaben.
@@ -26,7 +26,7 @@ Diese Dokumentation beschreibt **Teststrategie, Automatisierung, manuelle Prüfu
 | --- | --- | --- | --- |
 | Unit | `packages/travelcore/tests/` | pytest | Typen, Hash, Zeit, GPS, Provider, HEIC-Container, GPX/IGC/KML, Interpolation, ExifTool-JSON, Thumbnails, Orientierung, Timeline, Abschnitte, History-Snapshots |
 | Integration | `packages/travelcore/tests/test_indexer.py`, `test_database.py`, `test_timeline.py`; `tests/integration/`; `tests/test_edit_history.py` | pytest | Projektordner, Schema, Index → SQLite, Timeline-Sync, Re-Open, Workspace-Undo |
-| GUI-Rauch | `tests/test_gui_smoke.py` | pytest + Qt offscreen | Hauptfenster, sechs Seiten, Menü **Bearbeiten**, Inspektor, Register, Titel mit Version, Timeline-Speichern nur bei Abschnitten/Texten/Reisetitel/YouTube, **Filtern**, Thumbnail-Schieber inkl. Import, Ampel-Hover |
+| GUI-Rauch | `tests/test_gui_smoke.py` | pytest + Qt offscreen | Hauptfenster, sechs Seiten, Menü **Bearbeiten**, Inspektor, Register, Titel mit Version, Timeline-Speichern nur bei Abschnitten/Texten/Reisetitel/YouTube, Sichtbarkeits-Schalter, Verlassen-Dialog, Karten-Refresh ohne Live-Reuse, **Filtern**, Thumbnail-Schieber inkl. Import, Ampel-Hover |
 | Paketierung | `packaging/` | manuell nach `build.ps1` | Frozen-EXE startet, Alembic/Karte, kein Python nötig (MT-22) |
 | Manuell | dieses Dokument, Abschnitt 7 | Windows-Desktop | Import echter HEIC/JPEG, Liste, Timeline, Abschnitte, Karte, Inspektor, Undo/Redo |
 | Statisch | Repository-Wurzel | Ruff, später pyright | Stil, Imports, grundlegende Typen |
@@ -101,7 +101,7 @@ Hilfsmodul: `packages/travelcore/tests/jpeg_fixtures.py`. GPX-Hilfen: `gpx_fixtu
 
 ## 4. Abbildungsmatrix Pflichtenheft → automatisierte Tests
 
-Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests sind ergänzend zu führen, nicht still zu löschen.
+Stand nach `pytest --collect-only`: **452 Tests** (31. August 2026). Neue Tests sind ergänzend zu führen, nicht still zu löschen.
 
 ### 4.1 Dateitypen und Scan — FA-010 bis FA-016
 
@@ -191,7 +191,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | --- | --- | --- |
 | `test_create_project_layout_and_row` | `test_database.py` | Ordnerlayout + Projektzeile + `settings.toml` |
 | `test_open_existing_project` | `test_database.py` | Öffnen bestehender DB |
-| `test_schema_contains_core_tables` | `test_database.py` | Kern-Tabellen inkl. `source_files`, `trips`, `trip_sections`, `photo_analyses`, `similarity_groups`; Spalten `rotation_degrees`, `sort_status`, Cover- und URL-Felder, Cluster `cluster_type`/`status`/`origin`/`is_key` |
+| `test_schema_contains_core_tables` | `test_database.py` | Kern-Tabellen inkl. `source_files`, `trips`, `trip_sections`, `photo_analyses`, `similarity_groups`; Spalten `rotation_degrees`, `sort_status`, Cover- und URL-Felder, Cluster `cluster_type`/`status`/`origin`/`is_key`, `trip_sections.hidden` |
 | `test_folder_name_from_project_name_strips_invalid_chars` | `test_database.py` | ungültige Ordnerzeichen entfernt |
 | `test_create_under_uses_name_as_subdirectory` | `test_database.py` | Anlegen unter Stammordner |
 | `test_create_under_sanitizes_folder_but_keeps_display_name` | `test_database.py` | Anzeigename bleibt, Ordnername bereinigt |
@@ -207,7 +207,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_project_survives_close_and_reopen` | `tests/integration/test_project_lifecycle.py` | Index überlebt Re-Open |
 | `test_exporters_share_interface` | `test_interfaces.py` | HTML/PDF/LaTeX/CEWE sind `Exporter` |
 | `test_protocols_are_importable` | `test_interfaces.py` | `MetadataProvider`, `RankingStrategy`, `MapBackend` |
-| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R3.0.0, Menü **Bearbeiten** mit Strg+Z/Strg+Y, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren** |
+| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R3.1.0, Menü **Bearbeiten** mit Strg+Z/Strg+Y, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren** |
 
 ### 4.7 GPX und zeitliche Zuordnung — FA-040 bis FA-042
 
@@ -343,6 +343,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_build_map_overview_links_consecutive_stays` | `test_maps.py` | Übersicht verbindet zwei Aufenthalte über einen Transfer |
 | `test_parse_map_bridge_url_reads_group_key` | `tests/test_gui_smoke.py` | Expand-URL, Konsolen-Bridge, Platzieren-Konsole, Zoom/Ausschnitt nach Platzieren |
 | `test_map_view_refresh_uses_disk_cache_without_rebuild` | `tests/test_gui_smoke.py` | MapView zeigt Cache; Leiste unter dem WebView |
+| `test_map_view_refresh_applies_pending_instead_of_live_reuse` | `tests/test_gui_smoke.py` | `refresh()` übernimmt `_pending_result` statt alter Live-Karte |
 | `test_publish_map_display_writes_unique_file` | `tests/test_gui_smoke.py` | WebEngine lädt eine neue HTML-Kopie nach Rebuild |
 | `test_map_view_applies_prepared_result_when_shown` | `tests/test_gui_smoke.py` | Hintergrund-Karte wird beim Öffnen der Seite übernommen |
 | `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Leiste zentriert; Transfer-Sechseck; Zähler; Plus; Rechtsklick Platzieren/Verschieben/Zentrieren; Cursor folgt der Karte |
@@ -415,10 +416,11 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_update_section_kind_switches_stay_and_transfer` | `test_timeline_sections.py` | Typ Aufenthalt ↔ Transfer |
 | `test_apply_pending_sections_is_preview_only` | `test_timeline_sections.py` | Overlay schreibt nicht |
 | `test_timeline_save_button_only_when_dirty` | `tests/test_gui_smoke.py` | Speichern nur bei Abschnitten, Reisetitel, Text, YouTube |
-| `test_entry_widget_hide_toggle_disables_to_map` | `tests/test_gui_smoke.py` | Ausblenden deaktiviert Zur Karte |
+| `test_entry_widget_hide_toggle_disables_to_map` | `tests/test_gui_smoke.py` | Schalter aus (nur Timeline) deaktiviert Zur Karte; Standard ein = sichtbar |
 | `test_hidden_section_stays_in_timeline_and_is_unpublished` | `test_timeline_sections.py` | Flag in der Timeline, nicht in `published_entries` |
-| `test_apply_pending_preserves_hidden_flag` | `test_timeline_sections.py` | ungespeicherter Abschnitt merkt Ausblenden |
-| `test_timeline_leave_without_prompt_when_only_text_dirty` | `tests/test_gui_smoke.py` | Seitenwechsel ohne Rückfrage bei nur dirty Text |
+| `test_apply_pending_preserves_hidden_flag` | `test_timeline_sections.py` | ungespeicherter Abschnitt merkt die Sichtbarkeit (`hidden`) |
+| `test_timeline_undo_pending_toggles_save_button` | `tests/test_gui_smoke.py` | Rückgängig/Wiederherstellen eines Pending-Abschnitts schaltet Speichern |
+| `test_timeline_leave_prompts_when_text_dirty` | `tests/test_gui_smoke.py` | Seitenwechsel fragt Speichern/Verwerfen/Abbrechen bei dirty Text |
 | `test_set_entry_cover_on_day_and_section` | `test_timeline_sections.py` | Foto als Eintrags-Titelbild |
 | `test_set_entry_cover_accepts_gps_track` | `test_timeline_sections.py` | Track als Eintrags-Titelbild |
 | `test_sync_assigns_media_to_day_sections` | `test_timeline_sections.py` | Import legt Auto-Tage mit Mitgliedern an |
@@ -461,11 +463,11 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_orient_image_applies_exif_then_user_rotation` | `test_orientation.py` | EXIF zuerst, dann Nutzer |
 | `test_can_rotate_photos_and_videos_not_tracks` | `test_orientation.py` | Tracks nicht drehbar |
 
-### 4.15 GUI-Rauch — FA-064, FA-082, FA-085, FA-090, FA-092, FA-102, FA-103, FA-105
+### 4.15 GUI-Rauch — FA-064, FA-065, FA-082, FA-085, FA-090, FA-092, FA-102, FA-103, FA-105
 
 | Test | Datei | Prüft |
 | --- | --- | --- |
-| `test_app_window_title_includes_version` | `tests/test_gui_smoke.py` | `Reisetagebuch R3.0.0` |
+| `test_app_window_title_includes_version` | `tests/test_gui_smoke.py` | `Reisetagebuch R3.1.0` |
 | `test_source_sync_dialog_defaults_to_timeline` | `tests/test_gui_smoke.py` | Sync-Dialog: Timeline vorausgewählt, Pool wählbar |
 | `test_source_sync_dialog_hides_destination_without_new_files` | `tests/test_gui_smoke.py` | ohne neue Dateien keine Timeline/Pool-Wahl |
 | `test_entry_widget_separates_tracks_from_media` | `tests/test_gui_smoke.py` | getrennte Galerien |
@@ -497,7 +499,9 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_media_tabs_change_only_on_click` | `tests/test_gui_smoke.py` | Mausrad wechselt keinen Reiter |
 | `test_timeline_global_register_applies_to_all_days` | `tests/test_gui_smoke.py` | globales Register |
 | `test_timeline_save_button_only_when_dirty` | `tests/test_gui_smoke.py` | Speichern aktiv bei Reisetitel, Text, YouTube, Pending-Abschnitt; sonst inaktiv |
-| `test_timeline_leave_without_prompt_when_only_text_dirty` | `tests/test_gui_smoke.py` | `confirm_leave` ohne Dialog bei nur dirty Text |
+| `test_entry_widget_hide_toggle_disables_to_map` | `tests/test_gui_smoke.py` | Schalter aus (nur Timeline) deaktiviert Zur Karte; Standard ein = sichtbar |
+| `test_timeline_undo_pending_toggles_save_button` | `tests/test_gui_smoke.py` | Undo/Redo eines ungespeicherten Abschnitts schaltet Speichern |
+| `test_timeline_leave_prompts_when_text_dirty` | `tests/test_gui_smoke.py` | `confirm_leave` fragt Speichern/Verwerfen/Abbrechen bei dirty Text |
 | `test_scroll_offset_to_widget_top_uses_host_not_page_chrome` | `tests/test_gui_smoke.py` | Reveal ignoriert Reisetitel über der Liste |
 | `test_timeline_join_is_wide_downward_connector` | `tests/test_gui_smoke.py` | schlanke Verbindungslinie mit Plus zwischen Timeline-Karten |
 | `test_entry_span_dates_feeds_join_insert` | `tests/test_gui_smoke.py` | Lückendatum aus den Karten davor/danach |
@@ -540,6 +544,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_section_span_dialog_tag_vs_range` | `tests/test_gui_smoke.py` | Datum… / Zeitraum… ohne überlagerte Felder, Dialog breit genug |
 | `test_parse_map_bridge_url_reads_group_key` | `tests/test_gui_smoke.py` | Karten-Expand-Bridge, Zoom/Ausschnitt nach Platzieren |
 | `test_map_view_refresh_uses_disk_cache_without_rebuild` | `tests/test_gui_smoke.py` | Karten-Cache; Leiste unter dem WebView |
+| `test_map_view_refresh_applies_pending_instead_of_live_reuse` | `tests/test_gui_smoke.py` | `refresh()` übernimmt `_pending_result` statt Live-Reuse |
 | `test_publish_map_display_writes_unique_file` | `tests/test_gui_smoke.py` | WebEngine lädt eine neue HTML-Kopie nach Rebuild |
 | `test_map_view_applies_prepared_result_when_shown` | `tests/test_gui_smoke.py` | Hintergrund-Karte wird beim Öffnen der Seite übernommen |
 | `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Timeline-Leiste zentriert; Zähler Fotos/Tracks/IGC/YouTube, Reserve-Schalter, Plus zwischen Karten |
@@ -566,7 +571,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_restore_move_members_returns_file` | `test_timeline_history.py` | Zuordnen rückgängig legt das Medium zurück |
 | `test_restore_section_kind_and_span` | `test_timeline_history.py` | Typ und Spanne wiederherstellen |
 | `test_restore_pin_and_title` | `test_timeline_history.py` | Kartenposition und Titel wiederherstellen |
-| `test_restore_hidden_flag` | `test_timeline_history.py` | Ausblenden wiederherstellen |
+| `test_restore_hidden_flag` | `test_timeline_history.py` | Sichtbarkeit / Ausblenden wiederherstellen |
 | `test_restore_deleted_section` | `test_timeline_history.py` | gelöschten Abschnitt inkl. Mitglieder wiederherstellen |
 | `test_restore_after_create_removes_new_section` | `test_timeline_history.py` | neu angelegten Abschnitt entfernen |
 | `test_restore_dissolved_section` | `test_timeline_history.py` | aufgelösten Abschnitt wiederherstellen |
@@ -614,7 +619,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 
 ## 5. Abdeckung gegen das Pflichtenheft
 
-### 5.1 Gut abgedeckt (Phase 7 plus Medien-Pipeline, R3.0.0)
+### 5.1 Gut abgedeckt (Phase 7 plus Medien-Pipeline, R3.1.0)
 
 - Dateiklassifikation und rekursiver Scan
 - SHA-256 und Skip unveränderter Dateien
@@ -634,11 +639,11 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 - Projekt anlegen, Schema (Abschnitte, Mitglieder, Journal-Zeit, Pool `parked`, URLs, Cover, Drehung), Wiederöffnen, `settings.toml` und Pfad-Rebase
 - Karte: Titelbild-Kreise je Tag/Transfer/Aufenthalt (Cover-Fallback Foto/Track/YouTube), Verbindungslinien (Transfer-Liste oder Ausgangslinie, Symbol in Fahrtrichtung), Transfer-Kreis per dünner Linie am Verkehrssymbol, Layer-Menü Straßenkarte/Topo/Satellit, Fit-Reise, Zahnrad (Fotokegel, Reserve, Ortsnamen und Straßen auf Satellit), Leiste darunter mit **+**, Tagebuchtext rechts, YouTube-Thumbs unten rechts auf der Karte, Cover-Zoom und Überlappungsgruppe, Detail mit Tracklinie und Fotomarkern (Stapel naher Fotos bis Zoom 16), Foto-Popup (Vorab-Zentrierung, Blättern, Schieber-Zoom, Bewertung), offline ohne OSM
 - Verkehrsmittelsymbole: Katalog = `MOVEMENT_MODES`, Hilfe und Combos, Camper/Van nach rechts, Karten-Spiegelung in eigenem Wrapper
-- Timeline: Tage als Abschnitte mit Mitgliedern, Medienpool, Journal-Zeit, Drag & Drop Karte↔Karte und Pool inkl. Auto-Scroll, manuelle Texte bleiben, Ortsvorschläge, `used_in_journal`; Speichern-Button nur bei Abschnitten, Texten, Reisetitel, YouTube; Rückgängig/Wiederherstellen (Snapshots in `travelcore`, Stack im Workspace)
+- Timeline: Tage als Abschnitte mit Mitgliedern, Medienpool, Journal-Zeit, Drag & Drop Karte↔Karte und Pool inkl. Auto-Scroll, manuelle Texte bleiben, Ortsvorschläge, `used_in_journal`; Sichtbarkeits-Schalter (ein = Karte/Export); Speichern-Button nur bei Abschnitten, Texten, Reisetitel, YouTube (sonst grau; Undo/Redo schaltet mit); Verlassen-Dialog Speichern/Verwerfen/Abbrechen; Rückgängig/Wiederherstellen (Snapshots in `travelcore`, Stack im Workspace)
 - Reiseabschnitte, Pending-Vorschau, Eintrags-Titelbild (Foto und Track, YouTube-Fallback)
 - YouTube- und DHV-Leonardo-URL-Normalisierung
 - Anzeigedrehung (Index, Cachepfad, Re-Import, Inspektor ohne Originalschreiben)
-- GUI-Rauch: Fenstertitel mit Version R3.0.0, Menü **Bearbeiten** (Strg+Z/Strg+Y), Pipeline Import→Medien→Timeline, Pool-Spalte, getrennte Medien/Tracks, Register nur per Klick (auch Tracks), Inspektor Blättern/Zoom/Drehen/Pool/Zur Karte (letzter Klick, geladene Karte ohne Neuaufbau), Thumbnail-Schieber
+- GUI-Rauch: Fenstertitel mit Version R3.1.0, Menü **Bearbeiten** (Strg+Z/Strg+Y), Pipeline Import→Medien→Timeline, Pool-Spalte, getrennte Medien/Tracks, Register nur per Klick (auch Tracks), Inspektor Blättern/Zoom/Drehen/Pool/Zur Karte (letzter Klick, geladene Karte ohne Neuaufbau), Sichtbarkeits-Schalter, Speichern/Verlassen, Thumbnail-Schieber
 - Medien-Cluster: SHA-256-Stapel, 30-s-Szenengruppen, manuelle Gruppen ohne Schlüssel, Overlay blendet Nicht-Schlüssel aus, Galerie-Kennzeichen G/×n, Inspektor-Blättern (Links/rechts Schlüssel, hoch/runter Gruppe, Leertaste, Aussortierte-Checkbox), Statistikleiste
 - Qualitätsampel: `technical_quality` in `photo_analyses`, Pillow-Analyse ohne Originalschreiben, Ampel in der Galerie, Knopf **Qualität prüfen**, Hover mit ausschlaggebenden Einzelwerten (`quality_tooltip`)
 - Medien-**Filtern**: Qualität, Zeitraum Von–Bis, Bewertung (Mehrfachauswahl) für Galerie und Pool
@@ -687,7 +692,7 @@ Schweregrade für manuelle Funde:
 
 ---
 
-## 7. Manuelle Testfälle (Phase 3 bis 7 plus Medien-Pipeline, Software R3.0.0, inkl. Windows-Paket und Undo/Redo)
+## 7. Manuelle Testfälle (Phase 3 bis 7 plus Medien-Pipeline, Software R3.1.0, inkl. Windows-Paket und Undo/Redo)
 
 Voraussetzung: App starten mit
 
@@ -850,13 +855,18 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Nach Import Seite **Timeline** öffnen bzw. **Timeline aktualisieren** | ein Tag je Aufnahmedatum, Karten von früh nach spät; Kartenkopf: Titelbild, rechts Titel, darunter Typ/Datum (`14.05.2025` bzw. `01.08.2025 - 10.08.2025`), danach Verbindungslinien; darunter Tagebucheintrag; zwischen den Karten Abstand und schlanke Linie mit **+** in einem Ring; Fotos auf der Karte nach Journal-Zeit; Auto-Ereignis mit Medienzähler |
+| Nach Import Seite **Timeline** öffnen bzw. **Timeline aktualisieren** | ein Tag je Aufnahmedatum, Karten von früh nach spät; Kartenkopf: Titelbild, rechts Titel, darunter Typ/Datum (`14.05.2025` bzw. `01.08.2025 - 10.08.2025`), oben rechts Sichtbarkeits-Schalter, **Zur Karte** und **Menü**; danach Verbindungslinien; darunter Tagebucheintrag; zwischen den Karten Abstand und schlanke Linie mit **+** in einem Ring; Fotos auf der Karte nach Journal-Zeit; Auto-Ereignis mit Medienzähler |
 | **+** auf der Linie zwischen zwei Karten | Dialog **Neuer Reiseabschnitt**; Tag **Am** = erster offener Tag der Lücke; Aufenthalt/Transfer **Von**/**Bis** = offene Tage; ohne Lücke das Datum der vorherigen Karte |
 | Vertikalen Schieber ziehen | links am Griff das Datum des Abschnitts in der Bildmitte (`14.05.2025` bzw. `01.–10.08.2025`) |
 | Pool-Schieber ziehen | links am Griff das Aufnahmedatum des Mediums in der Bildmitte |
-| Timeline ohne ungespeicherte Abschnitte, Texte, Reisetitel oder YouTube | **Speichern** ist inaktiv |
+| Timeline ohne ungespeicherte Abschnitte, Texte, Reisetitel oder YouTube | **Speichern** ist grau und inaktiv |
 | Reisetitel, Titel, Tagebuchtext oder YouTube ändern bzw. neuen Abschnitt anlegen | **Speichern** wird aktiv; Rücknahme der Änderung macht ihn wieder inaktiv |
 | Bewertung (Foto oder Track), Titelbild oder DHV-Leonardo an einem **gespeicherten** Eintrag | sofort in der DB; **Speichern** bleibt inaktiv |
+| Sichtbarkeits-Schalter **ein** (türkis) | Abschnitt auf Karte und im Export; **Zur Karte** aktiv, wenn der Eintrag gespeichert ist |
+| Sichtbarkeits-Schalter **aus** | Karte abgedunkelt; **Zur Karte** deaktiviert; Abschnitt bleibt in der Timeline |
+| Schalter aus, Seite **Karte** öffnen | Cover, Leiste und Verbindungslinien ohne diesen Abschnitt; Umschalten bleibt schnell (keine komplette Timeline-Neubau) |
+| Schalter wieder **ein** | Cover und Leiste erscheinen wieder |
+| Schalter aus, Strg+Z | Schalter wieder **ein**; Karte folgt |
 | Timeline: Track-Reiter Favoriten | nur bewertete Tracks; dasselbe Register wie bei Medien |
 | Reisetitel oben ändern, **Speichern**, Projekt schließen und öffnen | Titel noch da; erneuter Timeline-Abgleich überschreibt ihn nicht |
 | GPS-Fotos am selben Ort | kein automatischer Ortsname; Tag zeigt das Datum |
@@ -864,17 +874,17 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Timeline: Titel und Text speichern, Projekt schließen und öffnen | Text noch da, `origin=manual`; erneuter Timeline-Abgleich überschreibt den Text nicht |
 | Timeline: Typ **Aufenthalt** bzw. **Transfer** an einem gespeicherten Tag | die Karte bleibt derselbe Abschnitt, nur der Typ wechselt (sofort, ohne **Speichern**); zurück auf **Tag** ist ebenfalls ein Typwechsel, kein Auflösen |
 | Timeline: mehrere Fotos markieren, **Neuen Reiseabschnitt erstellen** (Aufenthalt) | Abschnitt erscheint; die bisherigen Tage bleiben; **Speichern** aktiv; ohne Speichern und Verlassen: Dialog Speichern/Verwerfen/Abbrechen |
-| ⋯ **Journal-Zeit…** an einem Medium, Uhr über Mitternacht | Clip liegt auf dem anderen Tag; `captured_at` unverändert |
+| **Menü** **Journal-Zeit…** an einem Medium, Uhr über Mitternacht | Clip liegt auf dem anderen Tag; `captured_at` unverändert |
 | **Originalzeit** | Journal-Zeit wieder wie die Aufnahme; Clip auf dem ursprünglichen Tag |
 | Timeline ohne Auswahl, **Neuen Reiseabschnitt erstellen**, Tag **Am** bzw. Aufenthalt/Transfer **Von Datum** / **Bis Datum** | leerer Abschnitt erscheint an der passenden Timeline-Stelle; **Speichern** aktiv |
-| ⋯ **Datum…** (Tag) bzw. **Zeitraum…** (Aufenthalt/Transfer) | Dialog übernimmt die bisherigen Daten; nach OK rutscht die Karte an die neue Stelle; bei ungespeichertem Abschnitt **Speichern** nötig |
-| ⋯ **Löschen** an einem gespeicherten Abschnitt | Abschnitt weg; Medien im Pool; Pool-Spalte öffnet sich |
+| **Menü** **Datum…** (Tag) bzw. **Zeitraum…** (Aufenthalt/Transfer) | Dialog übernimmt die bisherigen Daten; nach OK rutscht die Karte an die neue Stelle; bei ungespeichertem Abschnitt **Speichern** nötig |
+| **Menü** **Löschen** an einem gespeicherten Abschnitt | Abschnitt weg; Medien im Pool; Pool-Spalte öffnet sich |
 | Transfer-Verbindungslinie: **durchgezogen** / **gestrichelt** | nach Speichern auf der Karte dieselbe Strichart |
 | Transfer mit mehreren Verkehrsmitteln, **Speichern**, ⊟ auflösen | Dateien wieder auf Tagen |
 | Tag oder Aufenthalt, nächster Eintrag kein Transfer: **Verbindung zum nächsten Abschnitt** | Gerade/Bogenlinie, durchgezogen/gestrichelt, ein Verkehrsmittel (Symbol vor dem Namen, Nase nach rechts in der Liste); leer = Richtungspfeil auf der Geraden; **Keine Linie** zeichnet nichts zum Folgekreis; Track und Route fehlen; Symbolspitze zur nächsten Tag-/Aufenthaltsposition |
 | Letzter Eintrag oder nächster Eintrag ist Transfer | keine Ausgangslinie-Zeile; gespeicherte Werte bleiben |
-| YouTube im ⋯-Menü, Dialog-OK | **Speichern** wird aktiv; ohne Speichern die Timeline verlassen: Dialog Verwerfen/Abbrechen; nach Verwerfen YouTube nicht in der DB |
-| Nur Titel oder Tagebuchtext ändern und die Timeline verlassen | keine Rückfrage; die Edits bleiben in der Timeline, bis **Speichern**; Schließen des Fensters verwirft sie |
+| YouTube im **Menü**, Dialog-OK | **Speichern** wird aktiv; ohne Speichern die Timeline verlassen: Dialog Speichern/Verwerfen/Abbrechen; nach Verwerfen YouTube nicht in der DB |
+| Titel, Tagebuchtext, Reisetitel, YouTube oder neuen Abschnitt ändern und die Timeline verlassen | Dialog Speichern/Verwerfen/Abbrechen; Abbrechen bleibt auf der Seite; Verwerfen stellt den letzten gespeicherten Stand her |
 | **Timeline aktualisieren** bei geändertem Titel/Text | Texte werden mitgeschrieben; **Speichern** bleibt aktiv, wenn Abschnitte oder YouTube noch ungespeichert sind |
 | DHV-Leonardo extra an gespeichertem Tag, Dialog-OK | sofort in der DB; nie als „DAV“ bezeichnet |
 | Chip **T** auf Foto und auf Track | Cover in der Kartenüberschrift; Video hat kein T |
@@ -939,8 +949,8 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| App ohne Projekt | Titelleiste `Reisetagebuch R3.0.0` |
-| Projekt öffnen | `Reisetagebuch R3.0.0 - {Projekttitel}` |
+| App ohne Projekt | Titelleiste `Reisetagebuch R3.1.0` |
+| Projekt öffnen | `Reisetagebuch R3.1.0 - {Projekttitel}` |
 
 ### MT-22 Windows-Paket (FA-140–FA-144)
 
@@ -948,7 +958,7 @@ Voraussetzung: `packaging/build.ps1` erfolgreich; optional Inno Setup 6 für die
 
 | Schritt | Erwartung |
 | --- | --- |
-| `dist/Reisetagebuch/Reisetagebuch.exe` starten (ohne venv, ohne `python` auf dem PATH) | Fenster `Reisetagebuch R3.0.0`; kein Python-Fehlerdialog |
+| `dist/Reisetagebuch/Reisetagebuch.exe` starten (ohne venv, ohne `python` auf dem PATH) | Fenster `Reisetagebuch R3.1.0`; kein Python-Fehlerdialog |
 | Neues Projekt anlegen, JPEG-Ordner importieren | Index und Thumbnails wie in der Entwicklungsumgebung; Originale unverändert |
 | Seite **Karte** | WebEngine zeigt die Karte (nicht nur den HTML-Pfad) |
 | `%LOCALAPPDATA%\TravelJournal` | `config.json` / `recent.json` wie bisher, nicht im Programmordner |
@@ -1058,6 +1068,7 @@ Ein Phasenabschluss ohne grüne Automatisierung gilt als nicht abgenommen.
 
 | Datum | Kommando | Ergebnis |
 | --- | --- | --- |
+| 31.08.2026 | `python -m pytest --collect-only -q` im Projekt-venv | 452 Tests gesammelt (R3.1.0; Sichtbarkeit, Speichern/Verlassen, Karten-Refresh) |
 | 30.08.2026 | `python -m pytest` im Projekt-venv | 443 bestanden (R3.0.0; Filtern, Import-Zoom, Ampel-Hover) |
 | 30.08.2026 | `python -m pytest` im Projekt-venv | 429 bestanden (R3.0.0; Stapel/Gruppe, Inspektor-Cluster, Statistikleiste) |
 | 30.08.2026 | `python -m pytest` im Projekt-venv | 415 bestanden (R2.2.0; Zur Karte letzter Klick, Detail+Foto, geladene Karte ohne Neuaufbau) |
@@ -1069,4 +1080,4 @@ Ein Phasenabschluss ohne grüne Automatisierung gilt als nicht abgenommen.
 | 26.08.2026 | `python -m pytest` im Projekt-venv | 222 bestanden |
 | 18.08.2026 | `python -m pytest` im Projekt-venv | 98 bestanden |
 
-Diese Zeile bei der nächsten vollständigen Fahrt fortschreiben.
+Collect-only für R3.1.0 am 31.08.2026; die nächste vollständige `pytest`-Fahrt hier fortschreiben.

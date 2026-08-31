@@ -77,6 +77,13 @@ QPushButton#primary:hover {
     background-color: #3ccbb2;
 }
 
+QPushButton#primary:disabled,
+QPushButton#primary:disabled:hover {
+    background-color: #1a2030;
+    border: 1px solid #2a3144;
+    color: #6b7385;
+}
+
 #timelinePool {
     background-color: #181c27;
     border-left: 1px solid #2a3144;

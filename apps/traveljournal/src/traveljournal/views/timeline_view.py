@@ -297,6 +297,7 @@ class TimelineView(QWidget):
         self._pending_reveal: EntryWidget | None = None
         self._media_ratings_stale = False
         self._media_tab_touched = False
+        self.workspace.history.index_changed.connect(self._update_save_button)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 28)
@@ -348,6 +349,7 @@ class TimelineView(QWidget):
         self._reset_button.clicked.connect(self._reset_journal_time)
         self._save_button = QPushButton("Speichern")
         self._save_button.setObjectName("primary")
+        self._save_button.setToolTip("Nichts zu speichern")
         self._save_button.clicked.connect(self._on_save_clicked)
         self._media_tabs = ClickTabBar(self)
         self._media_tabs.setObjectName("mediaSortTabs")
@@ -482,47 +484,19 @@ class TimelineView(QWidget):
         self._on_item_rating(item)
 
     def confirm_leave(self) -> bool:
-        """Drop unsaved YouTube links unless Speichern was used; prompt for unsaved sections."""
+        """Ask to save, discard or stay when Speichern would write something."""
 
         self._persist_media_tab()
         self._sync_pending_from_widgets()
         self._stash_pending_youtube()
-        if not self._pending and not self._pending_youtube:
+        if not self._has_unsaved_work():
             return True
-        if self._pending:
-            result = QMessageBox.question(
-                self,
-                "Timeline",
-                "Es gibt ungespeicherte Reiseabschnitte. Ohne Speichern gehen sie verloren. "
-                "YouTube-Links werden nur mit „Speichern“ in der Timeline übernommen.",
-                QMessageBox.StandardButton.Save
-                | QMessageBox.StandardButton.Discard
-                | QMessageBox.StandardButton.Cancel,
-            )
-            if result == QMessageBox.StandardButton.Cancel:
-                return False
-            if result == QMessageBox.StandardButton.Save:
-                if not self._persist_pending():
-                    return False
-                if not self._commit_if_dirty():
-                    return False
-            self._pending.clear()
-            self._pending_youtube.clear()
-            self._snapshot = None
-            self._base_snapshot = None
-            return True
-        result = QMessageBox.question(
-            self,
-            "Timeline",
-            "YouTube-Links sind nicht gespeichert. Sie werden nur mit „Speichern“ in der Timeline "
-            "übernommen und gehen sonst verloren.",
-            QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
-        )
-        if result != QMessageBox.StandardButton.Discard:
+        choice = self._ask_unsaved_work()
+        if choice == "cancel":
             return False
-        self._pending_youtube.clear()
-        self._snapshot = None
-        self._base_snapshot = None
+        if choice == "save":
+            return self._save_unsaved_work()
+        self._discard_unsaved_work()
         return True
 
     def refresh(self, rebuild: bool = False, *, commit: bool = True) -> None:
@@ -1571,7 +1545,13 @@ class TimelineView(QWidget):
     def _update_save_button(self) -> None:
         if self._loading:
             return
-        self._save_button.setEnabled(self._has_unsaved_work())
+        dirty = self._has_unsaved_work()
+        self._save_button.setEnabled(dirty)
+        self._save_button.setToolTip(
+            "Ungespeicherte Abschnitte, Texte oder YouTube-Links schreiben"
+            if dirty
+            else "Nichts zu speichern"
+        )
 
     def _set_trip_title_field(self, snapshot: TimelineSnapshot | None) -> None:
         if snapshot is None:
@@ -1845,19 +1825,54 @@ class TimelineView(QWidget):
         self._update_save_button()
         return True
 
-    def _on_save_clicked(self) -> None:
+    def _ask_unsaved_work(self) -> str:
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Timeline")
+        box.setText("Es gibt ungespeicherte Änderungen.")
+        box.setInformativeText(
+            "Speichern, die Änderungen verwerfen oder in der Timeline bleiben?"
+        )
+        save = box.addButton("Speichern", QMessageBox.ButtonRole.AcceptRole)
+        discard = box.addButton("Verwerfen", QMessageBox.ButtonRole.DestructiveRole)
+        cancel = box.addButton("Abbrechen", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(save)
+        box.setEscapeButton(cancel)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked == save:
+            return "save"
+        if clicked == discard:
+            return "discard"
+        return "cancel"
+
+    def _save_unsaved_work(self) -> bool:
         self._stash_pending_youtube()
         if not self._has_unsaved_work():
-            return
+            self._update_save_button()
+            return True
         if not self._persist_pending():
-            return
+            return False
         if not self._commit_if_dirty():
-            return
+            return False
         if not self._persist_pending_youtube():
-            return
+            return False
         self.refresh()
         self.timeline_changed.emit()
         self.status_message.emit("Tagebuch gespeichert.")
+        return True
+
+    def _discard_unsaved_work(self) -> None:
+        self._pending.clear()
+        self._pending_youtube.clear()
+        self._trip_title.blockSignals(True)
+        self._trip_title.setText(self._loaded_trip_title)
+        self._trip_title.blockSignals(False)
+        self.refresh(commit=False)
+        self._update_save_button()
+
+    def _on_save_clicked(self) -> None:
+        self._save_unsaved_work()
 
 
 class EntryWidget(QFrame):
@@ -2005,9 +2020,9 @@ class EntryWidget(QFrame):
             self._hidden_check = SwitchToggle(self)
             self._hidden_check.setObjectName("entryHide")
             self._hidden_check.setToolTip(
-                "Ausblenden: Abschnitt bleibt in der Timeline, fehlt auf Karte und im Export"
+                "Ein: auf Karte und im Export. Aus: nur in der Timeline."
             )
-            self._hidden_check.setChecked(self._hidden)
+            self._hidden_check.setChecked(not self._hidden)
             self._hidden_check.toggled.connect(self._on_hidden_toggled)
             title_row.addWidget(self._hidden_check, 0, Qt.AlignmentFlag.AlignVCenter)
         meta.addLayout(title_row)
@@ -2244,12 +2259,12 @@ class EntryWidget(QFrame):
         if self._hidden_check is None:
             return
         self._hidden_check.blockSignals(True)
-        self._hidden_check.setChecked(hidden)
+        self._hidden_check.setChecked(not hidden)
         self._hidden_check.blockSignals(False)
         self._apply_hidden(hidden, emit=emit)
 
     def _on_hidden_toggled(self, checked: bool) -> None:
-        self._apply_hidden(checked, emit=True)
+        self._apply_hidden(not checked, emit=True)
 
     def _apply_hidden(self, hidden: bool, *, emit: bool) -> None:
         self._hidden = hidden

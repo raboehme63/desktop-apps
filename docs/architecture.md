@@ -2,7 +2,7 @@
 
 Produktanforderungen: [pflichtenheft.md](pflichtenheft.md). Leitkonzept: [konzept.md](konzept.md). Tests: [testdokumentation.md](testdokumentation.md). Windows-Paket: [packaging/README.md](../packaging/README.md).
 
-Stand: **Phase 7** plus Medien-Pipeline, Software **R3.0.0** (30. August 2026). Journal-Modell nach Design-Review; Verbindungslinien; Karten-Popup, Cover-Zoom, Track-Bewertung; **Zur Karte** ohne Neuaufbau der geladenen Karte; SHA-256-Stapel, Szenen- und manuelle Gruppen, Statistikleiste Medien; Qualitätsampel mit Hover-Begründung; **Filtern** auf Medien; Thumbnail-Schieber inkl. Import.
+Stand: **Phase 7** plus Medien-Pipeline, Software **R3.1.0** (31. August 2026). Journal-Modell nach Design-Review; Verbindungslinien; Sichtbarkeits-Schalter (`trip_sections.hidden`); **Speichern** grau außer Dirty-Stand mit Undo/Redo und Verlassen-Dialog; Karten-Popup, Cover-Zoom, Track-Bewertung; **Zur Karte** ohne Neuaufbau der geladenen Karte; Sichtbarkeitswechsel setzt `_live_stale` und übernimmt `_pending_result` statt Live-Reuse; SHA-256-Stapel, Szenen- und manuelle Gruppen, Statistikleiste Medien; Qualitätsampel mit Hover-Begründung; **Filtern** auf Medien; Thumbnail-Schieber inkl. Import.
 
 ## Prinzip
 
@@ -32,7 +32,7 @@ und ändert die JSON-Datei nicht.
 | Use Cases | `travelcore.media`, `gps`, `timeline`, `geolocation`, `maps`, `similarity`, `export` | Import, Zuordnung, Timeline, Karte, Cluster, Export |
 | Persistenz | `travelcore.database` | SQLAlchemy-Modelle, Alembic, Projektordner |
 
-## Module in travelcore (Phase 7 plus Medien-Pipeline, R3.0.0)
+## Module in travelcore (Phase 7 plus Medien-Pipeline, R3.0.0 plus R3.1.0 Journal-Redaktion)
 
 | Paket | Inhalt |
 | --- | --- |
@@ -40,7 +40,7 @@ und ändert die JSON-Datei nicht.
 | `metadata` | Pillow, HEIC-Container, optional ExifTool, Merge |
 | `gps` | GPX/IGC-Parse und Ingest, KML/GeoJSON nur für Vorschauen, zeitliche Interpolation |
 | `geolocation` | Aufenthaltscluster (Haversine, Radius 150 m) |
-| `timeline` | Tage, Transfers und Aufenthalte als Abschnitte, Mitglieder, Journal-Zeit, Pool (`parked`), Links, Cover, manuelle Edits, Snapshots zum Wiederherstellen (`history`) |
+| `timeline` | Tage, Transfers und Aufenthalte als Abschnitte, Mitglieder, Journal-Zeit, Pool (`parked`), Links, Cover, Sichtbarkeit (`hidden`), manuelle Edits, Snapshots zum Wiederherstellen (`history`) |
 | `maps` | `MapScene` + Folium/Leaflet; statische OSM-Ausschnitte für Track-Thumbs |
 | `export` | Vertrag `Exporter`; HTML/PDF/LaTeX/CEWE noch Platzhalter |
 | `image_analysis` | `PillowQualityAnalyzer`, `analyze_project_photos`, Ampel aus `technical_quality` (`photo_analyses`) |
@@ -86,7 +86,7 @@ Originaldateien nicht.
 
 Zuletzt geöffnete Projekte stehen unter
 `%LOCALAPPDATA%\TravelJournal\recent.json` (max. 10). Die Oberfläche listet
-sie in R3.0.0 noch nicht. Der Fenstertitel lautet `Reisetagebuch R{Version}`
+sie in R3.1.0 noch nicht. Der Fenstertitel lautet `Reisetagebuch R{Version}`
 bzw. `Reisetagebuch R{Version} - {Projekttitel}`. Das Medienregister
 (Timeline und Medienseite) steht in `%LOCALAPPDATA%\TravelJournal\config.json` (`timeline_media_tab`),
 ebenso die Thumbnail-Schieber (`timeline_thumb_zoom`, `map_thumb_zoom`, `media_thumb_zoom`, `import_thumb_zoom`), die
@@ -111,8 +111,8 @@ Die Timeline-UI zeigt **Tage**, **Transfers** und **Aufenthalte** als
 `trip_sections` mit `section_members`. Der Kartenkopf ist kompakt: Titelbild
 in Thumbnail-Größe (`168` px), rechts zuerst der Titel, darunter Typ und Datum
 in einer Zeile (`format_card_dates`: `12.12.2026` bzw. `11.11.2026 - 21.11.2026`),
-**Zur Karte** und **Menü**, danach Verbindungslinien (Transfer) bzw. Ausgangslinie (Tag/Aufenthalt), darunter der Tagebucheintrag. Oben rechts auf Höhe von **Titel** sitzt der Ausblenden-Schalter
-(Pille ohne Text). **Ausblenden** (`trip_sections.hidden`) lässt die Karte in der Timeline stehen; `TimelineSnapshot.published_entries` liefert die Reise ohne diese Abschnitte für Karte und Export. Feldtitel sitzen auf der Kartenfarbe;
+**Zur Karte** und **Menü**, danach Verbindungslinien (Transfer) bzw. Ausgangslinie (Tag/Aufenthalt), darunter der Tagebucheintrag. Oben rechts auf Höhe von **Titel** sitzt der Sichtbarkeits-Schalter
+(Pille ohne Text; eingeschaltet = sichtbar auf Karte und Export). Ausgeschaltet setzt `trip_sections.hidden`; die Karte bleibt in der Timeline, `TimelineSnapshot.published_entries` liefert die Reise ohne diese Abschnitte für Karte und Export. Feldtitel sitzen auf der Kartenfarbe;
 dunkle Flächen sind die editierbaren Felder. Beim Verschieben des vertikalen
 Schiebers erscheint links am Griff das Datum des Abschnitts in der
 Bildmitte (`format_scroll_date`). Am Schieber des Medienpools erscheint dasselbe Chip
@@ -169,9 +169,11 @@ GPS-Felder werden dabei nicht geschrieben.
 `_pending`, dirty Reisetitel, dirty Titel/Notizen oder dirty YouTube
 (`youtube_urls` ungleich DB bzw. `_pending_youtube`). Bewertungen,
 Anzeigedrehung, DHV-Leonardo, Cover und **Ausblenden** an gespeicherten Einträgen schreiben
-sofort und zählen nicht. `confirm_leave` fragt bei `_pending`
-(Speichern/Verwerfen/Abbrechen) und bei nur `_pending_youtube`
-(Verwerfen/Abbrechen); dirty Texte allein erzeugen keine Rückfrage.
+sofort und zählen nicht. Der Primary-Button ist ohne Dirty-Stand grau
+(`QPushButton#primary:disabled`). `history.index_changed` aktualisiert den Button,
+damit Rückgängig eines ungespeicherten Abschnitts ihn wieder deaktiviert.
+`confirm_leave` fragt bei jedem Dirty-Stand Speichern/Verwerfen/Abbrechen
+(Texte, Reisetitel, YouTube und Pending-Abschnitte).
 `refresh()` ruft `_commit_if_dirty()` auf, sodass **Timeline aktualisieren**
 ungespeicherte Texte mitschreibt.
 
@@ -280,8 +282,11 @@ Medieninspektor ruft `focus_group_media` auf: Leistenkarte des Mediums in die
 Mitte, `traveljournalShowDetail` mit `focus_source_id`, danach
 `traveljournalFocusMedia`. Mehrere Inspektor-Fenster; letzter Klick gewinnt
 (`_media_focus_gen`). Ist `cache/map.html` schon im WebView (`render_seq`
-unverändert), überspringt `refresh()` den Neuaufbau (`_reuse_live_map`) und
+unverändert) und die Karte nicht stale (`_live_stale`), überspringt `refresh()` den Neuaufbau (`_reuse_live_map`) und
 nutzt das zuletzt gelesene Abschnitts-JSON (`_detail_payload_cache`).
+`prepare_in_background(force=True)` (Sichtbarkeitswechsel) setzt `_live_stale`
+und lädt die Leiste sofort neu. `refresh()` übernimmt zuerst `_pending_result`;
+während ein Worker läuft oder die Karte stale ist, bleibt die alte Live-Karte unsichtbar.
 `map_group_key_for_source` löst `section:N` / `day:N` / `loose:…` aus der
 Mitgliedschaft.
 Klick auf einen Transfer-Kreis oder auf das Verkehrssymbol öffnet dieselbe
@@ -467,4 +472,4 @@ macOS ist kein Ziel (WIC-Vorschauen, AppData-Pfade).
 10. Dublettenerkennung  ← R3.0.0 teilweise (SHA-256-Stapel, 30-s-Gruppen,
     manuelle Gruppen, Statistik; keine pHash/Embeddings)
 
-Aktueller Stand: Phase 7 erledigt plus Medien-Pipeline, Qualitätsampel, Filtern und Import-Zoom, Software R3.0.0.
+Aktueller Stand: Phase 7 erledigt plus Medien-Pipeline, Qualitätsampel, Filtern und Import-Zoom, Sichtbarkeit/Speichern/Verlassen, Software R3.1.0.

@@ -1,6 +1,6 @@
 # Direkte Abhängigkeiten
 
-Stand: Phase 7 plus Medien-Pipeline, Software R3.0.0. Es werden **keine** Platzhalter-Bibliotheken installiert,
+Stand: Phase 7 plus Medien-Pipeline, Software R3.1.0. Es werden **keine** Platzhalter-Bibliotheken installiert,
 die der aktuelle Code nicht verwendet.
 
 Lizenzangaben stammen aus den veröffentlichten Projektdaten der jeweiligen

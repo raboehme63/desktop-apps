@@ -22,7 +22,7 @@ class SwitchToggle(QCheckBox):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setText("")
-        self.setAccessibleName("Ausblenden")
+        self.setAccessibleName("Auf Karte sichtbar")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)

@@ -8,8 +8,9 @@ PySide6-Oberfläche `traveljournal` orchestriert nur Import, Bearbeitung und
 Export. Dieselbe Bibliothek ist für eine spätere Anwendung `PhotoInspector`
 vorgesehen (Dublettensuche, Qualitätsbewertung).
 
-Aktueller Stand: **Phase 7** plus Medien-Pipeline, Software **R3.0.0**
-(`Reisetagebuch R3.0.0` in der Titelleiste).
+Aktueller Stand: **Phase 7** plus Medien-Pipeline, Software **R3.1.0**
+(`Reisetagebuch R3.1.0` in der Titelleiste). Abschnitte lassen sich in der
+Timeline für Karte und Export ausblenden; **Speichern** ist sonst grau.
 
 Die Anwendung importiert Medien, liest Metadaten und GPS-Tracks, erzeugt
 Vorschaubilder, zeigt eine Karte (Titelbild-Kreise, Verbindungslinien mit

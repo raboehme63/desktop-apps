@@ -18,7 +18,7 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
 
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
-    assert window.windowTitle() == "Reisetagebuch R3.0.0"
+    assert window.windowTitle() == "Reisetagebuch R3.1.0"
     assert window.stack.count() == 6
     titles = [action.text() for action in window.menuBar().actions()]
     assert "Projekt" in titles
@@ -144,9 +144,9 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
 def test_app_window_title_includes_version() -> None:
     from traveljournal.__about__ import app_window_title
 
-    assert app_window_title() == "Reisetagebuch R3.0.0"
-    assert app_window_title("Alpen 2025") == "Reisetagebuch R3.0.0 - Alpen 2025"
-    assert app_window_title("  ") == "Reisetagebuch R3.0.0"
+    assert app_window_title() == "Reisetagebuch R3.1.0"
+    assert app_window_title("Alpen 2025") == "Reisetagebuch R3.1.0 - Alpen 2025"
+    assert app_window_title("  ") == "Reisetagebuch R3.1.0"
 
 
 def test_new_project_dialog_preview_and_values(tmp_path: Path) -> None:
@@ -1440,7 +1440,7 @@ def test_entry_widget_hide_toggle_disables_to_map() -> None:
     assert toggle.sizeHint().height() >= 22
     assert 40 <= toggle.sizeHint().width() <= 56
     assert toggle.text() == ""
-    assert not toggle.isChecked()
+    assert toggle.isChecked()
     assert button.isEnabled()
     assert widget.property("tripHidden") == "false"
     flags: list[bool] = []
@@ -1448,8 +1448,28 @@ def test_entry_widget_hide_toggle_disables_to_map() -> None:
     toggle.click()
     assert flags == [True]
     assert widget.is_hidden()
+    assert not toggle.isChecked()
     assert not button.isEnabled()
     assert widget.property("tripHidden") == "true"
+    hidden_section = TimelineSection(
+        id=8,
+        kind="stay",
+        mode=None,
+        title="Meran",
+        notes=None,
+        started_at=stamp,
+        ended_at=stamp,
+        location_name=None,
+        location_from=None,
+        location_to=None,
+        origin="manual",
+        hidden=True,
+    )
+    hidden_widget = EntryWidget(TimelineEntry(started_at=stamp, section=hidden_section))
+    hidden_toggle = hidden_widget.findChild(QCheckBox, "entryHide")
+    assert hidden_toggle is not None
+    assert not hidden_toggle.isChecked()
+    assert hidden_widget.is_hidden()
     _ = app
 
 
@@ -3230,10 +3250,37 @@ def test_timeline_save_button_only_when_dirty(tmp_path: Path, monkeypatch) -> No
     view._pending.clear()
     view._update_save_button()
     assert not view._save_button.isEnabled()
+    assert view._save_button.toolTip() == "Nichts zu speichern"
     _ = app
 
 
-def test_timeline_leave_without_prompt_when_only_text_dirty(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+def test_timeline_undo_pending_toggles_save_button(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.timeline.types import PendingSectionSpec
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.timeline_view import TimelineView, _copy_pending_spec
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    app = QApplication.instance() or QApplication([])
+    view = TimelineView(Workspace())
+    spec = PendingSectionSpec(local_id=-1, source_file_ids=(1,), kind="stay")
+    view._pending.append(_copy_pending_spec(spec))
+    view._record_pending_insert(_copy_pending_spec(spec), 0)
+    view._update_save_button()
+    assert view._save_button.isEnabled()
+    assert view.workspace.history.undo()
+    assert view._pending == []
+    assert not view._save_button.isEnabled()
+    assert view.workspace.history.redo()
+    assert len(view._pending) == 1
+    assert view._save_button.isEnabled()
+    _ = app
+
+
+def test_timeline_leave_prompts_when_text_dirty(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from datetime import UTC, datetime
 
@@ -3275,9 +3322,13 @@ def test_timeline_leave_without_prompt_when_only_text_dirty(tmp_path: Path, monk
     view._blocks = [block]
     block.notes_edit.setPlainText("Abend in Bozen")
     assert view._save_button.isEnabled()
-    assert view.confirm_leave() is True
-    assert view._save_button.isEnabled()
+    monkeypatch.setattr(view, "_ask_unsaved_work", lambda: "cancel")
+    assert view.confirm_leave() is False
     assert block.is_dirty()
+    assert view._save_button.isEnabled()
+    monkeypatch.setattr(view, "_ask_unsaved_work", lambda: "discard")
+    assert view.confirm_leave() is True
+    assert not view._save_button.isEnabled()
     _ = app
 
 
