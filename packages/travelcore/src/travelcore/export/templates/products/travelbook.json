@@ -47,7 +47,7 @@
         "interaction": "drag_drop",
         "exclude": ["rejected", "hidden_cluster_members", "parked"],
         "reuse": true,
-                        "note": "Leiste mit Vorschaubildern der Medien und Tracks des geöffneten Abschnitts. Ziehen auf Media-Slots der Foto-Seiten. Dieselbe Datei darf mehrfach liegen. Die Abschnitts-Intro-Seite und Journal-Seiten haben keine Media-Slots."
+        "note": "Leiste mit Vorschaubildern der Medien des geöffneten Abschnitts. Ziehen auf die Fotoseite legt ein Element an oder ersetzt eines. Position, Format, Zoom, Lage im Rahmen und Z-Order sind frei. Die Abschnitts-Intro-Seite und Journal-Seiten haben keine Fotoflächen."
       },
       "page_layouts": [
         "photos_1",

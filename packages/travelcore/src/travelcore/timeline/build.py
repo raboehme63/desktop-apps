@@ -759,6 +759,8 @@ def _photo_view(
         quality_light=_photo_quality_light(photo),
         quality_tooltip=_photo_quality_tooltip(photo, row),
         pilot=_igc_pilot(row),
+        width=row.width,
+        height=row.height,
     )
 
 

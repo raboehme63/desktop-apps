@@ -1,13 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://traveljournal.local/schemas/export-document-v1.json",
+  "$id": "https://traveljournal.local/schemas/export-document-v2.json",
   "title": "Travelbook-Dokument (Editiermodus)",
-  "description": "Komposition im Projektordner (travelbook.json). Der Binder legt fehlende Kapitel aus published_entries an. Der Renderer liest nur dieses Dokument.",
+  "description": "Komposition im Projektordner (travelbook.json). Schema 2: Fotoflächen mit Rahmen, Crop und z. Schema 1 (media[]) wird beim Laden migriert. Der Binder legt fehlende Kapitel aus published_entries an.",
   "type": "object",
   "required": ["schema_version", "product", "chapters"],
   "properties": {
-    "schema_version": { "type": "integer", "const": 1 },
+    "schema_version": { "type": "integer", "minimum": 1 },
     "product": { "type": "string", "const": "travelbook" },
+    "page_size": { "type": "string" },
     "chapters": {
       "type": "array",
       "items": {
@@ -44,8 +45,41 @@
         "media": {
           "type": "array",
           "items": { "type": ["integer", "null"] },
-          "description": "source_file_id je Media-Slot (Foto, Video oder Track), null = leer. Länge = Anzahl der Media-Slots des Layouts."
+          "description": "Schema 1: source_file_id je Slot. Wird nach elements migriert."
+        },
+        "elements": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/photo_element" }
         }
+      }
+    },
+    "photo_element": {
+      "type": "object",
+      "required": ["id", "source_file_id", "frame"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "const": "photo" },
+        "source_file_id": { "type": "integer" },
+        "frame": {
+          "type": "object",
+          "required": ["x", "y", "w", "h"],
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "w": { "type": "number" },
+            "h": { "type": "number" }
+          }
+        },
+        "crop": {
+          "type": "object",
+          "properties": {
+            "scale": { "type": "number", "minimum": 0.2 },
+            "pan_x": { "type": "number", "minimum": -1, "maximum": 1 },
+            "pan_y": { "type": "number", "minimum": -1, "maximum": 1 },
+            "angle": { "type": "number", "description": "Drehung im Rahmen, Grad im Uhrzeigersinn." }
+          }
+        },
+        "z": { "type": "integer" }
       }
     }
   }

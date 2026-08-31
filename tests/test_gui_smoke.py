@@ -100,6 +100,8 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     assert window.export_view._mode_buttons["export"].text() == "Vorschau"
     assert window.export_view._mode_buttons["edit"].text() == "Editiermodus"
     assert window.export_view._add_spread_button.isHidden()
+    assert window.export_view._remove_spread_button.isHidden()
+    assert window.export_view._tray.isHidden()
     assert window.export_view._page_size_id == "a4-portrait"
     assert window.export_view._page_buttons["a4-portrait"].isChecked()
     assert window.export_view._page_buttons["a4-portrait"].text() == "DIN A4 Hochformat"
@@ -115,9 +117,11 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     window.export_view._mode_buttons["edit"].click()
     app.processEvents()
     assert not window.export_view._add_spread_button.isHidden()
+    assert not window.export_view._tray.isHidden()
     window.export_view._mode_buttons["export"].click()
     app.processEvents()
     assert window.export_view._add_spread_button.isHidden()
+    assert window.export_view._tray.isHidden()
     assert window.export_view._preview._indicator.text() == "Cover"
     assert not window.export_view._preview._prev.isEnabled()
     assert window.export_view._preview._next.isEnabled()
@@ -471,7 +475,7 @@ def test_section_intro_shows_country_journal_and_dates(tmp_path: Path) -> None:
     shown = cover.pixmap()
     assert abs(shown.width() / shown.height() - source.width() / source.height()) < 0.05
     assert preview._recto._stack.currentIndex() == 5
-    assert len(preview._recto._photo_grid._cells) == 2
+    assert len(preview._recto._photo_canvas.elements()) == 2
 
     preview.set_leaves(leaves_from_snapshot(stay_snapshot))
     preview._go(len(preview._leaves) - 1)
@@ -481,6 +485,88 @@ def test_section_intro_shows_country_journal_and_dates(tmp_path: Path) -> None:
     assert preview._verso._section_span._label == "17.07.2025 bis 19.07.2025"
     assert preview._verso._section_dates.text() == "17.07.2025 bis 19.07.2025"
     preview.close()
+
+
+def test_photo_page_canvas_add_and_delete(tmp_path: Path) -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from jpeg_fixtures import write_plain_jpeg
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.export.document import add_photo_element, remove_element
+    from travelcore.export.geometry import Frame
+    from traveljournal.widgets.photo_canvas import BookMedia, PhotoPageCanvas
+
+    app = QApplication.instance() or QApplication([])
+    path = write_plain_jpeg(tmp_path / "shot.jpg", size=(80, 60))
+    media = (BookMedia(source_file_id=7, thumbnail_path=path, width=80, height=60),)
+    canvas = PhotoPageCanvas()
+    canvas.resize(400, 560)
+    canvas.set_editable(True)
+    canvas.set_page((), media)
+    canvas._set_elements(add_photo_element((), 7, frame=Frame(10, 10, 40, 30)))
+    assert len(canvas.elements()) == 1
+    assert canvas.elements()[0].source_file_id == 7
+    canvas._set_elements(remove_element(canvas.elements(), canvas.elements()[0].id))
+    assert canvas.elements() == ()
+    canvas.close()
+    _ = app
+
+
+def test_photo_page_canvas_uses_letterboxed_thumb_aspect() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtGui import QColor, QPainter, QPixmap
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.export.geometry import Crop, map_rect_to_contained, source_rect
+    from traveljournal.widgets.photo_canvas import BookMedia, _preview_image_size
+
+    app = QApplication.instance() or QApplication([])
+    fill = QColor(18, 21, 28)
+    landscape = QPixmap(32, 32)
+    landscape.fill(fill)
+    painter = QPainter(landscape)
+    painter.fillRect(0, 4, 32, 24, QColor(200, 40, 40))
+    painter.end()
+    portrait = QPixmap(32, 32)
+    portrait.fill(fill)
+    painter = QPainter(portrait)
+    painter.fillRect(4, 0, 24, 32, QColor(40, 40, 200))
+    painter.end()
+    media = BookMedia(source_file_id=1, thumbnail_path=Path("."), width=80, height=60)
+    assert _preview_image_size(landscape, media) == (80.0, 60.0)
+    assert _preview_image_size(portrait, media) == (60.0, 80.0)
+    sx, sy, sw, sh = source_rect(80, 60, 100, 100, Crop())
+    _mx, _my, mw, mh = map_rect_to_contained(80, 60, 32, 32, sx, sy, sw, sh)
+    assert abs(mw / mh - 1.0) < 1e-6
+    _ = app
+
+
+def test_photo_page_canvas_nudge_zoom_and_angle(tmp_path: Path) -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from jpeg_fixtures import write_plain_jpeg
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.export.document import add_photo_element
+    from travelcore.export.geometry import Frame
+    from traveljournal.widgets.photo_canvas import BookMedia, PhotoPageCanvas
+
+    app = QApplication.instance() or QApplication([])
+    path = write_plain_jpeg(tmp_path / "shot.jpg", size=(80, 60))
+    media = (BookMedia(source_file_id=7, thumbnail_path=path, width=80, height=60),)
+    canvas = PhotoPageCanvas()
+    canvas.resize(400, 560)
+    canvas.set_editable(True)
+    canvas.set_page(add_photo_element((), 7, frame=Frame(10, 10, 40, 30)), media)
+    item = canvas._items()[0]
+    item.setSelected(True)
+    item._nudge_angle(3)
+    canvas._commit_item(item)
+    assert canvas.elements()[0].crop.angle == 3
+    item._nudge_scale(1)
+    canvas._commit_item(item)
+    assert canvas.elements()[0].crop.scale > 1.0
+    canvas.close()
+    _ = app
 
 
 def test_app_window_title_includes_version() -> None:

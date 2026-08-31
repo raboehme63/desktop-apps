@@ -1,7 +1,8 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "product": "travelbook",
-  "note": "Beispiel einer Komposition. media-Einträge sind source_file_id (Foto, Video oder Track).",
+  "page_size": "a4-portrait",
+  "note": "Beispiel einer Komposition. Fotoflächen mit Rahmen (Prozent), Crop und z. source_file_id zeigt auf den Index, nicht auf das Original.",
   "chapters": [
     {
       "section_id": 4,
@@ -16,7 +17,16 @@
           "recto": {
             "layout": "photos_1",
             "locked": false,
-            "media": [102]
+            "elements": [
+              {
+                "id": "p1",
+                "type": "photo",
+                "source_file_id": 102,
+                "frame": { "x": 0, "y": 0, "w": 100, "h": 100 },
+                "crop": { "scale": 1.0, "pan_x": 0, "pan_y": 0 },
+                "z": 1
+              }
+            ]
           }
         },
         {
@@ -29,7 +39,32 @@
           "recto": {
             "layout": "photos_4",
             "locked": false,
-            "media": [103, 104, 105, null]
+            "elements": [
+              {
+                "id": "p1",
+                "type": "photo",
+                "source_file_id": 103,
+                "frame": { "x": 0, "y": 0, "w": 49, "h": 49 },
+                "crop": { "scale": 1.15, "pan_x": -0.2, "pan_y": 0 },
+                "z": 1
+              },
+              {
+                "id": "p2",
+                "type": "photo",
+                "source_file_id": 104,
+                "frame": { "x": 51, "y": 0, "w": 49, "h": 49 },
+                "crop": { "scale": 1.0, "pan_x": 0, "pan_y": 0 },
+                "z": 2
+              },
+              {
+                "id": "p3",
+                "type": "photo",
+                "source_file_id": 105,
+                "frame": { "x": 0, "y": 51, "w": 49, "h": 49 },
+                "crop": { "scale": 1.0, "pan_x": 0, "pan_y": 0 },
+                "z": 3
+              }
+            ]
           }
         }
       ]

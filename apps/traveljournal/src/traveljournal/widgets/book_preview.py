@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from pathlib import Path
 
-from PySide6.QtCore import QRect, QRectF, QSize, Qt
+from PySide6.QtCore import QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -31,11 +31,19 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from travelcore.export.catalog import load_page_layout
+from travelcore.export.document import (
+    PageInstance,
+    PhotoElement,
+    TravelbookDocument,
+    book_media_items,
+    elements_from_layout,
+    layout_is_photos,
+    photo_layout_id,
+)
 from travelcore.export.stats import trip_summary_metrics
 from travelcore.geo.catalog import Country, country_at, get_country
-from travelcore.media.gallery import SORT_REJECTED
 from travelcore.timeline.types import TimelineEntry, TimelinePhoto, TimelineSection, TimelineSnapshot
+from traveljournal.widgets.photo_canvas import BookMedia, PhotoPageCanvas
 from traveljournal.widgets.svg_pixmaps import svg_pixmap, svg_renderer
 
 _STAGE_MARGIN = 20
@@ -427,65 +435,6 @@ class _TripSpanBar(QWidget):
         painter.drawText(badge, int(Qt.AlignmentFlag.AlignCenter), self._label)
 
 
-class _PhotoGrid(QWidget):
-    """Section photos laid out with the photos_1–8 templates."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setObjectName("bookPhotoGrid")
-        _paint(self, _PAGE_BG, _PAGE_FG)
-        self._cells: list[QLabel] = []
-        self._slots: list[dict] = []
-        self._pixmaps: list[QPixmap] = []
-
-    def set_photos(self, paths: tuple[Path, ...]) -> None:
-        for cell in self._cells:
-            cell.deleteLater()
-        self._cells = []
-        self._slots = []
-        self._pixmaps = []
-        count = min(len(paths), 8)
-        if count <= 0:
-            return
-        layout = load_page_layout(f"photos_{count}")
-        raw_slots = layout.get("slots")
-        slots = raw_slots if isinstance(raw_slots, list) else []
-        for index, slot in enumerate(slots):
-            if not isinstance(slot, dict):
-                continue
-            label = QLabel(self)
-            label.setObjectName("bookGridCell")
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            _paint(label, "#d9d3c7", _PAGE_FG)
-            path = paths[index] if index < len(paths) else None
-            pixmap = QPixmap(str(path)) if path is not None and path.is_file() else QPixmap()
-            self._slots.append(slot)
-            self._pixmaps.append(pixmap)
-            self._cells.append(label)
-            label.show()
-        self._place()
-
-    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
-        super().resizeEvent(event)
-        self._place()
-
-    def _place(self) -> None:
-        width = self.width()
-        height = self.height()
-        if width < 8 or height < 8:
-            return
-        for label, slot, pixmap in zip(self._cells, self._slots, self._pixmaps, strict=True):
-            x = int(width * float(slot.get("x", 0)) / 100)
-            y = int(height * float(slot.get("y", 0)) / 100)
-            cell_w = max(1, int(width * float(slot.get("w", 100)) / 100))
-            cell_h = max(1, int(height * float(slot.get("h", 100)) / 100))
-            label.setGeometry(x, y, cell_w, cell_h)
-            if pixmap.isNull():
-                label.clear()
-                continue
-            label.setPixmap(_cover_crop(pixmap, QSize(cell_w, cell_h)))
-
-
 class _CountryStackItem(QWidget):
     """Outline, then uppercase name with a small flag after it."""
 
@@ -575,6 +524,13 @@ class BookLeaf:
     span_start: float = 0.0
     span_end: float = 0.0
     photos: tuple[Path, ...] = ()
+    section_id: int | None = None
+    spread_id: str | None = None
+    left_layout: str = ""
+    right_layout: str = ""
+    left_elements: tuple[PhotoElement, ...] = ()
+    right_elements: tuple[PhotoElement, ...] = ()
+    media: tuple[BookMedia, ...] = ()
 
 
 def leaves_from_snapshot(snapshot: TimelineSnapshot | None) -> list[BookLeaf]:
@@ -626,11 +582,19 @@ def leaves_from_snapshot(snapshot: TimelineSnapshot | None) -> list[BookLeaf]:
         span_start = 0.0
         span_end = 0.0
         photos: tuple[Path, ...] = ()
+        media: tuple[BookMedia, ...] = ()
+        right_elements: tuple[PhotoElement, ...] = ()
+        right_layout = "photos_1"
+        section_id = None
         if section is not None:
             dates = _format_book_dates(section.started_at, section.ended_at)
             notes = (section.notes or "").strip()
             image = _section_cover(entry)
-            photos = _section_photos(entry)
+            media = _section_book_media(entry)
+            photos = tuple(item.thumbnail_path for item in media[:8])
+            right_layout = photo_layout_id(len(media))
+            right_elements = elements_from_layout(right_layout, [item.source_file_id for item in media[:8]])
+            section_id = section.id
             span_start, span_end = _span_fracs(
                 section.started_at,
                 section.ended_at,
@@ -658,8 +622,71 @@ def leaves_from_snapshot(snapshot: TimelineSnapshot | None) -> list[BookLeaf]:
                 latitude=latitude,
                 longitude=longitude,
                 photos=photos,
+                section_id=section_id,
+                spread_id=f"section-{section_id}-initial" if section_id is not None else None,
+                left_layout="section_intro",
+                right_layout=right_layout,
+                right_elements=right_elements,
+                media=media,
             )
         )
+    return leaves
+
+
+def leaves_from_document(
+    snapshot: TimelineSnapshot | None, document: TravelbookDocument | None
+) -> list[BookLeaf]:
+    """Front matter plus every spread stored in the composition."""
+
+    if document is None:
+        return leaves_from_snapshot(snapshot)
+    base = leaves_from_snapshot(snapshot)
+    front = base[:3]
+    by_section = {
+        entry.section.id: (entry, leaf)
+        for entry, leaf in zip(
+            snapshot.published_entries() if snapshot is not None else (),
+            base[3:],
+            strict=False,
+        )
+        if entry.section is not None
+    }
+    spread_count = sum(len(chapter.spreads) for chapter in document.chapters)
+    numbered = 2 + 2 * spread_count
+    page = 3
+    leaves = list(front)
+    if leaves:
+        leaves[2] = BookLeaf(
+            kind=leaves[2].kind,
+            indicator=_spread_indicator(1, numbered),
+            variant=leaves[2].variant,
+            countries=leaves[2].countries,
+            metrics=leaves[2].metrics,
+            right_kicker=leaves[2].right_kicker,
+            right_title=leaves[2].right_title,
+            right_detail=leaves[2].right_detail,
+            right_image=leaves[2].right_image,
+        )
+    for chapter in document.chapters:
+        found = by_section.get(chapter.section_id)
+        if found is None:
+            continue
+        entry, template = found
+        for spread in chapter.spreads:
+            leaves.append(
+                _leaf_from_spread(
+                    template,
+                    spread.verso,
+                    spread.recto,
+                    indicator=_spread_indicator(page, numbered),
+                    section_id=chapter.section_id,
+                    spread_id=spread.id,
+                    variant="section" if spread.initial else "extra",
+                    media=template.media,
+                    entry=entry,
+                )
+            )
+            page += 2
     return leaves
 
 
@@ -752,24 +779,64 @@ def _span_fracs(
 
 
 def _section_photos(entry: TimelineEntry) -> tuple[Path, ...]:
+    return tuple(item.thumbnail_path for item in _section_book_media(entry)[:8])
+
+
+def _section_book_media(entry: TimelineEntry) -> tuple[BookMedia, ...]:
     section = entry.section
     if section is None:
         return ()
-    photos = [item for item in section.items if _is_book_photo(item)]
-    ordered: list[TimelinePhoto] = []
-    cover_id = section.cover_source_file_id
-    if cover_id is not None:
-        ordered.extend(item for item in photos if item.source_file_id == cover_id)
-    ordered.extend(item for item in photos if item.source_file_id != cover_id)
-    paths: list[Path] = []
-    for item in ordered[:8]:
-        if item.thumbnail_path:
-            paths.append(item.thumbnail_path)
-    return tuple(paths)
+    items: list[BookMedia] = []
+    for item in book_media_items(section):
+        if not item.thumbnail_path:
+            continue
+        items.append(
+            BookMedia(
+                source_file_id=item.source_file_id,
+                thumbnail_path=item.thumbnail_path,
+                width=item.width or 0,
+                height=item.height or 0,
+            )
+        )
+    return tuple(items)
 
 
-def _is_book_photo(item: TimelinePhoto) -> bool:
-    return item.file_kind == "photo" and item.sort_status != SORT_REJECTED
+def _leaf_from_spread(
+    template: BookLeaf,
+    verso: PageInstance,
+    recto: PageInstance,
+    *,
+    indicator: str,
+    section_id: int,
+    spread_id: str,
+    variant: str,
+    media: tuple[BookMedia, ...],
+    entry: TimelineEntry,
+) -> BookLeaf:
+    del entry
+    return BookLeaf(
+        kind="spread",
+        indicator=indicator,
+        variant=variant,
+        left_kicker=template.left_kicker,
+        left_title=template.left_title,
+        left_image=template.left_image,
+        notes=template.notes,
+        dates=template.dates,
+        span_start=template.span_start,
+        span_end=template.span_end,
+        country=template.country,
+        latitude=template.latitude,
+        longitude=template.longitude,
+        photos=template.photos,
+        section_id=section_id,
+        spread_id=spread_id,
+        left_layout=verso.layout,
+        right_layout=recto.layout,
+        left_elements=verso.elements,
+        right_elements=recto.elements,
+        media=media,
+    )
 
 
 def _section_place(
@@ -918,9 +985,7 @@ class _PageSheet(QFrame):
         _paint(self._section_place_left, _PAGE_BG, _PAGE_FG)
         self._section_place_left.setMinimumWidth(96)
         self._section_place_left.setMaximumWidth(240)
-        self._section_place_left.setSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
-        )
+        self._section_place_left.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         left_wrap = QVBoxLayout(self._section_place_left)
         left_wrap.setContentsMargins(0, 0, 0, 0)
         left_wrap.setSpacing(0)
@@ -934,9 +999,7 @@ class _PageSheet(QFrame):
         self._section_locator_column = QWidget()
         self._section_locator_column.setObjectName("bookSectionLocatorColumn")
         _paint(self._section_locator_column, _PAGE_BG, _PAGE_FG)
-        self._section_locator_column.setSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred
-        )
+        self._section_locator_column.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         self._section_locator_host = QVBoxLayout(self._section_locator_column)
         self._section_locator_host.setContentsMargins(0, 0, 0, 0)
         self._section_locator_host.setSpacing(0)
@@ -992,12 +1055,51 @@ class _PageSheet(QFrame):
         self._section_span = _TripSpanBar()
         section_layout.addWidget(self._section_span, 0)
 
-        photos = _PhotoGrid()
-        self._photo_grid = photos
+        journal = QWidget()
+        _paint(journal, _PAGE_BG, _PAGE_FG)
+        journal_layout = QVBoxLayout(journal)
+        journal_layout.setContentsMargins(28, 28, 28, 28)
+        journal_layout.setSpacing(12)
+        self._journal_title = QLabel("")
+        self._journal_title.setObjectName("bookJournalTitle")
+        self._journal_title.setWordWrap(True)
+        _ink(self._journal_title, _PAGE_FG, background=_PAGE_BG, point_size=16, bold=True)
+        self._journal_body = QLabel("")
+        self._journal_body.setObjectName("bookJournalBody")
+        self._journal_body.setWordWrap(True)
+        self._journal_body.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        _ink(self._journal_body, _PAGE_FG, background=_PAGE_BG, point_size=11)
+        journal_layout.addWidget(self._journal_title, 0)
+        journal_layout.addWidget(self._journal_body, 1)
 
-        for page in (standard, blank, title_page, summary, section, photos):
+        photos = PhotoPageCanvas()
+        self._photo_canvas = photos
+        photos.elementsChanged.connect(self._on_photos_changed)
+        photos.keyForward.connect(self._forward_keys)
+
+        for page in (standard, blank, title_page, summary, section, photos, journal):
             page.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             self._stack.addWidget(page)
+        self._editable = False
+        self._side = ""
+
+    def set_editable(self, editable: bool) -> None:
+        self._editable = editable
+        self._photo_canvas.set_editable(editable)
+
+    def _on_photos_changed(self) -> None:
+        parent = self.parent()
+        while parent is not None and not isinstance(parent, BookPreview):
+            parent = parent.parent()
+        if isinstance(parent, BookPreview):
+            parent._page_elements_changed(self._side, self._photo_canvas.elements())
+
+    def _forward_keys(self, event) -> None:  # type: ignore[no-untyped-def]
+        parent = self.parent()
+        while parent is not None and not isinstance(parent, BookPreview):
+            parent = parent.parent()
+        if isinstance(parent, BookPreview):
+            parent.keyPressEvent(event)
 
     def set_blank(self) -> None:
         self._path = None
@@ -1105,10 +1207,32 @@ class _PageSheet(QFrame):
         self._section_span.set_span(dates, span_start, span_end)
         self._stack.setCurrentIndex(4)
 
-    def set_photos(self, paths: tuple[Path, ...]) -> None:
+    def set_photos(self, paths: tuple[Path, ...], *, side: str = "recto") -> None:
+        media = tuple(
+            BookMedia(source_file_id=index, thumbnail_path=path) for index, path in enumerate(paths, start=1)
+        )
+        layout = photo_layout_id(len(media))
+        elements = elements_from_layout(layout, [item.source_file_id for item in media])
+        self.set_photo_page(elements, media, side=side)
+
+    def set_photo_page(
+        self,
+        elements: tuple[PhotoElement, ...],
+        media: tuple[BookMedia, ...],
+        *,
+        side: str,
+    ) -> None:
         self._path = None
-        self._photo_grid.set_photos(paths)
+        self._side = side
+        self._photo_canvas.set_editable(self._editable)
+        self._photo_canvas.set_page(elements, media)
         self._stack.setCurrentIndex(5)
+
+    def set_journal(self, title: str, notes: str) -> None:
+        self._path = None
+        self._journal_title.setText(title.strip().upper() or "TAGEBUCH")
+        self._journal_body.setText(notes)
+        self._stack.setCurrentIndex(6)
 
     def set_content(
         self,
@@ -1163,6 +1287,9 @@ class _BookStage(QWidget):
 class BookPreview(QWidget):
     """Travelbook stage that letterboxes pages into the remaining window."""
 
+    pageEdited = Signal(int, str)  # leaf index, "verso" | "recto"
+    currentChanged = Signal()
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("bookPreview")
@@ -1171,6 +1298,7 @@ class BookPreview(QWidget):
         self._index = 0
         self._page_width_mm = 210.0
         self._page_height_mm = 297.0
+        self._editable = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -1213,9 +1341,30 @@ class BookPreview(QWidget):
         self._page_height_mm = height_mm
         self._fit_sheets()
 
-    def set_leaves(self, leaves: list[BookLeaf]) -> None:
+    def set_leaves(self, leaves: list[BookLeaf], *, keep_index: bool = False) -> None:
         self._leaves = leaves or [BookLeaf(kind="cover", indicator="Cover", right_title="Keine Seiten")]
-        self._go(0)
+        index = self._index if keep_index else 0
+        self._go(min(index, len(self._leaves) - 1))
+
+    def set_editable(self, editable: bool) -> None:
+        self._editable = editable
+        self._verso.set_editable(editable)
+        self._recto.set_editable(editable)
+
+    def current_leaf(self) -> BookLeaf | None:
+        if not self._leaves:
+            return None
+        return self._leaves[self._index]
+
+    def _page_elements_changed(self, side: str, elements: tuple[PhotoElement, ...]) -> None:
+        if not self._leaves or side not in {"verso", "recto"}:
+            return
+        leaf = self._leaves[self._index]
+        if side == "verso":
+            self._leaves[self._index] = replace(leaf, left_elements=elements)
+        else:
+            self._leaves[self._index] = replace(leaf, right_elements=elements)
+        self.pageEdited.emit(self._index, side)
 
     def keyPressEvent(self, event) -> None:  # type: ignore[no-untyped-def]
         key = event.key()
@@ -1258,19 +1407,9 @@ class BookPreview(QWidget):
                     detail=leaf.right_detail,
                     image=leaf.right_image,
                 )
-            elif leaf.variant == "section":
-                self._verso.set_section_intro(
-                    country=leaf.country,
-                    latitude=leaf.latitude,
-                    longitude=leaf.longitude,
-                    title=leaf.left_title,
-                    notes=leaf.notes,
-                    dates=leaf.dates,
-                    span_start=leaf.span_start,
-                    span_end=leaf.span_end,
-                    cover=leaf.left_image,
-                )
-                self._recto.set_photos(leaf.photos)
+            elif leaf.variant in {"section", "extra"}:
+                self._fill_side(self._verso, "verso", leaf)
+                self._fill_side(self._recto, "recto", leaf)
             else:
                 self._verso.set_content(
                     kicker=leaf.left_kicker,
@@ -1290,6 +1429,31 @@ class BookPreview(QWidget):
         self._prev.setEnabled(not at_start)
         self._next.setEnabled(not at_end)
         self._fit_sheets()
+        self.currentChanged.emit()
+
+    def _fill_side(self, sheet: _PageSheet, side: str, leaf: BookLeaf) -> None:
+        layout = leaf.left_layout if side == "verso" else leaf.right_layout
+        elements = leaf.left_elements if side == "verso" else leaf.right_elements
+        if layout == "section_intro" or (side == "verso" and leaf.variant == "section" and not layout):
+            sheet.set_section_intro(
+                country=leaf.country,
+                latitude=leaf.latitude,
+                longitude=leaf.longitude,
+                title=leaf.left_title,
+                notes=leaf.notes,
+                dates=leaf.dates,
+                span_start=leaf.span_start,
+                span_end=leaf.span_end,
+                cover=leaf.left_image,
+            )
+            return
+        if layout == "journal":
+            sheet.set_journal(leaf.left_title, leaf.notes)
+            return
+        if layout_is_photos(layout) or elements or layout == "photos_1":
+            sheet.set_photo_page(elements, leaf.media, side=side)
+            return
+        sheet.set_blank()
 
     def _current_is_cover(self) -> bool:
         return bool(self._leaves) and self._leaves[self._index].kind == "cover"

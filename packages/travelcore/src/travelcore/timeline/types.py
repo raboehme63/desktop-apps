@@ -38,6 +38,8 @@ class TimelinePhoto:
     quality_light: str | None = None
     quality_tooltip: str | None = None
     pilot: str | None = None
+    width: int | None = None
+    height: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
