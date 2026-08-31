@@ -117,6 +117,7 @@ from traveljournal.widgets.media_tabs import (
 )
 from traveljournal.widgets.pool_pane import PoolCollapse, PoolPane
 from traveljournal.widgets.scroll_date import scrollbar_slider_rect as _scrollbar_slider_rect
+from traveljournal.widgets.switch import SwitchToggle
 from traveljournal.widgets.thumb_zoom import (
     DEFAULT_THUMB_ZOOM,
     ThumbZoomSlider,
@@ -253,6 +254,24 @@ def _copy_pending_spec(spec: PendingSectionSpec) -> PendingSectionSpec:
     )
 
 
+def _snapshot_with_hidden(
+    snapshot: TimelineSnapshot | None, section_id: int, hidden: bool
+) -> TimelineSnapshot | None:
+    if snapshot is None:
+        return None
+    sections = tuple(
+        replace(section, hidden=hidden) if section.id == section_id else section
+        for section in snapshot.sections
+    )
+    entries = tuple(
+        replace(entry, section=replace(entry.section, hidden=hidden))
+        if entry.section is not None and entry.section.id == section_id
+        else entry
+        for entry in snapshot.entries
+    )
+    return replace(snapshot, sections=sections, entries=entries)
+
+
 class TimelineView(QWidget):
     status_message = Signal(str)
     timeline_changed = Signal()
@@ -306,7 +325,7 @@ class TimelineView(QWidget):
             "Typ je Karte ändern, Objekte markieren und einen Abschnitt anlegen, "
             "oder ohne Auswahl einen leeren Abschnitt mit Datum erzeugen "
             "(Tag: am, Aufenthalt/Transfer: von–bis). "
-            "⋯-Menü löscht einen Abschnitt; die Medien landen im Pool. "
+            "**Menü** löscht einen Abschnitt; die Medien landen im Pool. "
             "Pfeil rechts außen klappt den Medienpool ein und aus; die Breite bleibt erhalten."
         )
         self._subtitle.setObjectName("pageSubtitle")
@@ -636,6 +655,7 @@ class TimelineView(QWidget):
                 block.open_on_map.connect(self.open_on_map.emit)
                 block.open_media_on_map.connect(self.open_media_on_map.emit)
                 block.content_changed.connect(self._update_save_button)
+                block.hidden_changed.connect(lambda hidden, widget=block: self._set_entry_hidden(widget, hidden))
                 block.pool_dropped.connect(lambda ids, widget=block: self._drop_pool_on_entry(widget, ids))
                 block.gallery.item_activated.connect(self._open_inspector)
                 block.track_gallery.item_activated.connect(self._open_inspector)
@@ -1326,6 +1346,48 @@ class TimelineView(QWidget):
         self.timeline_changed.emit()
         self.status_message.emit("Abschnittstyp geändert.")
 
+    def _set_entry_hidden(self, block: EntryWidget, hidden: bool) -> None:
+        if block.entity_kind() != "section":
+            return
+        section_id = block.entity_id()
+        if section_id < 0:
+            for spec in self._pending:
+                if spec.local_id != section_id:
+                    continue
+                previous = spec.hidden
+                spec.hidden = hidden
+                self._record_pending_hidden(section_id, previous, hidden)
+                return
+            return
+        try:
+            self.workspace.set_section_hidden(section_id, hidden)
+        except ProjectError as exc:
+            QMessageBox.warning(self, "Timeline", str(exc))
+            block.set_hidden(not hidden, emit=False)
+            return
+        self._base_snapshot = _snapshot_with_hidden(self._base_snapshot, section_id, hidden)
+        self._snapshot = _snapshot_with_hidden(self._snapshot, section_id, hidden)
+        self.timeline_changed.emit()
+        self.status_message.emit("Abschnitt ausgeblendet." if hidden else "Abschnitt wieder in der Reise.")
+
+    def _record_pending_hidden(self, local_id: int, previous: bool, current: bool) -> None:
+        if previous == current:
+            return
+
+        def undo() -> None:
+            self._set_pending_hidden(local_id, previous)
+
+        def redo() -> None:
+            self._set_pending_hidden(local_id, current)
+
+        self.workspace.history.push("Ausblenden" if current else "Einblenden", undo, redo)
+
+    def _set_pending_hidden(self, local_id: int, hidden: bool) -> None:
+        for spec in self._pending:
+            if spec.local_id == local_id:
+                spec.hidden = hidden
+                return
+
     def reveal_group(self, group_key: str) -> None:
         """Scroll so the matching day or section sits flush under the timeline toolbar."""
 
@@ -1650,6 +1712,7 @@ class TimelineView(QWidget):
             spec.cover_source_file_id = block.cover_source_file_id()
             spec.links = tuple(block.transfer_links())
             spec.outbound = block.outbound_link()
+            spec.hidden = block.is_hidden()
 
     def _stash_pending_youtube(self) -> None:
         for block in self._blocks:
@@ -1710,6 +1773,7 @@ class TimelineView(QWidget):
             cover_source_file_id=spec.cover_source_file_id,
             started_at=spec.started_at,
             ended_at=spec.ended_at,
+            hidden=spec.hidden,
             record=False,
         )
         self._save_pending_links(section_id, spec)
@@ -1736,6 +1800,7 @@ class TimelineView(QWidget):
                 cover_source_file_id=snapshot.cover_source_file_id,
                 started_at=snapshot.started_at,
                 ended_at=snapshot.ended_at,
+                hidden=snapshot.hidden,
                 record=False,
             )
             self._save_pending_links(created[0], snapshot)
@@ -1807,6 +1872,7 @@ class EntryWidget(QFrame):
     open_on_map = Signal(str)
     open_media_on_map = Signal(str, int)
     content_changed = Signal()
+    hidden_changed = Signal(bool)
     pool_dropped = Signal(list)
 
     def __init__(
@@ -1887,16 +1953,18 @@ class EntryWidget(QFrame):
         )
         self._loaded_outbound = section.outbound if section is not None else None
         self._entry_kind = entry.card_kind
+        self._hidden = bool(section.hidden) if section is not None else False
+        self._hidden_check: SwitchToggle | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(8)
 
-        self._menu_button = QToolButton(self)
-        self._menu_button.setObjectName("entryMenu")
-        self._menu_button.setText("⋯")
+        self._menu_button = QPushButton("Menü", self)
+        self._menu_button.setObjectName("entryMenuButton")
         can_menu = self.workspace is not None and (self._kind == "section" or self._entity_id > 0)
         self._menu_button.setEnabled(can_menu)
+        self._menu_button.setToolTip("Weitere Aktionen")
         self._entry_menu = QMenu(self)
         youtube_action = self._entry_menu.addAction("YouTube-Links…")
         youtube_action.triggered.connect(self._edit_youtube)
@@ -1926,9 +1994,23 @@ class EntryWidget(QFrame):
         meta = QVBoxLayout()
         meta.setContentsMargins(0, 0, 0, 0)
         meta.setSpacing(4)
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(8)
         title_label = QLabel("Titel", self)
         title_label.setObjectName("fieldCaption")
-        meta.addWidget(title_label)
+        title_row.addWidget(title_label, 0, Qt.AlignmentFlag.AlignVCenter)
+        title_row.addStretch(1)
+        if self._kind == "section":
+            self._hidden_check = SwitchToggle(self)
+            self._hidden_check.setObjectName("entryHide")
+            self._hidden_check.setToolTip(
+                "Ausblenden: Abschnitt bleibt in der Timeline, fehlt auf Karte und im Export"
+            )
+            self._hidden_check.setChecked(self._hidden)
+            self._hidden_check.toggled.connect(self._on_hidden_toggled)
+            title_row.addWidget(self._hidden_check, 0, Qt.AlignmentFlag.AlignVCenter)
+        meta.addLayout(title_row)
         self.title_edit = QLineEdit(self)
         self.title_edit.setText(self._loaded_title)
         self.title_edit.setPlaceholderText(title_ph)
@@ -1953,11 +2035,9 @@ class EntryWidget(QFrame):
         type_row.addStretch(1)
         self._to_map_button = QPushButton("Zur Karte", self)
         self._to_map_button.setObjectName("entryToMap")
-        saved = self._entity_id > 0
+        saved = self._entity_id > 0 and not self._hidden
         self._to_map_button.setEnabled(saved)
-        self._to_map_button.setToolTip(
-            "Eintrag auf der Karte zeigen" if saved else "Nach dem Speichern auf der Karte sichtbar"
-        )
+        self._to_map_button.setToolTip(self._to_map_tooltip())
         self._to_map_button.clicked.connect(self._request_open_on_map)
         type_row.addWidget(self._to_map_button, 0)
         if self._kind == "section" and self._entry_kind != KIND_DAY:
@@ -2090,6 +2170,7 @@ class EntryWidget(QFrame):
         self.track_gallery.items_dropped.connect(self.pool_dropped.emit)
         self.gallery.drop_hover.connect(self._set_drop_highlight)
         self.track_gallery.drop_hover.connect(self._set_drop_highlight)
+        self._apply_hidden_style()
 
     def values(self) -> tuple[str, int, str, str]:
         return self._kind, self._entity_id, self.title_edit.text(), self.notes_edit.toPlainText()
@@ -2155,6 +2236,46 @@ class EntryWidget(QFrame):
         if kind == self._entry_kind:
             return
         self.kind_changed.emit(kind)
+
+    def is_hidden(self) -> bool:
+        return self._hidden
+
+    def set_hidden(self, hidden: bool, *, emit: bool = True) -> None:
+        if self._hidden_check is None:
+            return
+        self._hidden_check.blockSignals(True)
+        self._hidden_check.setChecked(hidden)
+        self._hidden_check.blockSignals(False)
+        self._apply_hidden(hidden, emit=emit)
+
+    def _on_hidden_toggled(self, checked: bool) -> None:
+        self._apply_hidden(checked, emit=True)
+
+    def _apply_hidden(self, hidden: bool, *, emit: bool) -> None:
+        self._hidden = hidden
+        self._apply_hidden_style()
+        self._refresh_to_map_button()
+        if emit:
+            self.hidden_changed.emit(hidden)
+
+    def _apply_hidden_style(self) -> None:
+        self.setProperty("tripHidden", "true" if self._hidden else "false")
+        style = self.style()
+        if style is not None:
+            style.unpolish(self)
+            style.polish(self)
+
+    def _to_map_tooltip(self) -> str:
+        if self._hidden:
+            return "Ausgeblendete Abschnitte fehlen auf der Karte"
+        if self._entity_id > 0:
+            return "Eintrag auf der Karte zeigen"
+        return "Nach dem Speichern auf der Karte sichtbar"
+
+    def _refresh_to_map_button(self) -> None:
+        saved = self._entity_id > 0 and not self._hidden
+        self._to_map_button.setEnabled(saved)
+        self._to_map_button.setToolTip(self._to_map_tooltip())
 
     def selected_source_ids(self) -> list[int]:
         return [item.source_file_id for item in self.selected_items()]
@@ -2423,7 +2544,7 @@ class EntryWidget(QFrame):
         self.span_requested.emit(self._entity_id)
 
     def _request_open_on_map(self) -> None:
-        if self._entity_id <= 0:
+        if self._entity_id <= 0 or self._hidden:
             return
         if self._kind == "section":
             self.open_on_map.emit(f"section:{self._entity_id}")
@@ -2432,7 +2553,7 @@ class EntryWidget(QFrame):
             self.open_on_map.emit(f"day:{self._entity_id}")
 
     def _item_can_open_on_map(self, item: GalleryItem) -> bool:
-        return self._entity_id > 0 and _gallery_item_has_map_position(item)
+        return self._entity_id > 0 and not self._hidden and _gallery_item_has_map_position(item)
 
     def _request_open_item_on_map(self, item: object) -> None:
         if not isinstance(item, GalleryItem) or not self._item_can_open_on_map(item):

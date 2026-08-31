@@ -35,6 +35,7 @@ from travelcore.timeline import (
     serialize_modes,
     set_entry_cover,
     set_journal_at,
+    set_section_hidden,
     set_section_span,
     sort_members_by_journal,
     span_for_manual_dates,
@@ -1574,6 +1575,61 @@ def test_section_card_items_follow_journal_time(open_project: OpenProject, tmp_p
     assert len(snapshot.entries) == 1
     assert snapshot.entries[0].section is not None
     assert [item.filename for item in snapshot.entries[0].section.items] == ["morgen.jpg", "abend.jpg"]
+
+
+def test_hidden_section_stays_in_timeline_and_is_unpublished(
+    open_project: OpenProject, tmp_path: Path
+) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "ort.jpg",
+        datetime_original="2025:05:15 09:00:00",
+        offset_original="+02:00",
+    )
+    first = _index_and_sync(open_project, source)
+    photo_id = first.days[0].photos[0].source_file_id
+    with open_project.session_factory() as session:
+        section = create_section(session, first.trip_id, [photo_id], kind=KIND_STAY, title="Markt")
+        session.commit()
+        section_id = section.id
+        set_section_hidden(session, section_id, True)
+        session.commit()
+        loaded = load_timeline(session, session.get(Project, open_project.project_id))
+    assert loaded is not None
+    hidden = next(item for item in loaded.sections if item.id == section_id)
+    assert hidden.hidden is True
+    assert hidden.title == "Markt"
+    assert any(entry.section is not None and entry.section.id == section_id for entry in loaded.entries)
+    assert all(
+        entry.section is None or entry.section.id != section_id for entry in loaded.published_entries()
+    )
+
+
+def test_apply_pending_preserves_hidden_flag() -> None:
+    from travelcore.timeline.types import TimelineSnapshot
+
+    stamp = datetime(2025, 8, 20, 12, 0, tzinfo=UTC)
+    snapshot = TimelineSnapshot(trip_id=1, title="Reise", origin="auto")
+    shown = apply_pending_sections(
+        snapshot,
+        [
+            PendingSectionSpec(
+                local_id=-1,
+                source_file_ids=(),
+                kind=KIND_STAY,
+                title="Pause",
+                started_at=stamp,
+                ended_at=stamp,
+                hidden=True,
+            )
+        ],
+    )
+    assert len(shown.entries) == 1
+    assert shown.entries[0].section is not None
+    assert shown.entries[0].section.hidden is True
+    assert shown.entries[0].is_published is False
+    assert shown.published_entries() == ()
 
 
 def _index_and_sync(open_project: OpenProject, source: Path) -> TimelineSnapshot:

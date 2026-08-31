@@ -21,8 +21,10 @@ from travelcore.timeline import (
     photo_sort_status,
     restore_journal_edit,
     save_section_text,
+    section_hidden,
     section_pin,
     set_photo_sort_status,
+    set_section_hidden,
     set_section_pin,
     set_section_span,
     span_for_manual_dates,
@@ -163,6 +165,31 @@ def test_restore_pin_and_title(open_project: OpenProject, tmp_path: Path) -> Non
         row = session.get(TripSection, section_id)
         assert row is not None
         assert row.title == "Alt"
+
+
+def test_restore_hidden_flag(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "ort.jpg",
+        datetime_original="2025:05:19 10:00:00",
+        offset_original="+02:00",
+    )
+    first = _index_and_sync(open_project, source)
+    ids = [photo.source_file_id for photo in first.days[0].photos]
+    with open_project.session_factory() as session:
+        section = create_section(session, first.trip_id, ids, kind=KIND_STAY, title="Markt")
+        session.commit()
+        section_id = section.id
+        assert section_hidden(session, section_id) is False
+        before = capture_section_edit(session, section_id)
+        assert before is not None
+        set_section_hidden(session, section_id, True)
+        session.commit()
+        assert section_hidden(session, section_id) is True
+        restore_journal_edit(session, before)
+        session.commit()
+        assert section_hidden(session, section_id) is False
 
 
 def test_restore_deleted_section(open_project: OpenProject, tmp_path: Path) -> None:

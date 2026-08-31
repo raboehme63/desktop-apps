@@ -224,6 +224,7 @@ class TripSection(Base):
     location_to: Mapped[str | None] = mapped_column(String(255), nullable=True)
     pin_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     pin_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     youtube_urls: Mapped[str | None] = mapped_column(Text, nullable=True)
     leonardo_urls: Mapped[str | None] = mapped_column(Text, nullable=True)
     cover_source_file_id: Mapped[int | None] = mapped_column(Integer, nullable=True)

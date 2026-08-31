@@ -780,6 +780,7 @@ class MapView(QWidget):
         self._pending_url: QUrl | None = None
         self._display_html: Path | None = None
         self._pending_result: MapRenderResult | None = None
+        self._live_stale = False
         self._load_token = 0
         self._map_focus_armed = False
         self._fit_overview_on_load = False
@@ -922,13 +923,24 @@ class MapView(QWidget):
         root.addWidget(self._stack, 1)
 
     def refresh(self, *, force: bool = False) -> None:
-        if not force and self._reuse_live_map():
+        pending = self._pending_result
+        if pending is not None:
+            self._pending_result = None
+            self._apply_result(pending)
             return
-        self._show_cached_or_prepare(force=force)
+        if self._preparing:
+            if self.isVisible() and (force or self._live_stale):
+                self._show_busy("Karte wird aktualisiert…")
+            return
+        if not force and not self._live_stale and self._reuse_live_map():
+            return
+        self._show_cached_or_prepare(force=force or self._live_stale)
 
     def _reuse_live_map(self) -> bool:
         """Keep the loaded WebView; only apply a pending strip/detail focus."""
 
+        if self._live_stale or self._preparing or self._pending_result is not None:
+            return False
         if not self._page_ready():
             return False
         cached = self.workspace.load_cached_map()
@@ -982,7 +994,10 @@ class MapView(QWidget):
 
         if self.workspace.current is None:
             return
-        if not force and self.workspace.load_cached_map() is not None:
+        if force:
+            self._live_stale = True
+            self._reload_timeline(arm_focus=False)
+        elif self.workspace.load_cached_map() is not None:
             return
         self._start_worker(force=force)
 
@@ -996,6 +1011,7 @@ class MapView(QWidget):
         self._pending_url = None
         self._display_html = None
         self._pending_result = None
+        self._live_stale = False
         self._map_focus_armed = False
         self._fit_overview_on_load = False
         self._detail_items = []
@@ -1088,6 +1104,7 @@ class MapView(QWidget):
             return
         if not self.isVisible():
             self._pending_result = result
+            self._reload_timeline(arm_focus=False)
             return
         self._pending_result = None
         self._apply_result(result)
@@ -1102,6 +1119,7 @@ class MapView(QWidget):
         self.status_message.emit(f"Karte: {message}")
 
     def _apply_result(self, result: MapRenderResult) -> None:
+        self._live_stale = False
         self._subtitle.setText(result.summary_line())
         if result.empty or result.html_path is None:
             self._shown_html = None
@@ -1130,6 +1148,7 @@ class MapView(QWidget):
         )
         self._stack.setCurrentWidget(self._web_host)
         if already_loaded:
+            self._reload_timeline(arm_focus=not self._fit_overview_on_load)
             self._install_page_hooks()
             if self._restore_view is not None:
                 QTimer.singleShot(50, self._restore_placed_view)
@@ -1138,7 +1157,6 @@ class MapView(QWidget):
             elif self._requested_focus or self._wanted_detail_key or self._pending_detail_key:
                 self._finish_requested_focus()
             else:
-                self._reload_timeline(arm_focus=not self._fit_overview_on_load)
                 self._schedule_invalidate()
         else:
             self._fit_overview_on_load = (

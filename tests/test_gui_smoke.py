@@ -1337,7 +1337,7 @@ def test_entry_widget_section_has_to_map_button() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from datetime import UTC, datetime
 
-    from PySide6.QtWidgets import QApplication, QPushButton
+    from PySide6.QtWidgets import QApplication, QCheckBox, QPushButton
 
     from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelineSection
     from traveljournal.views.timeline_view import EntryWidget
@@ -1359,8 +1359,11 @@ def test_entry_widget_section_has_to_map_button() -> None:
     )
     widget = EntryWidget(TimelineEntry(started_at=stamp, section=section))
     button = widget.findChild(QPushButton, "entryToMap")
+    menu = widget.findChild(QPushButton, "entryMenuButton")
     assert button is not None
     assert button.isEnabled()
+    assert menu is not None
+    assert menu.text() == "Menü"
     keys: list[str] = []
     widget.open_on_map.connect(keys.append)
     button.click()
@@ -1397,10 +1400,56 @@ def test_entry_widget_section_has_to_map_button() -> None:
     day_btn = leftover.findChild(QPushButton, "entryToMap")
     assert day_btn is not None
     assert day_btn.isEnabled()
+    assert leftover.findChild(QCheckBox, "entryHide") is None
     day_keys: list[str] = []
     leftover.open_on_map.connect(day_keys.append)
     day_btn.click()
     assert day_keys == ["day:1"]
+    _ = app
+
+
+def test_entry_widget_hide_toggle_disables_to_map() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, datetime
+
+    from PySide6.QtWidgets import QApplication, QCheckBox, QPushButton
+
+    from travelcore.timeline.types import TimelineEntry, TimelineSection
+    from traveljournal.views.timeline_view import EntryWidget
+
+    app = QApplication.instance() or QApplication([])
+    stamp = datetime(2025, 5, 15, 8, 0, tzinfo=UTC)
+    section = TimelineSection(
+        id=7,
+        kind="stay",
+        mode=None,
+        title="Bozen",
+        notes=None,
+        started_at=stamp,
+        ended_at=stamp,
+        location_name=None,
+        location_from=None,
+        location_to=None,
+        origin="manual",
+    )
+    widget = EntryWidget(TimelineEntry(started_at=stamp, section=section))
+    toggle = widget.findChild(QCheckBox, "entryHide")
+    button = widget.findChild(QPushButton, "entryToMap")
+    assert toggle is not None
+    assert button is not None
+    assert toggle.sizeHint().height() >= 22
+    assert 40 <= toggle.sizeHint().width() <= 56
+    assert toggle.text() == ""
+    assert not toggle.isChecked()
+    assert button.isEnabled()
+    assert widget.property("tripHidden") == "false"
+    flags: list[bool] = []
+    widget.hidden_changed.connect(flags.append)
+    toggle.click()
+    assert flags == [True]
+    assert widget.is_hidden()
+    assert not button.isEnabled()
+    assert widget.property("tripHidden") == "true"
     _ = app
 
 
@@ -4463,6 +4512,54 @@ def test_map_view_applies_prepared_result_when_shown(tmp_path: Path) -> None:
     view._apply_result(rebuilt)
     assert view._desired_seq == rebuilt.render_seq
     assert view._loaded_seq != rebuilt.render_seq
+    _ = app
+
+
+def test_map_view_refresh_applies_pending_instead_of_live_reuse(tmp_path: Path) -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from gpx_fixtures import write_gpx
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.database.models import Project
+    from travelcore.database.project_store import ProjectStore
+    from travelcore.media.indexer import FileIndexer
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.map_view import MapView
+
+    app = QApplication.instance() or QApplication([])
+    store = ProjectStore()
+    opened = store.create(tmp_path / "reise_karte_stale", "Karte")
+    source = tmp_path / "media"
+    source.mkdir()
+    write_gpx(
+        source / "spur.gpx",
+        [
+            (46.0, 11.0, 260.0, "2025-05-15T13:31:50Z"),
+            (46.2, 11.2, 280.0, "2025-05-15T13:32:10Z"),
+        ],
+    )
+    with opened.session_factory() as session:
+        project = session.get(Project, opened.project_id)
+        assert project is not None
+        FileIndexer().index(session, project, source, generate_thumbnails=False)
+        session.commit()
+
+    workspace = Workspace()
+    workspace.current = opened
+    first = workspace.render_map()
+    view = MapView(workspace)
+    view._on_prepared(view._generation, opened.directory, first)
+    assert view._pending_result is first
+    rebuilt = workspace.render_map(force=True)
+    view._live_stale = True
+    view._pending_result = rebuilt
+    view.refresh()
+    assert view._pending_result is None
+    assert view._desired_seq == rebuilt.render_seq
+    assert not view._live_stale
+    view._live_stale = True
+    view._preparing = True
+    assert not view._reuse_live_map()
     _ = app
 
 

@@ -56,6 +56,7 @@ class SectionSnapshot:
     outbound_symbol: str | None
     sort_index: int
     origin: str
+    hidden: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +91,13 @@ def section_pin(session: Session, section_id: int) -> tuple[float | None, float 
     if section is None:
         return None, None
     return section.pin_latitude, section.pin_longitude
+
+
+def section_hidden(session: Session, section_id: int) -> bool:
+    section = session.get(TripSection, section_id)
+    if section is None:
+        return False
+    return bool(section.hidden)
 
 
 def entry_title(session: Session, kind: str, entity_id: int) -> str | None:
@@ -281,6 +289,7 @@ def _section_snapshot(section: TripSection) -> SectionSnapshot:
         outbound_symbol=section.outbound_symbol,
         sort_index=section.sort_index,
         origin=section.origin,
+        hidden=bool(section.hidden),
     )
 
 
@@ -309,6 +318,7 @@ def _upsert_section(session: Session, snapshot: SectionSnapshot) -> TripSection:
     section.outbound_symbol = snapshot.outbound_symbol
     section.sort_index = snapshot.sort_index
     section.origin = snapshot.origin
+    section.hidden = bool(snapshot.hidden)
     return section
 
 

@@ -91,6 +91,7 @@ class TimelineSection:
     cover_source_file_id: int | None = None
     pin_latitude: float | None = None
     pin_longitude: float | None = None
+    hidden: bool = False
     items: tuple[TimelinePhoto, ...] = ()
     links: tuple[TimelineLink, ...] = ()
     outbound: TimelineLink | None = None
@@ -130,6 +131,12 @@ class TimelineEntry:
             return self.section.kind
         return "day"
 
+    @property
+    def is_published(self) -> bool:
+        """False when the section is hidden from map and export."""
+
+        return self.section is None or not self.section.hidden
+
 
 @dataclass(frozen=True, slots=True)
 class TimelineSnapshot:
@@ -143,6 +150,11 @@ class TimelineSnapshot:
     @property
     def day_count(self) -> int:
         return len(self.days)
+
+    def published_entries(self) -> tuple[TimelineEntry, ...]:
+        """Timeline rows that belong to the trip on the map and in export."""
+
+        return tuple(entry for entry in self.entries if entry.is_published)
 
 
 @dataclass
@@ -165,3 +177,4 @@ class PendingSectionSpec:
     ended_at: datetime | None = None
     links: tuple[TimelineLink, ...] = ()
     outbound: TimelineLink | None = None
+    hidden: bool = False

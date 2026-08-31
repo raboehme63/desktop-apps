@@ -111,7 +111,8 @@ Die Timeline-UI zeigt **Tage**, **Transfers** und **Aufenthalte** als
 `trip_sections` mit `section_members`. Der Kartenkopf ist kompakt: Titelbild
 in Thumbnail-Größe (`168` px), rechts zuerst der Titel, darunter Typ und Datum
 in einer Zeile (`format_card_dates`: `12.12.2026` bzw. `11.11.2026 - 21.11.2026`),
-danach Verbindungslinien (Transfer) bzw. Ausgangslinie (Tag/Aufenthalt), darunter der Tagebucheintrag. Feldtitel sitzen auf der Kartenfarbe;
+**Zur Karte** und **Menü**, danach Verbindungslinien (Transfer) bzw. Ausgangslinie (Tag/Aufenthalt), darunter der Tagebucheintrag. Oben rechts auf Höhe von **Titel** sitzt der Ausblenden-Schalter
+(Pille ohne Text). **Ausblenden** (`trip_sections.hidden`) lässt die Karte in der Timeline stehen; `TimelineSnapshot.published_entries` liefert die Reise ohne diese Abschnitte für Karte und Export. Feldtitel sitzen auf der Kartenfarbe;
 dunkle Flächen sind die editierbaren Felder. Beim Verschieben des vertikalen
 Schiebers erscheint links am Griff das Datum des Abschnitts in der
 Bildmitte (`format_scroll_date`). Am Schieber des Medienpools erscheint dasselbe Chip
@@ -167,7 +168,7 @@ GPS-Felder werden dabei nicht geschrieben.
 `TimelineView._has_unsaved_work` steuert den Speichern-Button: aktiv bei
 `_pending`, dirty Reisetitel, dirty Titel/Notizen oder dirty YouTube
 (`youtube_urls` ungleich DB bzw. `_pending_youtube`). Bewertungen,
-Anzeigedrehung, DHV-Leonardo und Cover an gespeicherten Einträgen schreiben
+Anzeigedrehung, DHV-Leonardo, Cover und **Ausblenden** an gespeicherten Einträgen schreiben
 sofort und zählen nicht. `confirm_leave` fragt bei `_pending`
 (Speichern/Verwerfen/Abbrechen) und bei nur `_pending_youtube`
 (Verwerfen/Abbrechen); dirty Texte allein erzeugen keine Rückfrage.
@@ -237,7 +238,9 @@ Tag, Transfer oder Aufenthalt
 die Journal-Anzeigeposition des Covers (`display_latitude`, sonst Original-GPS), sonst der Schwerpunkt der
 Mitglieder mit Anzeigeposition, sonst `pin_latitude`/`pin_longitude`. Detailmarker und -reihenfolge folgen `section_members` und `journal_at`. Abschnitte ohne Koordinate bleiben in der
 Leiste mit rotem Rand. Rechtsklick **Platzieren** / **Verschieben** (Fadenkreuz, Zoom und Fokus bleiben) bzw. **Zentrieren** (schwenkt und zoomt auf den Kreis). Unsaved
-Pending-Abschnitte erscheinen nicht auf der Karte. Zwischen **Tag- und Aufenthaltskreisen**
+Pending-Abschnitte erscheinen nicht auf der Karte. Ausgeblendete Abschnitte (`hidden`)
+ebenfalls nicht: Cover, Leiste, Stay-Links und ``Zur Karte`` behandeln sie, als
+gäbe es sie nicht; die Nachbarn rücken zusammen. Zwischen **Tag- und Aufenthaltskreisen**
 in Timeline-Reihenfolge liegen `StayLink`-Polylinien. Transfer-Kreise sind keine
 Endpunkte. Der erste Transfer in der Lücke besitzt eine geordnete Liste
 `transfer_links` (Linie, Track, Bogenlinie, Route als Platzhalter; solid/gestrichelt;
@@ -408,6 +411,7 @@ SQLAlchemy 2, Alembic, eine SQLite-Datei je Projekt. Migrationen:
 - `016_transfer_links` – Transfer-Verbindungslinien
 - `017_section_outbound` – Ausgangslinie an Tag/Aufenthalt
 - `018_media_clusters` – Stapel/Gruppe: `cluster_type`, `status`, `origin`, Mitglied `is_key`
+- `019_section_hidden` – Abschnitt aus Karte und Export ausblenden
 
 ## Windows-Paketierung
 

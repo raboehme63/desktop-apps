@@ -243,6 +243,7 @@ def create_section(
     origin: str = ORIGIN_MANUAL,
     started_at: datetime | None = None,
     ended_at: datetime | None = None,
+    hidden: bool = False,
 ) -> TripSection:
     """Create a section from selected files, or an empty dated section."""
 
@@ -265,6 +266,7 @@ def create_section(
             origin=origin,
             started_at=started_at,
             ended_at=ended_at,
+            hidden=hidden,
         )
     rows = list(session.scalars(select(SourceFile).where(SourceFile.id.in_(ids))))
     by_id = {row.id: row for row in rows}
@@ -299,6 +301,7 @@ def create_section(
         youtube_urls=serialize_youtube_urls(list(youtube_urls or [])),
         leonardo_urls=serialize_leonardo_urls(list(leonardo_urls or [])),
         cover_source_file_id=_valid_cover_id(ordered, cover_source_file_id),
+        hidden=bool(hidden),
         sort_index=0,
         origin=origin,
     )
@@ -325,6 +328,7 @@ def _create_empty_section(
     origin: str,
     started_at: datetime | None,
     ended_at: datetime | None,
+    hidden: bool = False,
 ) -> TripSection:
     """Manual section without members. Date comes from the user, not from files."""
 
@@ -349,6 +353,7 @@ def _create_empty_section(
         youtube_urls=serialize_youtube_urls(list(youtube_urls or [])),
         leonardo_urls=serialize_leonardo_urls(list(leonardo_urls or [])),
         cover_source_file_id=None,
+        hidden=bool(hidden),
         sort_index=0,
         origin=origin,
     )
@@ -557,6 +562,16 @@ def set_section_pin(
         raise ProjectError("Ungültige Kartenposition.")
     section.pin_latitude = float(latitude)
     section.pin_longitude = float(longitude)
+    section.origin = ORIGIN_MANUAL
+
+
+def set_section_hidden(session: Session, section_id: int, hidden: bool) -> None:
+    """Hide a section from map and export. It stays in the timeline."""
+
+    section = session.get(TripSection, section_id)
+    if section is None:
+        raise ProjectError("Reiseabschnitt nicht gefunden.")
+    section.hidden = bool(hidden)
     section.origin = ORIGIN_MANUAL
 
 

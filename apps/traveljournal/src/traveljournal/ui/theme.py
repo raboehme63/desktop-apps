@@ -43,9 +43,27 @@ QPushButton:disabled {
     background-color: #1a2030;
 }
 
-QPushButton#entryToMap {
+QPushButton#entryToMap,
+QPushButton#entryMenuButton {
     padding: 4px 10px;
     font-size: 12px;
+}
+
+QCheckBox#entryHide {
+    min-width: 46px;
+    max-width: 46px;
+    min-height: 24px;
+    max-height: 24px;
+    padding: 0px;
+    spacing: 0px;
+    background: transparent;
+    border: none;
+}
+
+QCheckBox#entryHide::indicator {
+    width: 0px;
+    height: 0px;
+    border: none;
 }
 
 QPushButton#primary {
@@ -248,6 +266,17 @@ QFrame#card {
     background-color: #3a4860;
     border: 1px solid #8fa0bb;
     border-radius: 12px;
+}
+
+QFrame#card[tripHidden="true"] {
+    background-color: #252a38;
+    border: 1px dashed #6b7385;
+}
+
+QFrame#card[tripHidden="true"] QLabel#entryDates,
+QFrame#card[tripHidden="true"] QLabel#fieldCaption,
+QFrame#card[tripHidden="true"] QLabel#entryExtra {
+    color: #8b95a8;
 }
 
 QFrame#card QLabel {

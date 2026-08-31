@@ -50,6 +50,7 @@ from travelcore.timeline import (
     create_section,
     move_members,
     set_photo_sort_status,
+    set_section_hidden,
     set_section_pin,
     sync_timeline,
 )
@@ -1405,6 +1406,100 @@ def test_stay_links_skip_stays_without_gps() -> None:
     assert len(links) == 1
     assert links[0].start_key == "section:1"
     assert links[0].end_key == "section:3"
+
+
+def test_stay_links_skip_hidden_section() -> None:
+    from dataclasses import replace
+
+    middle = _stay_entry(2, 46.5, 11.5)
+    assert middle.section is not None
+    hidden = TimelineEntry(
+        started_at=middle.started_at,
+        section=replace(middle.section, hidden=True),
+    )
+    links = stay_links_from_entries(
+        [_stay_entry(1, 46.0, 11.0), hidden, _stay_entry(3, 47.0, 12.0)]
+    )
+    assert len(links) == 1
+    assert links[0].start_key == "section:1"
+    assert links[0].end_key == "section:3"
+    assert links[0].via_transfer is False
+
+
+def test_stay_links_skip_hidden_transfer() -> None:
+    from dataclasses import replace
+
+    transfer = _movement_entry(9)
+    assert transfer.section is not None
+    hidden = TimelineEntry(
+        started_at=transfer.started_at,
+        section=replace(transfer.section, hidden=True),
+    )
+    links = stay_links_from_entries(
+        [_stay_entry(1, 46.0, 11.0), hidden, _stay_entry(2, 47.0, 12.0)]
+    )
+    assert len(links) == 1
+    assert links[0].via_transfer is False
+    assert links[0].hubs == ()
+    assert links[0].transfer_key == ""
+
+
+def test_hidden_section_omitted_from_map(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "bozen.jpg",
+        datetime_original="2025:05:15 09:00:00",
+        offset_original="+02:00",
+        latitude=(46.0, 0.0, 0.0),
+        longitude=(11.0, 0.0, 0.0),
+    )
+    write_jpeg_with_exif(
+        source / "pause.jpg",
+        datetime_original="2025:05:15 12:00:00",
+        offset_original="+02:00",
+        latitude=(46.5, 0.0, 0.0),
+        longitude=(11.4, 0.0, 0.0),
+    )
+    write_jpeg_with_exif(
+        source / "innsbruck.jpg",
+        datetime_original="2025:05:15 18:00:00",
+        offset_original="+02:00",
+        latitude=(47.2, 0.0, 0.0),
+        longitude=(11.4, 0.0, 0.0),
+    )
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        FileIndexer().index(session, project, source, project_dir=open_project.directory)
+        session.commit()
+    thumbs = open_project.directory / "thumbnails"
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        snapshot = sync_timeline(session, project, thumbs_dir=thumbs)
+        photos = {item.filename: item.source_file_id for item in snapshot.days[0].photos}
+        create_section(session, snapshot.trip_id, [photos["bozen.jpg"]], kind=KIND_STAY, title="Bozen")
+        pause = create_section(
+            session, snapshot.trip_id, [photos["pause.jpg"]], kind=KIND_STAY, title="Pause"
+        )
+        create_section(
+            session, snapshot.trip_id, [photos["innsbruck.jpg"]], kind=KIND_STAY, title="Innsbruck"
+        )
+        set_section_hidden(session, pause.id, True)
+        session.commit()
+        cards = build_map_timeline(session, open_project.project_id, thumbs)
+        scene = build_map_overview(session, open_project.project_id, thumbs)
+        pause_key = map_group_key_for_source(session, open_project.project_id, photos["pause.jpg"])
+    titles = [card.title for card in cards]
+    assert "Pause" not in titles
+    assert titles == ["Bozen", "Innsbruck"]
+    covers = [item.label for item in scene.markers if item.kind == "cover"]
+    assert "Pause" not in covers
+    assert len(scene.stay_links) == 1
+    assert scene.stay_links[0].start == (46.0, 11.0)
+    assert scene.stay_links[0].end == (47.2, 11.4)
+    assert pause_key is None
 
 
 def test_stay_link_hidden_when_covers_overlap() -> None:

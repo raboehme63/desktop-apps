@@ -115,7 +115,7 @@ def build_map_overview(
     project = session.get(Project, project_id)
     snapshot = load_timeline(session, project, thumbs_dir=thumbs_dir, size=size) if project else None
     if snapshot is not None and snapshot.entries:
-        entries = list(snapshot.entries)
+        entries = list(snapshot.published_entries())
         covers = _covers_from_entries(entries, list(snapshot.days))
         links = stay_links_from_entries(
             entries, list(snapshot.days), session=session, project_id=project_id
@@ -141,7 +141,7 @@ def build_map_timeline(
     project = session.get(Project, project_id)
     snapshot = load_timeline(session, project, thumbs_dir=thumbs_dir, size=size) if project else None
     if snapshot is not None and snapshot.entries:
-        cards = [_card_from_entry(entry) for entry in snapshot.entries]
+        cards = [_card_from_entry(entry) for entry in snapshot.published_entries()]
         return tuple(card for card in cards if card is not None)
     return tuple(_cards_from_source_files(session, project_id, thumbs_dir, size=size))
 
@@ -195,6 +195,8 @@ def resolve_map_group(
 def _resolve_section_group(session: Session, project_id: int, section_id: int) -> MapGroupRef | None:
     section = session.get(TripSection, section_id)
     if section is None:
+        return None
+    if section.hidden:
         return None
     trip = session.get(Trip, section.trip_id)
     if trip is None or trip.project_id != project_id:
@@ -273,6 +275,9 @@ def map_group_key_for_source(
         select(SectionMember.section_id).where(SectionMember.source_file_id == source_file_id)
     )
     if member_id is not None:
+        section = session.get(TripSection, member_id)
+        if section is None or section.hidden:
+            return None
         return f"section:{member_id}"
     trip = session.scalar(select(Trip).where(Trip.project_id == project_id).order_by(Trip.id.asc()))
     if trip is None:
@@ -281,6 +286,8 @@ def map_group_key_for_source(
     day_key = calendar_key(moments.get(source_file_id) or source.captured_at)
     section = day_section_for_date(session, trip.id, day_key, create=False)
     if section is not None:
+        if section.hidden:
+            return None
         return f"section:{section.id}"
     for day in session.scalars(select(TripDay).where(TripDay.trip_id == trip.id)):
         if calendar_key(day.date) == day_key:
@@ -405,6 +412,8 @@ def position_for_cover(
 
 
 def _card_from_entry(entry: TimelineEntry) -> MapTimelineCard | None:
+    if not entry.is_published:
+        return None
     if entry.section is not None:
         items = list(entry.section.items)
         cover_id = entry.section.cover_source_file_id
@@ -470,6 +479,7 @@ def stay_links_from_entries(
 ) -> list[StayLink]:
     """Links between Tag and Aufenthalt covers. The first Transfer supplies segments."""
 
+    entries = [entry for entry in entries if entry.is_published]
     stops: list[tuple[int, MapMarker]] = []
     for index, entry in enumerate(entries):
         if entry.card_kind == KIND_MOVEMENT:
@@ -595,6 +605,8 @@ def _covers_from_entries(
 ) -> list[MapMarker]:
     covers: list[MapMarker] = []
     for entry in entries:
+        if not entry.is_published:
+            continue
         marker = _cover_marker_for_entry(entry, days)
         if marker is not None:
             covers.append(marker)

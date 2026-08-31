@@ -333,6 +333,9 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_kind_change_copies_outbound_to_transfer_and_back` | `test_timeline_sections.py` | Typwechsel übernimmt Linie/Bogen |
 | `test_kind_change_hidden_outbound_does_not_seed_transfer` | `test_timeline_sections.py` | Keine Linie wird nicht zur Transfer-Liste |
 | `test_stay_links_skip_stays_without_gps` | `test_maps.py` | Aufenthalt ohne GPS ist kein Linienende |
+| `test_stay_links_skip_hidden_section` | `test_maps.py` | ausgeblendeter Aufenthalt ist kein Linienende; Nachbarn verbinden sich |
+| `test_stay_links_skip_hidden_transfer` | `test_maps.py` | ausgeblendeter Transfer zählt nicht als via_transfer |
+| `test_hidden_section_omitted_from_map` | `test_maps.py` | Leiste, Cover und Zur-Karte-Schlüssel ohne ausgeblendeten Abschnitt |
 | `test_stay_link_hidden_when_covers_overlap` | `test_maps.py` | Linie unsichtbar, wenn Kreise sich überdecken |
 | `test_transport_symbols_cover_movement_modes` | `test_symbols.py` | Katalog-Keys = `MOVEMENT_MODES` |
 | `test_symbol_badge_is_white_on_black` | `test_symbols.py` | Badge ohne Rotation außer Flugzeug; Camper/Van im Katalog nach rechts gespiegelt |
@@ -412,6 +415,9 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_update_section_kind_switches_stay_and_transfer` | `test_timeline_sections.py` | Typ Aufenthalt ↔ Transfer |
 | `test_apply_pending_sections_is_preview_only` | `test_timeline_sections.py` | Overlay schreibt nicht |
 | `test_timeline_save_button_only_when_dirty` | `tests/test_gui_smoke.py` | Speichern nur bei Abschnitten, Reisetitel, Text, YouTube |
+| `test_entry_widget_hide_toggle_disables_to_map` | `tests/test_gui_smoke.py` | Ausblenden deaktiviert Zur Karte |
+| `test_hidden_section_stays_in_timeline_and_is_unpublished` | `test_timeline_sections.py` | Flag in der Timeline, nicht in `published_entries` |
+| `test_apply_pending_preserves_hidden_flag` | `test_timeline_sections.py` | ungespeicherter Abschnitt merkt Ausblenden |
 | `test_timeline_leave_without_prompt_when_only_text_dirty` | `tests/test_gui_smoke.py` | Seitenwechsel ohne Rückfrage bei nur dirty Text |
 | `test_set_entry_cover_on_day_and_section` | `test_timeline_sections.py` | Foto als Eintrags-Titelbild |
 | `test_set_entry_cover_accepts_gps_track` | `test_timeline_sections.py` | Track als Eintrags-Titelbild |
@@ -560,6 +566,7 @@ Stand nach `pytest --collect-only`: **355 Tests** (28. August 2026). Neue Tests 
 | `test_restore_move_members_returns_file` | `test_timeline_history.py` | Zuordnen rückgängig legt das Medium zurück |
 | `test_restore_section_kind_and_span` | `test_timeline_history.py` | Typ und Spanne wiederherstellen |
 | `test_restore_pin_and_title` | `test_timeline_history.py` | Kartenposition und Titel wiederherstellen |
+| `test_restore_hidden_flag` | `test_timeline_history.py` | Ausblenden wiederherstellen |
 | `test_restore_deleted_section` | `test_timeline_history.py` | gelöschten Abschnitt inkl. Mitglieder wiederherstellen |
 | `test_restore_after_create_removes_new_section` | `test_timeline_history.py` | neu angelegten Abschnitt entfernen |
 | `test_restore_dissolved_section` | `test_timeline_history.py` | aufgelösten Abschnitt wiederherstellen |

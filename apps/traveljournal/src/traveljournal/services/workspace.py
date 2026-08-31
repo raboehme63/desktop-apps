@@ -550,6 +550,7 @@ class Workspace:
         cover_source_file_id: int | None = None,
         started_at: datetime | None = None,
         ended_at: datetime | None = None,
+        hidden: bool = False,
         record: bool = True,
     ) -> int:
         ids = list(dict.fromkeys(source_file_ids))
@@ -568,6 +569,7 @@ class Workspace:
             cover_source_file_id=cover_source_file_id,
             started_at=started_at,
             ended_at=ended_at,
+            hidden=hidden,
         )
         if record:
             created = [section_id]
@@ -590,6 +592,7 @@ class Workspace:
                         cover_source_file_id=cover_source_file_id,
                         started_at=started_at,
                         ended_at=ended_at,
+                        hidden=hidden,
                     ),
                 ),
             )
@@ -635,6 +638,17 @@ class Workspace:
             "Kartenposition",
             lambda: self._apply_section_pin(section_id, previous[0], previous[1]),
             lambda: self._apply_section_pin(section_id, latitude, longitude),
+        )
+
+    def set_section_hidden(self, section_id: int, hidden: bool) -> None:
+        previous = self._read_section_hidden(section_id)
+        if previous == bool(hidden):
+            return
+        self._apply_section_hidden(section_id, hidden)
+        self.history.push(
+            "Ausblenden" if hidden else "Einblenden",
+            lambda: self._apply_section_hidden(section_id, previous),
+            lambda: self._apply_section_hidden(section_id, hidden),
         )
 
     def set_section_span(
@@ -1034,6 +1048,14 @@ class Workspace:
             lambda session: timeline_sections.set_section_pin(session, section_id, latitude, longitude)
         )
 
+    def _read_section_hidden(self, section_id: int) -> bool:
+        opened = self._require_open()
+        with opened.session_factory() as session:
+            return timeline_history.section_hidden(session, section_id)
+
+    def _apply_section_hidden(self, section_id: int, hidden: bool) -> None:
+        self._mutate(lambda session: timeline_sections.set_section_hidden(session, section_id, hidden))
+
     def _apply_section_kind(self, section_id: int, kind: str, *, mode: str | None = None) -> None:
         self._mutate(
             lambda session: timeline_sections.update_section_kind(session, section_id, kind, mode=mode)
@@ -1067,6 +1089,7 @@ class Workspace:
         cover_source_file_id: int | None = None,
         started_at: datetime | None = None,
         ended_at: datetime | None = None,
+        hidden: bool = False,
     ) -> int:
         opened = self._require_open()
         with opened.session_factory() as session:
@@ -1091,6 +1114,7 @@ class Workspace:
                 cover_source_file_id=cover_source_file_id,
                 started_at=started_at,
                 ended_at=ended_at,
+                hidden=hidden,
             )
             section_id = section.id
             session.commit()

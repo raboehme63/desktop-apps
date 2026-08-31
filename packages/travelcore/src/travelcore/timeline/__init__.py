@@ -26,6 +26,7 @@ from travelcore.timeline.history import (
     entry_title,
     photo_sort_status,
     restore_journal_edit,
+    section_hidden,
     section_pin,
 )
 from travelcore.timeline.links import (
@@ -60,6 +61,7 @@ from travelcore.timeline.sections import (
     save_section_youtube_urls,
     serialize_modes,
     set_journal_at,
+    set_section_hidden,
     set_section_pin,
     set_section_span,
     sort_members_by_journal,
@@ -148,7 +150,9 @@ __all__ = [
     "set_journal_at",
     "set_photo_journal_flag",
     "set_photo_sort_status",
+    "section_hidden",
     "section_pin",
+    "set_section_hidden",
     "set_section_pin",
     "set_section_span",
     "sort_members_by_journal",
