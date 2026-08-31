@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QListWidget,
     QListWidgetItem,
@@ -25,10 +26,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from travelcore.exceptions import ExportError
 from travelcore.export.catalog import (
     default_page_size_id,
     first_path,
     list_page_sizes,
+    list_photo_layouts,
     list_product_ids,
     load_catalog,
     load_product,
@@ -38,7 +41,9 @@ from travelcore.export.catalog import (
 from travelcore.export.document import (
     TravelbookDocument,
     add_spread,
+    apply_photo_layout,
     document_path,
+    layout_is_photos,
     load_or_create,
     remove_spread,
     replace_chapter,
@@ -47,7 +52,13 @@ from travelcore.export.document import (
     replace_spread,
     save_document,
 )
+from travelcore.export.photo_layouts import layout_from_frames, save_user_layout
 from traveljournal.services.workspace import Workspace
+from traveljournal.views.photo_templates_dialog import (
+    PhotoTemplateDialog,
+    frames_from_elements,
+    layout_preview_icon,
+)
 from traveljournal.widgets.book_preview import BookPreview, leaves_from_document, leaves_from_snapshot
 from traveljournal.widgets.gallery import POOL_MIME, encode_pool_source_ids
 from traveljournal.widgets.photo_canvas import BookMedia
@@ -190,10 +201,14 @@ class ExportView(QWidget):
         self.workspace = workspace
         self._product_id, _default_format = first_path()
         self._page_size_id = default_page_size_id()
+        self._photo_layout_id = ""
+        self._photo_layouts: dict[str, str] = {}
+        self._last_edit_side = "recto"
         self._mode = "export"
         self._choices_collapsed = False
         self._product_buttons: dict[str, QPushButton] = {}
         self._page_buttons: dict[str, QPushButton] = {}
+        self._layout_buttons: dict[str, QPushButton] = {}
         self._mode_buttons: dict[str, QPushButton] = {}
         self._document: TravelbookDocument | None = None
 
@@ -291,6 +306,27 @@ class ExportView(QWidget):
             size_row.addWidget(button)
         size_row.addStretch(1)
         body_layout.addWidget(self._size_row_host)
+
+        layout_header = QHBoxLayout()
+        layout_header.setSpacing(8)
+        self._layout_caption = QLabel("Fotoseiten")
+        self._layout_caption.setObjectName("fieldCaption")
+        self._manage_layouts_button = QPushButton("Vorlagen…")
+        self._manage_layouts_button.setObjectName("exportManageTemplates")
+        self._manage_layouts_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._manage_layouts_button.setToolTip("Vorlagen für das gewählte Seitenverhältnis verwalten.")
+        self._manage_layouts_button.clicked.connect(self._manage_templates)
+        layout_header.addWidget(self._layout_caption, 1)
+        layout_header.addWidget(self._manage_layouts_button)
+        body_layout.addLayout(layout_header)
+        self._layout_row_host = QWidget()
+        self._layout_grid = QGridLayout(self._layout_row_host)
+        self._layout_grid.setContentsMargins(0, 0, 0, 0)
+        self._layout_grid.setHorizontalSpacing(6)
+        self._layout_grid.setVerticalSpacing(6)
+        self._layout_group = QButtonGroup(self)
+        self._layout_group.setExclusive(True)
+        body_layout.addWidget(self._layout_row_host)
         choice_layout.addWidget(self._choices_body)
         root.addWidget(choices)
 
@@ -314,8 +350,15 @@ class ExportView(QWidget):
         self._remove_spread_button = QPushButton("Doppelseite entfernen")
         self._remove_spread_button.setToolTip("Nur zusätzliche Spreads, nicht die erste Abschnittsseite.")
         self._remove_spread_button.clicked.connect(self._remove_spread)
+        self._save_template_button = QPushButton("Seite als Vorlage")
+        self._save_template_button.setObjectName("exportSaveTemplate")
+        self._save_template_button.setToolTip(
+            "Rahmen der zuletzt bearbeiteten Fotoseite für dieses Seitenverhältnis speichern."
+        )
+        self._save_template_button.clicked.connect(self._save_current_template)
         actions.addWidget(self._add_spread_button)
         actions.addWidget(self._remove_spread_button)
+        actions.addWidget(self._save_template_button)
         actions.addStretch(1)
         root.addWidget(self._edit_bar)
 
@@ -323,6 +366,7 @@ class ExportView(QWidget):
         root.addWidget(self._tray)
 
         self._apply_page_size()
+        self._rebuild_layout_buttons()
         self._sync_selection()
         self.refresh()
 
@@ -334,14 +378,47 @@ class ExportView(QWidget):
                 self.workspace.current.directory,
                 snapshot,
                 page_size=self._page_size_id,
+                photo_layout=self._photo_layouts.get(self._page_size_id, self._photo_layout_id),
             )
         if self._document is not None:
+            self._photo_layouts = dict(self._document.photo_layouts)
+            self._photo_layout_id = self._document.photo_layout
             self._preview.set_leaves(leaves_from_document(snapshot, self._document))
         else:
             self._preview.set_leaves(leaves_from_snapshot(snapshot))
         self._preview.set_editable(self._mode == "edit")
+        self._rebuild_layout_buttons()
         self._sync_selection()
         self._sync_editor()
+
+    def _rebuild_layout_buttons(self) -> None:
+        for button in list(self._layout_buttons.values()):
+            self._layout_group.removeButton(button)
+            button.setParent(None)
+            button.deleteLater()
+        self._layout_buttons = {}
+        size = page_size(self._page_size_id)
+        width = float(size["width_mm"])
+        height = float(size["height_mm"])
+        for index, item in enumerate(list_photo_layouts(self._page_size_id)):
+            layout_id = str(item["id"])
+            caption = _label(item.get("label"), layout_id)
+            count = item.get("photo_count")
+            if item.get("builtin") and isinstance(count, int):
+                text = str(count)
+            else:
+                text = caption if len(caption) <= 12 else f"{caption[:11]}…"
+            button = QPushButton(text)
+            button.setObjectName("exportLayoutChoice")
+            button.setCheckable(True)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setIcon(layout_preview_icon(item.get("slots"), width_mm=width, height_mm=height))
+            button.setIconSize(QSize(40, 40))
+            button.setToolTip(caption)
+            button.clicked.connect(lambda _checked=False, value=layout_id: self._select_photo_layout(value))
+            self._layout_group.addButton(button)
+            self._layout_buttons[layout_id] = button
+            self._layout_grid.addWidget(button, index // 4, index % 4)
 
     def _select_product(self, product_id: str) -> None:
         self._product_id = product_id
@@ -350,10 +427,28 @@ class ExportView(QWidget):
 
     def _select_page_size(self, size_id: str) -> None:
         self._page_size_id = size_id
+        self._photo_layout_id = self._photo_layouts.get(size_id, "")
         self._apply_page_size()
         if self._document is not None and self.workspace.current is not None:
             self._document = replace(self._document, page_size=size_id)
+            self._photo_layout_id = self._document.photo_layout
             save_document(document_path(self.workspace.current.directory), self._document)
+        self._rebuild_layout_buttons()
+        self._sync_selection()
+
+    def _select_photo_layout(self, layout_id: str) -> None:
+        if not layout_is_photos(layout_id):
+            return
+        already = layout_id == self._photo_layout_id
+        self._photo_layout_id = layout_id
+        self._photo_layouts[self._page_size_id] = layout_id
+        document = self._document
+        if document is not None and not already:
+            snapshot = self.workspace.load_timeline() if self.workspace.current is not None else None
+            self._document = apply_photo_layout(document, layout_id, snapshot)
+            self._photo_layouts = dict(self._document.photo_layouts)
+            self._save_document()
+            self._reload_leaves()
         self._sync_selection()
 
     def _select_mode(self, mode: str) -> None:
@@ -370,11 +465,88 @@ class ExportView(QWidget):
         size = page_size(self._page_size_id)
         self._preview.set_page_size(float(size["width_mm"]), float(size["height_mm"]))
 
+    def _current_photo_frames(self):
+        leaf = self._preview.current_leaf()
+        if leaf is None or leaf.variant not in {"section", "extra"}:
+            return ()
+        first = leaf.right_elements if self._last_edit_side == "recto" else leaf.left_elements
+        second = leaf.left_elements if self._last_edit_side == "recto" else leaf.right_elements
+        if first:
+            return frames_from_elements(first)
+        if second:
+            return frames_from_elements(second)
+        return ()
+
+    def _manage_templates(self) -> None:
+        size = page_size(self._page_size_id)
+        dialog = PhotoTemplateDialog(
+            page_size_id=self._page_size_id,
+            page_size_label=_label(size.get("label"), self._page_size_id),
+            width_mm=float(size["width_mm"]),
+            height_mm=float(size["height_mm"]),
+            current_frames=self._current_photo_frames(),
+            parent=self,
+        )
+        dialog.exec()
+        if dialog.library_changed():
+            self._rebuild_layout_buttons()
+            self._sync_selection()
+
+    def _save_current_template(self) -> None:
+        frames = self._current_photo_frames()
+        if not frames:
+            QMessageBox.information(
+                self, "Vorlage", "Bitte zuerst eine Fotoseite gestalten (mindestens ein Rahmen)."
+            )
+            return
+        name, ok = QInputDialog.getText(self, "Vorlage speichern", "Name:")
+        if not ok:
+            return
+        try:
+            saved = save_user_layout(
+                layout_from_frames(frames, name=name, page_size=self._page_size_id)
+            )
+        except ExportError as exc:
+            QMessageBox.warning(self, "Vorlage", str(exc))
+            return
+        layout_id = str(saved["id"])
+        self._photo_layout_id = layout_id
+        self._photo_layouts[self._page_size_id] = layout_id
+        self._tag_current_page_layout(layout_id)
+        if self._document is not None:
+            layouts = dict(self._document.photo_layouts)
+            layouts[self._page_size_id] = layout_id
+            self._document = replace(self._document, photo_layouts=layouts)
+            self._save_document()
+        self._rebuild_layout_buttons()
+        self._sync_selection()
+
+    def _tag_current_page_layout(self, layout_id: str) -> None:
+        leaf = self._preview.current_leaf()
+        if leaf is None or leaf.section_id is None or leaf.spread_id is None or self._document is None:
+            return
+        chapter = self._chapter_for(leaf.section_id)
+        if chapter is None:
+            return
+        spread = next((item for item in chapter.spreads if item.id == leaf.spread_id), None)
+        if spread is None:
+            return
+        side = "recto"
+        use_verso = bool(leaf.left_elements or layout_is_photos(leaf.left_layout))
+        use_recto = bool(leaf.right_elements or layout_is_photos(leaf.right_layout))
+        if use_verso and (self._last_edit_side == "verso" or not use_recto):
+            side = "verso"
+        page = spread.verso if side == "verso" else spread.recto
+        spread = replace_page(spread, side, replace(page, layout=layout_id))
+        self._document = replace_chapter(self._document, replace_spread(chapter, spread))
+
     def _sync_selection(self) -> None:
         for product_id, button in self._product_buttons.items():
             button.setChecked(product_id == self._product_id)
         for size_id, button in self._page_buttons.items():
             button.setChecked(size_id == self._page_size_id)
+        for layout_id, button in self._layout_buttons.items():
+            button.setChecked(layout_id == self._photo_layout_id)
         for mode, button in self._mode_buttons.items():
             button.setChecked(mode == self._mode)
         product = load_product(self._product_id)
@@ -385,10 +557,16 @@ class ExportView(QWidget):
         size_label = ""
         if is_book:
             size_label = _label(page_size(self._page_size_id).get("label"), self._page_size_id)
+        layout_label = ""
+        if is_book and layout_is_photos(self._photo_layout_id):
+            chosen = self._layout_buttons.get(self._photo_layout_id)
+            layout_label = chosen.toolTip() if chosen is not None else self._photo_layout_id
+        summary_parts = [product_label]
         if is_book and size_label:
-            self._choices_summary.setText(f"{product_label} · {size_label}")
-        else:
-            self._choices_summary.setText(product_label)
+            summary_parts.append(size_label)
+        if layout_label:
+            summary_parts.append(layout_label)
+        self._choices_summary.setText(" · ".join(summary_parts))
         self._choices_body.setVisible(not self._choices_collapsed)
         self._collapse_button.setText("▼" if self._choices_collapsed else "▲")
         self._collapse_button.setToolTip(
@@ -396,11 +574,15 @@ class ExportView(QWidget):
         )
         self._size_caption.setVisible(is_book)
         self._size_row_host.setVisible(is_book)
+        self._layout_caption.setVisible(is_book)
+        self._layout_row_host.setVisible(is_book)
+        self._manage_layouts_button.setVisible(is_book)
         self._preview.setVisible(show_preview)
         editing = self._mode == "edit" and show_preview
         self._edit_bar.setVisible(editing)
         self._add_spread_button.setVisible(editing)
         self._remove_spread_button.setVisible(editing)
+        self._save_template_button.setVisible(editing)
         self._tray.setVisible(editing)
         if show_preview:
             self._other_hint.hide()
@@ -419,8 +601,10 @@ class ExportView(QWidget):
         editing = self._mode == "edit" and self._product_id == "travelbook"
         has_section = leaf is not None and leaf.section_id is not None and self._document is not None
         extra = bool(leaf is not None and leaf.variant == "extra")
+        has_frames = bool(self._current_photo_frames())
         self._add_spread_button.setEnabled(editing and has_section)
         self._remove_spread_button.setEnabled(editing and extra)
+        self._save_template_button.setEnabled(editing and has_frames)
         media = leaf.media if leaf is not None else ()
         self._tray.set_media(media)
         self._tray.setEnabled(editing and has_section)
@@ -453,6 +637,7 @@ class ExportView(QWidget):
         self._sync_editor()
 
     def _on_page_edited(self, _index: int, side: str) -> None:
+        self._last_edit_side = side
         leaf = self._preview.current_leaf()
         if leaf is None or leaf.section_id is None or leaf.spread_id is None or self._document is None:
             return
@@ -468,6 +653,7 @@ class ExportView(QWidget):
         chapter = replace_spread(chapter, spread)
         self._document = replace_chapter(self._document, chapter)
         self._save_document()
+        self._sync_editor()
 
     def _add_spread(self) -> None:
         leaf = self._preview.current_leaf()
@@ -476,7 +662,9 @@ class ExportView(QWidget):
         chapter = self._chapter_for(leaf.section_id)
         if chapter is None:
             return
-        self._document = replace_chapter(self._document, add_spread(chapter))
+        self._document = replace_chapter(
+            self._document, add_spread(chapter, photo_layout=self._document.photo_layout)
+        )
         self._save_document()
         self._reload_leaves(keep_last=True)
 

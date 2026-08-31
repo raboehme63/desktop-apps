@@ -181,14 +181,22 @@ def assert_supported(product_id: str, format_id: str) -> None:
 
 
 def load_page_layout(layout_id: str) -> dict[str, Any]:
-    """Load a page layout template (section_intro, photos_1–8, journal)."""
+    """Load a packaged or user page layout (section_intro, photos_1–8, journal)."""
 
     if not layout_id or "/" in layout_id or "\\" in layout_id or ".." in layout_id:
         raise ExportError("Ungültiges Seiten-Layout.")
-    data = _read_json(f"{_LAYOUT_DIR}/{layout_id}.json")
-    if data.get("id") != layout_id:
-        raise ExportError(f"Seiten-Layout '{layout_id}' hat die falsche id.")
-    return data
+    packaged = _TEMPLATES / _LAYOUT_DIR / f"{layout_id}.json"
+    if packaged.is_file():
+        data = _read_json(f"{_LAYOUT_DIR}/{layout_id}.json")
+        if data.get("id") != layout_id:
+            raise ExportError(f"Seiten-Layout '{layout_id}' hat die falsche id.")
+        return data
+    from travelcore.export.photo_layouts import load_user_layout
+
+    user = load_user_layout(layout_id)
+    if user is not None:
+        return user
+    raise ExportError(f"Unbekanntes Seiten-Layout '{layout_id}'.")
 
 
 def chronicle_page_layouts(product_id: str = "travelbook") -> tuple[str, ...]:
@@ -204,3 +212,23 @@ def chronicle_page_layouts(product_id: str = "travelbook") -> tuple[str, ...]:
     if not isinstance(listed, list):
         return ()
     return tuple(str(item) for item in listed)
+
+
+def list_photo_layouts(page_size: str = "") -> tuple[dict[str, Any], ...]:
+    """Built-in 1–8 photo grids, plus user templates for ``page_size``."""
+
+    packaged: list[dict[str, Any]] = []
+    for index in range(1, 9):
+        item = dict(load_page_layout(f"photos_{index}"))
+        item["builtin"] = True
+        packaged.append(item)
+    if not page_size:
+        return tuple(packaged)
+    from travelcore.export.photo_layouts import list_user_layouts
+
+    extra: list[dict[str, Any]] = []
+    for item in list_user_layouts(page_size):
+        copied = dict(item)
+        copied["builtin"] = False
+        extra.append(copied)
+    return tuple(packaged + extra)

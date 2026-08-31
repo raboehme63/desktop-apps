@@ -14,6 +14,7 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     from traveljournal.services import workspace as workspace_mod
     from traveljournal.ui.main_window import MainWindow
 
+    monkeypatch.setattr(workspace_mod, "_CONFIG_DIR", tmp_path)
     monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
 
     app = QApplication.instance() or QApplication([])
@@ -101,10 +102,23 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     assert window.export_view._mode_buttons["edit"].text() == "Editiermodus"
     assert window.export_view._add_spread_button.isHidden()
     assert window.export_view._remove_spread_button.isHidden()
+    assert window.export_view._save_template_button.isHidden()
     assert window.export_view._tray.isHidden()
     assert window.export_view._page_size_id == "a4-portrait"
     assert window.export_view._page_buttons["a4-portrait"].isChecked()
     assert window.export_view._page_buttons["a4-portrait"].text() == "DIN A4 Hochformat"
+    assert list(window.export_view._layout_buttons) == [f"photos_{index}" for index in range(1, 9)]
+    assert window.export_view._layout_buttons["photos_1"].text() == "1"
+    assert window.export_view._layout_buttons["photos_4"].toolTip() == "4 Fotos"
+    assert not any(button.isChecked() for button in window.export_view._layout_buttons.values())
+    assert not window.export_view._layout_row_host.isHidden()
+    assert not window.export_view._manage_layouts_button.isHidden()
+    assert window.export_view._manage_layouts_button.text() == "Vorlagen…"
+    window.export_view._layout_buttons["photos_4"].click()
+    app.processEvents()
+    assert window.export_view._photo_layout_id == "photos_4"
+    assert window.export_view._layout_buttons["photos_4"].isChecked()
+    assert "4 Fotos" in window.export_view._choices_summary.text()
     assert not window.export_view._preview.isHidden()
     assert not window.export_view._size_row_host.isHidden()
     assert not window.export_view._choices_body.isHidden()
@@ -117,6 +131,8 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     window.export_view._mode_buttons["edit"].click()
     app.processEvents()
     assert not window.export_view._add_spread_button.isHidden()
+    assert not window.export_view._save_template_button.isHidden()
+    assert not window.export_view._save_template_button.isEnabled()
     assert not window.export_view._tray.isHidden()
     window.export_view._mode_buttons["export"].click()
     app.processEvents()
@@ -136,6 +152,7 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     assert window.export_view._preview._leaves[2].variant == "summary"
     assert window.export_view._preview._leaves[2].metrics == ()
     from traveljournal.views.export_view import ExportFormatDialog
+    from traveljournal.views.photo_templates_dialog import PhotoTemplateDialog
 
     format_dialog = ExportFormatDialog("travelbook", window)
     assert "html" in format_dialog._buttons
@@ -146,14 +163,32 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     interactive_formats = ExportFormatDialog("travelbook-interactive", window)
     assert list(interactive_formats._buttons) == ["html"]
     interactive_formats.close()
+    templates = PhotoTemplateDialog(
+        page_size_id="a4-portrait",
+        page_size_label="DIN A4 Hochformat",
+        width_mm=210,
+        height_mm=297,
+        current_frames=(),
+        parent=window,
+    )
+    assert templates.windowTitle() == "Fotoseiten-Vorlagen"
+    assert templates._list.count() == 8
+    assert not templates._save_button.isEnabled()
+    templates._list.setCurrentRow(0)
+    app.processEvents()
+    assert not templates._delete_button.isEnabled()
+    templates.close()
     window.export_view._product_buttons["travelbook-interactive"].click()
     app.processEvents()
     assert window.export_view._product_id == "travelbook-interactive"
     assert window.export_view._preview.isHidden()
     assert window.export_view._size_row_host.isHidden()
+    assert window.export_view._layout_row_host.isHidden()
+    assert window.export_view._manage_layouts_button.isHidden()
     window.export_view._product_buttons["travelbook"].click()
     app.processEvents()
     assert not window.export_view._size_row_host.isHidden()
+    assert not window.export_view._layout_row_host.isHidden()
     assert list(window.sidebar._buttons) == [key for key, _ in NAV_ITEMS]
     window.sidebar.set_collapsed(False)
     assert 96 <= window.sidebar.width() < 220
@@ -175,8 +210,12 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     app.processEvents()
     assert cover.width() > cover.height()
     assert abs(cover.width() / cover.height() - 297 / 210) < 0.04
+    assert window.export_view._photo_layout_id == ""
+    assert not window.export_view._layout_buttons["photos_4"].isChecked()
     window.export_view._page_buttons["a4-portrait"].click()
     app.processEvents()
+    assert window.export_view._photo_layout_id == "photos_4"
+    assert window.export_view._layout_buttons["photos_4"].isChecked()
     window._show_page("project")
     app.processEvents()
     collapse = window.sidebar._collapse

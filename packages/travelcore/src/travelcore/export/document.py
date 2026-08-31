@@ -17,6 +17,7 @@ from uuid import uuid4
 from travelcore.exceptions import ExportError
 from travelcore.export.catalog import load_page_layout
 from travelcore.export.geometry import Crop, Frame, clamp_crop, clamp_frame
+from travelcore.export.photo_layouts import is_user_layout
 from travelcore.media.gallery import SORT_REJECTED
 from travelcore.media.types import FileKind
 from travelcore.timeline.types import TimelinePhoto, TimelineSection, TimelineSnapshot
@@ -64,7 +65,13 @@ class TravelbookDocument:
     product: str = "travelbook"
     schema_version: int = SCHEMA_VERSION
     page_size: str = "a4-portrait"
+    photo_layouts: dict[str, str] = field(default_factory=dict)
     chapters: tuple[Chapter, ...] = ()
+
+    @property
+    def photo_layout(self) -> str:
+        value = self.photo_layouts.get(self.page_size, "")
+        return value if layout_is_photos(value) else ""
 
 
 def new_element_id() -> str:
@@ -72,7 +79,22 @@ def new_element_id() -> str:
 
 
 def layout_is_photos(layout_id: str) -> bool:
-    return layout_id.startswith("photos_")
+    if layout_id.startswith("photos_"):
+        return True
+    return is_user_layout(layout_id)
+
+
+def _photo_layouts_from_dict(data: dict[str, Any], page_size: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    raw = data.get("photo_layouts")
+    if isinstance(raw, dict):
+        for key, value in raw.items():
+            if isinstance(key, str) and isinstance(value, str) and layout_is_photos(value):
+                result[key] = value
+    single = data.get("photo_layout")
+    if isinstance(single, str) and layout_is_photos(single) and page_size not in result:
+        result[page_size] = single
+    return result
 
 
 def photo_layout_id(count: int) -> str:
@@ -99,7 +121,10 @@ def elements_from_layout(layout_id: str, source_file_ids: Sequence[int | None]) 
 
     if not layout_is_photos(layout_id):
         return ()
-    layout = load_page_layout(layout_id)
+    try:
+        layout = load_page_layout(layout_id)
+    except ExportError:
+        return ()
     slots = layout.get("slots")
     if not isinstance(slots, list):
         return ()
@@ -220,10 +245,19 @@ def save_document(path: Path, document: TravelbookDocument) -> None:
 
 
 def load_or_create(
-    project_dir: Path, snapshot: TimelineSnapshot, *, page_size: str = "a4-portrait"
+    project_dir: Path,
+    snapshot: TimelineSnapshot,
+    *,
+    page_size: str = "a4-portrait",
+    photo_layout: str = "",
 ) -> TravelbookDocument:
     path = document_path(project_dir)
-    document = load_document(path) if path.is_file() else TravelbookDocument(page_size=page_size)
+    if path.is_file():
+        document = load_document(path)
+    else:
+        layout = photo_layout if layout_is_photos(photo_layout) else ""
+        layouts = {page_size: layout} if layout else {}
+        document = TravelbookDocument(page_size=page_size, photo_layouts=layouts)
     synced = sync_document(document, snapshot, page_size=page_size)
     if synced != document or not path.is_file():
         save_document(path, synced)
@@ -252,19 +286,24 @@ def sync_document(
             for entry in published
             if entry.section is not None and entry.section.id == section_id
         )
-        chapters.append(_initial_chapter(section))
+        chapters.append(_initial_chapter(section, photo_layout=document.photo_layout))
     size = page_size if page_size else document.page_size
     return replace(document, schema_version=SCHEMA_VERSION, page_size=size, chapters=tuple(chapters))
 
 
 def add_spread(
-    chapter: Chapter, *, verso_layout: str = "photos_1", recto_layout: str = "photos_1"
+    chapter: Chapter,
+    *,
+    verso_layout: str | None = None,
+    recto_layout: str | None = None,
+    photo_layout: str = "",
 ) -> Chapter:
+    layout = photo_layout if layout_is_photos(photo_layout) else "photos_1"
     extra = Spread(
         id=f"section-{chapter.section_id}-extra-{_next_extra_index(chapter)}",
         initial=False,
-        verso=PageInstance(layout=verso_layout, locked=False, elements=()),
-        recto=PageInstance(layout=recto_layout, locked=False, elements=()),
+        verso=PageInstance(layout=verso_layout or layout, locked=False, elements=()),
+        recto=PageInstance(layout=recto_layout or layout, locked=False, elements=()),
     )
     return replace(chapter, spreads=(*chapter.spreads, extra))
 
@@ -294,27 +333,82 @@ def replace_page(spread: Spread, side: str, page: PageInstance) -> Spread:
     raise ExportError(f"Unbekannte Buchseite '{side}'.")
 
 
+def apply_photo_layout(
+    document: TravelbookDocument,
+    layout_id: str,
+    snapshot: TimelineSnapshot | None = None,
+) -> TravelbookDocument:
+    """Re-arrange every photo page to ``layout_id``. Intro and journal pages stay."""
+
+    if not layout_is_photos(layout_id):
+        raise ExportError(f"Unbekanntes Foto-Layout '{layout_id}'.")
+    fallback: dict[int, list[int]] = {}
+    if snapshot is not None:
+        for entry in snapshot.published_entries():
+            section = entry.section
+            if section is None:
+                continue
+            fallback[section.id] = [item.source_file_id for item in book_media_items(section)]
+    chapters = []
+    for chapter in document.chapters:
+        section_ids = fallback.get(chapter.section_id, [])
+        spreads = []
+        for spread in chapter.spreads:
+            recto_ids = section_ids if spread.initial else []
+            spreads.append(
+                replace(
+                    spread,
+                    verso=_relayout_photo_page(spread.verso, layout_id, ()),
+                    recto=_relayout_photo_page(spread.recto, layout_id, recto_ids),
+                )
+            )
+        chapters.append(replace(chapter, spreads=tuple(spreads)))
+    layouts = dict(document.photo_layouts)
+    layouts[document.page_size] = layout_id
+    return replace(document, photo_layouts=layouts, chapters=tuple(chapters))
+
+
+def _relayout_photo_page(
+    page: PageInstance, layout_id: str, fallback_ids: Sequence[int]
+) -> PageInstance:
+    if page.locked or not layout_is_photos(page.layout):
+        return page
+    existing = [item.source_file_id for item in sorted_by_z(page.elements)]
+    ids: Sequence[int | None] = existing if existing else list(fallback_ids)
+    return replace(page, layout=layout_id, elements=elements_from_layout(layout_id, ids))
+
+
 def document_from_dict(data: dict[str, Any]) -> TravelbookDocument:
     chapters_raw = data.get("chapters")
     if not isinstance(chapters_raw, list):
         chapters_raw = []
     chapters = tuple(_chapter_from_dict(item) for item in chapters_raw if isinstance(item, dict))
     page_size = data.get("page_size")
+    size_id = str(page_size) if isinstance(page_size, str) and page_size else "a4-portrait"
     return TravelbookDocument(
         product=str(data.get("product") or "travelbook"),
         schema_version=SCHEMA_VERSION,
-        page_size=str(page_size) if isinstance(page_size, str) and page_size else "a4-portrait",
+        page_size=size_id,
+        photo_layouts=_photo_layouts_from_dict(data, size_id),
         chapters=chapters,
     )
 
 
 def document_to_dict(document: TravelbookDocument) -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "product": document.product,
         "page_size": document.page_size,
         "chapters": [_chapter_to_dict(chapter) for chapter in document.chapters],
     }
+    layouts = {
+        size: layout_id
+        for size, layout_id in document.photo_layouts.items()
+        if isinstance(size, str) and layout_is_photos(layout_id)
+    }
+    if layouts:
+        payload["photo_layouts"] = layouts
+    return payload
 
 
 def _is_book_media(item: TimelinePhoto) -> bool:
@@ -328,10 +422,10 @@ def _is_book_media(item: TimelinePhoto) -> bool:
     return not hidden_group or item.is_group_key
 
 
-def _initial_chapter(section: TimelineSection) -> Chapter:
+def _initial_chapter(section: TimelineSection, *, photo_layout: str = "") -> Chapter:
     media = book_media_items(section)
     ids = [item.source_file_id for item in media[:_PHOTO_LAYOUT_MAX]]
-    layout = photo_layout_id(len(ids))
+    layout = photo_layout if layout_is_photos(photo_layout) else photo_layout_id(len(ids))
     return Chapter(
         section_id=section.id,
         spreads=(

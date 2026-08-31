@@ -10,6 +10,7 @@ from travelcore.export.document import (
     TravelbookDocument,
     add_photo_element,
     add_spread,
+    apply_photo_layout,
     book_media_items,
     document_from_dict,
     document_to_dict,
@@ -24,6 +25,7 @@ from travelcore.export.document import (
     sync_document,
 )
 from travelcore.export.geometry import Crop, Frame
+from travelcore.export.photo_layouts import layout_from_frames, save_user_layout, set_user_layouts_dir
 from travelcore.timeline.types import TimelineEntry, TimelinePhoto, TimelineSection, TimelineSnapshot
 
 
@@ -259,3 +261,127 @@ def test_photo_layout_id_caps_at_eight() -> None:
     assert photo_layout_id(1) == "photos_1"
     assert photo_layout_id(8) == "photos_8"
     assert photo_layout_id(20) == "photos_8"
+
+
+def test_roundtrip_photo_layout() -> None:
+    payload = document_to_dict(
+        TravelbookDocument(page_size="a4-portrait", photo_layouts={"a4-portrait": "photos_4"})
+    )
+    assert payload["photo_layouts"] == {"a4-portrait": "photos_4"}
+    restored = document_from_dict(payload)
+    assert restored.photo_layout == "photos_4"
+    assert restored.photo_layouts["a4-portrait"] == "photos_4"
+    assert "photo_layouts" not in document_to_dict(TravelbookDocument())
+    migrated = document_from_dict({"schema_version": 2, "product": "travelbook", "photo_layout": "photos_2"})
+    assert migrated.photo_layouts == {"a4-portrait": "photos_2"}
+
+
+def test_sync_uses_book_photo_layout() -> None:
+    photos = (_photo(1), _photo(2), _photo(3))
+    section = _section(8, photos)
+    snapshot = TimelineSnapshot(
+        trip_id=1,
+        title="Reise",
+        origin="manual",
+        entries=(TimelineEntry(started_at=None, section=section),),
+    )
+    document = sync_document(
+        TravelbookDocument(photo_layouts={"a4-portrait": "photos_1"}), snapshot
+    )
+    recto = document.chapters[0].spreads[0].recto
+    assert recto.layout == "photos_1"
+    assert [item.source_file_id for item in recto.elements] == [1]
+
+
+def test_apply_photo_layout_skips_intro_journal_and_empty_extra() -> None:
+    photos = (_photo(1), _photo(2), _photo(3))
+    section = _section(5, photos)
+    snapshot = TimelineSnapshot(
+        trip_id=1,
+        title="Reise",
+        origin="manual",
+        entries=(TimelineEntry(started_at=None, section=section),),
+    )
+    document = sync_document(TravelbookDocument(), snapshot)
+    chapter = add_spread(document.chapters[0])
+    extra = chapter.spreads[1]
+    extra = Spread(
+        id=extra.id,
+        initial=False,
+        verso=PageInstance("journal"),
+        recto=extra.recto,
+    )
+    document = TravelbookDocument(chapters=(Chapter(section_id=5, spreads=(chapter.spreads[0], extra)),))
+    applied = apply_photo_layout(document, "photos_4", snapshot)
+    assert applied.photo_layout == "photos_4"
+    assert applied.photo_layouts == {"a4-portrait": "photos_4"}
+    initial = applied.chapters[0].spreads[0]
+    assert initial.verso.layout == "section_intro"
+    assert initial.recto.layout == "photos_4"
+    assert [item.source_file_id for item in initial.recto.elements] == [1, 2, 3]
+    extra_page = applied.chapters[0].spreads[1]
+    assert extra_page.verso.layout == "journal"
+    assert extra_page.recto.layout == "photos_4"
+    assert extra_page.recto.elements == ()
+
+
+def test_add_spread_uses_photo_layout() -> None:
+    chapter = Chapter(
+        section_id=1,
+        spreads=(
+            Spread(
+                id="initial",
+                initial=True,
+                verso=PageInstance("section_intro", locked=True),
+                recto=PageInstance("photos_1"),
+            ),
+        ),
+    )
+    extra = add_spread(chapter, photo_layout="photos_6")
+    assert extra.spreads[1].verso.layout == "photos_6"
+    assert extra.spreads[1].recto.layout == "photos_6"
+    assert extra.spreads[1].verso.elements == ()
+    assert extra.spreads[1].recto.elements == ()
+
+
+def test_load_or_create_uses_photo_layout_for_new_file(tmp_path: Path) -> None:
+    section = _section(3, (_photo(11), _photo(12), _photo(13)))
+    snapshot = TimelineSnapshot(
+        trip_id=1,
+        title="Reise",
+        origin="manual",
+        entries=(TimelineEntry(started_at=None, section=section),),
+    )
+    document = load_or_create(tmp_path, snapshot, photo_layout="photos_2")
+    assert document.photo_layout == "photos_2"
+    assert document.chapters[0].spreads[0].recto.layout == "photos_2"
+    assert [item.source_file_id for item in document.chapters[0].spreads[0].recto.elements] == [11, 12]
+
+
+def test_apply_user_layout_places_frames(tmp_path: Path) -> None:
+    set_user_layouts_dir(tmp_path)
+    try:
+        saved = save_user_layout(
+            layout_from_frames(
+                (Frame(5, 10, 40, 80), Frame(50, 10, 45, 80)),
+                name="Spalten",
+                page_size="a4-portrait",
+            )
+        )
+        photos = (_photo(1), _photo(2))
+        section = _section(1, photos)
+        snapshot = TimelineSnapshot(
+            trip_id=1,
+            title="Reise",
+            origin="manual",
+            entries=(TimelineEntry(started_at=None, section=section),),
+        )
+        document = sync_document(TravelbookDocument(), snapshot)
+        applied = apply_photo_layout(document, saved["id"], snapshot)
+        recto = applied.chapters[0].spreads[0].recto
+        assert recto.layout == saved["id"]
+        assert recto.elements[0].frame.x == 5
+        assert recto.elements[1].frame.x == 50
+        assert applied.photo_layouts["a4-portrait"] == saved["id"]
+    finally:
+        set_user_layouts_dir(None)

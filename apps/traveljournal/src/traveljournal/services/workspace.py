@@ -14,6 +14,7 @@ from travelcore.config import AppSettings
 from travelcore.database.models import Project, SourceFile, Trip
 from travelcore.database.project_store import OpenProject, ProjectStore
 from travelcore.exceptions import ProjectError
+from travelcore.export.photo_layouts import set_user_layouts_dir
 from travelcore.gps.ingest import set_track_external_url, track_urls_by_source
 from travelcore.image_analysis import QualityRunResult, analyze_project_photos
 from travelcore.maps import (
@@ -84,6 +85,7 @@ class Workspace:
         self._store = ProjectStore()
         self.current: OpenProject | None = None
         self.history = EditHistory()
+        set_user_layouts_dir(_CONFIG_DIR)
 
     def create_project(self, parent: Path, name: str) -> OpenProject:
         self.history.clear()

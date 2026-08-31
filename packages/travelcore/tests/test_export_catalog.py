@@ -4,6 +4,7 @@ from travelcore.export.catalog import (
     default_page_size_id,
     first_path,
     list_page_sizes,
+    list_photo_layouts,
     list_product_ids,
     load_catalog,
     load_page_layout,
@@ -124,6 +125,16 @@ def test_travelbook_page_layouts_are_one_to_eight_photos_and_journal() -> None:
     assert load_page_layout("photos_8")["photo_count"] == 8
     assert load_page_layout("journal")["kind"] == "journal"
     assert load_page_layout("journal")["photo_count"] == 0
+
+
+def test_list_photo_layouts_is_one_to_eight() -> None:
+    layouts = list_photo_layouts("a4-portrait")
+    assert [item["id"] for item in layouts] == [f"photos_{index}" for index in range(1, 9)]
+    for index, item in enumerate(layouts, start=1):
+        slots = [slot for slot in item["slots"] if slot.get("type") == "media"]
+        assert item["photo_count"] == index
+        assert len(slots) == index
+        assert item["builtin"] is True
 
 
 def test_interactive_is_readonly_map_website() -> None:

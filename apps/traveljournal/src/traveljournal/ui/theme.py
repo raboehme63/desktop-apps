@@ -106,6 +106,39 @@ QPushButton#exportChoice:disabled {
     background-color: #1a2030;
 }
 
+QPushButton#exportLayoutChoice {
+    background-color: #1f2636;
+    border: 1px solid #343e55;
+    border-radius: 8px;
+    color: #d7ddea;
+    font-size: 11px;
+    min-width: 56px;
+    max-width: 80px;
+    padding: 6px 4px 8px 4px;
+    text-align: center;
+}
+
+QPushButton#exportLayoutChoice:hover {
+    background-color: #273044;
+    border: 1px solid #4b5875;
+}
+
+QPushButton#exportLayoutChoice:checked {
+    background-color: #243b3a;
+    border: 1px solid #2eb8a0;
+    color: #7eebcf;
+    font-weight: 600;
+}
+
+QPushButton#exportLayoutChoice:checked:hover {
+    background-color: #2a4744;
+}
+
+QPushButton#exportLayoutChoice:disabled {
+    color: #6b7385;
+    background-color: #1a2030;
+}
+
 QWidget#bookStage {
     background-color: #152038;
     border-radius: 12px;
@@ -315,10 +348,10 @@ QPushButton#bookFlip {
     font-size: 22px;
 }
 
-QPushButton#exportCollapse {
-    min-width: 32px;
-    max-width: 32px;
-    padding: 4px 0;
+QPushButton#exportManageTemplates {
+    padding: 6px 10px;
+    font-size: 12px;
+    min-width: 0;
 }
 
 QPushButton#bookNav {
