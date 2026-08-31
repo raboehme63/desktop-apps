@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "id": "yearbook",
+  "label": { "de": "Jahrbuch", "en": "Yearbook" },
+  "description": {
+    "de": "Jahresband über mehrere Reisen: Cover mit Jahr, Titelseite, Jahresübersicht, Inhaltsverzeichnis, danach ein Kapitel je Reise. Statisch — blättern wie in einem Buch.",
+    "en": "Year volume over several trips: year cover, title page, year summary, contents, then one chapter per trip. Static — turn pages like a book."
+  },
+  "status": "planned",
+  "formats": ["html", "pdf", "epub", "latex", "cewe"],
+  "layout": {
+    "kind": "book",
+    "orientation": "portrait",
+    "spread": true,
+    "page_size": "a4-portrait",
+    "binding": "left"
+  },
+  "viewer": {
+    "chrome": "book_nav",
+    "read_only": true,
+    "features": [
+      "first_last_page",
+      "prev_next",
+      "spread_indicator",
+      "cover_label"
+    ]
+  },
+  "bindings": {
+    "year.label": {
+      "path": "export.year",
+      "source": "export",
+      "required": true,
+      "note": "Kalenderjahr des Bandes. Die App hat heute ein Projekt = eine Reise; die Reisebibliothek kommt später."
+    },
+    "export.authors": {
+      "path": "export.authors",
+      "source": "export",
+      "required": false
+    },
+    "export.cover_image": {
+      "path": "export.cover_source_file_id",
+      "source": "export",
+      "required": false
+    },
+    "year.trips": {
+      "path": "year.trips",
+      "source": "computed",
+      "required": true,
+      "note": "Liste der Reisen des Jahres. Solange es keine Bibliothek gibt, ist das genau das geöffnete Projekt."
+    },
+    "stats.trip_count": {
+      "path": "stats.trip_count",
+      "source": "stats",
+      "required": true
+    },
+    "stats.photo_count": {
+      "path": "stats.photo_count",
+      "source": "stats",
+      "required": true
+    },
+    "stats.duration_days": {
+      "path": "stats.duration_days",
+      "source": "stats",
+      "required": true
+    },
+    "stats.distance_km": {
+      "path": "stats.distance_km",
+      "source": "stats",
+      "required": false
+    },
+    "stats.countries": {
+      "path": "stats.countries",
+      "source": "stats",
+      "required": false,
+      "note": "Wie Travelbook: OP-01."
+    }
+  },
+  "pages": [
+    {
+      "id": "cover",
+      "kind": "cover",
+      "status": "draft",
+      "spread": false,
+      "numbered": false,
+      "label": { "de": "Cover", "en": "Cover" },
+      "slots": {
+        "title": { "bind": "year.label" },
+        "badge": { "bind": "year.label", "optional": true },
+        "image": { "bind": "export.cover_image" }
+      },
+      "style": {
+        "title_align": "center",
+        "title_color": "#ffffff",
+        "badge_background": "#1a2744"
+      }
+    },
+    {
+      "id": "title_page",
+      "kind": "title_page",
+      "status": "draft",
+      "spread": true,
+      "verso": { "kind": "blank" },
+      "recto": {
+        "kind": "title_page",
+        "slots": {
+          "authors": { "bind": "export.authors", "transform": "uppercase", "optional": true },
+          "title": { "bind": "year.label" }
+        },
+        "style": { "watermark": "world_map" }
+      }
+    },
+    {
+      "id": "year_summary",
+      "kind": "year_summary",
+      "status": "draft",
+      "spread": true,
+      "label": { "de": "Jahresübersicht", "en": "Year summary" },
+      "verso": {
+        "kind": "year_summary_stats",
+        "slots": {
+          "heading": { "value": "YEAR SUMMARY" },
+          "countries": { "bind": "stats.countries", "optional": true },
+          "trip_count": { "bind": "stats.trip_count", "transform": "count" },
+          "distance_km": { "bind": "stats.distance_km", "transform": "km", "optional": true },
+          "duration_days": { "bind": "stats.duration_days", "transform": "count" },
+          "photo_count": { "bind": "stats.photo_count", "transform": "count" }
+        }
+      },
+      "recto": {
+        "kind": "year_summary_map",
+        "slots": {
+          "map": { "bind": "stats.overview_map", "optional": true }
+        },
+        "style": { "tiles": "satellite", "photo_markers": "none" }
+      }
+    },
+    {
+      "id": "toc",
+      "kind": "toc",
+      "status": "planned",
+      "spread": true,
+      "label": { "de": "Inhalt", "en": "Contents" },
+      "repeat": { "over": "year.trips", "as": "trip" },
+      "slots": {
+        "title": { "bind": "trip.title" },
+        "dates": { "bind": "trip.dates" },
+        "photo_count": { "bind": "trip.photo_count", "optional": true }
+      }
+    },
+    {
+      "id": "trip_chapter",
+      "kind": "trip_chapter",
+      "status": "planned",
+      "spread": true,
+      "repeat": { "over": "year.trips", "as": "trip" },
+      "note": "Jedes Kapitel kann später das Travelbook-Frontmatter (Titelseite + Reiseübersicht) plus Chronik wiederverwenden.",
+      "slots": {
+        "title": { "bind": "trip.title" },
+        "cover": { "bind": "trip.cover_image", "optional": true },
+        "summary": { "bind": "trip.stats", "optional": true }
+      }
+    }
+  ]
+}

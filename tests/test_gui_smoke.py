@@ -59,6 +59,10 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     assert "Mouseover" in window.import_view._preview_meta.text()
     assert window.project_view.name_label.text() == "–"
     assert not window.project_view.name_edit.isEnabled()
+    assert not window.project_view.country_picker.isEnabled()
+    assert not window.project_view.start_edit.isEnabled()
+    assert not window.project_view.end_edit.isEnabled()
+    assert window.project_view.duration_label.text() == "Dauer: –"
     assert window.project_view.load_progress.format() == "Bereit"
     assert window._load_progress.isHidden()
     assert not window.import_view.is_loading_index
@@ -88,6 +92,63 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
         "Karte",
         "Export",
     ]
+    assert window.export_view._product_buttons["travelbook"].isChecked()
+    assert window.export_view._product_buttons["travelbook"].text() == "Travelbook"
+    assert not hasattr(window.export_view, "_format_buttons")
+    assert window.export_view.findChild(QLabel, "pageTitle") is None
+    assert window.export_view._mode_buttons["export"].isChecked()
+    assert window.export_view._mode_buttons["edit"].text() == "Editiermodus"
+    assert window.export_view._add_spread_button.isHidden()
+    assert window.export_view._page_size_id == "a4-portrait"
+    assert window.export_view._page_buttons["a4-portrait"].isChecked()
+    assert window.export_view._page_buttons["a4-portrait"].text() == "DIN A4 Hochformat"
+    assert not window.export_view._preview.isHidden()
+    assert not window.export_view._size_row_host.isHidden()
+    assert not window.export_view._choices_body.isHidden()
+    window.export_view._collapse_button.click()
+    app.processEvents()
+    assert window.export_view._choices_body.isHidden()
+    window.export_view._collapse_button.click()
+    app.processEvents()
+    assert not window.export_view._choices_body.isHidden()
+    window.export_view._mode_buttons["edit"].click()
+    app.processEvents()
+    assert not window.export_view._add_spread_button.isHidden()
+    window.export_view._mode_buttons["export"].click()
+    app.processEvents()
+    assert window.export_view._add_spread_button.isHidden()
+    assert window.export_view._preview._indicator.text() == "Cover"
+    assert not window.export_view._preview._prev.isEnabled()
+    assert window.export_view._preview._next.isEnabled()
+    window.export_view._preview._next.click()
+    app.processEvents()
+    assert "2/" in window.export_view._preview._indicator.text()
+    assert window.export_view._preview._leaves[1].variant == "title"
+    assert window.export_view._preview._recto._center_title.text() == "Reise"
+    window.export_view._preview._next.click()
+    app.processEvents()
+    assert "3" in window.export_view._preview._indicator.text()
+    assert window.export_view._preview._leaves[2].variant == "summary"
+    assert window.export_view._preview._leaves[2].metrics == ()
+    from traveljournal.views.export_view import ExportFormatDialog
+
+    format_dialog = ExportFormatDialog("travelbook", window)
+    assert "html" in format_dialog._buttons
+    assert "pdf" in format_dialog._buttons
+    assert "video" not in format_dialog._buttons
+    assert format_dialog._buttons["html"].isChecked()
+    format_dialog.close()
+    interactive_formats = ExportFormatDialog("travelbook-interactive", window)
+    assert list(interactive_formats._buttons) == ["html"]
+    interactive_formats.close()
+    window.export_view._product_buttons["travelbook-interactive"].click()
+    app.processEvents()
+    assert window.export_view._product_id == "travelbook-interactive"
+    assert window.export_view._preview.isHidden()
+    assert window.export_view._size_row_host.isHidden()
+    window.export_view._product_buttons["travelbook"].click()
+    app.processEvents()
+    assert not window.export_view._size_row_host.isHidden()
     assert list(window.sidebar._buttons) == [key for key, _ in NAV_ITEMS]
     window.sidebar.set_collapsed(False)
     assert 96 <= window.sidebar.width() < 220
@@ -96,6 +157,22 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     assert window.sidebar._collapse.toolTip() == "Navigation einklappen"
     assert window.sidebar._collapse.width() <= 16
     window.show()
+    app.processEvents()
+    window._show_page("export")
+    app.processEvents()
+    preview = window.export_view._preview
+    cover = preview._cover
+    assert preview.height() > window.height() * 0.45
+    assert cover.isVisible()
+    assert cover.height() > 0
+    assert abs(cover.width() / cover.height() - 210 / 297) < 0.04
+    window.export_view._page_buttons["a4-landscape"].click()
+    app.processEvents()
+    assert cover.width() > cover.height()
+    assert abs(cover.width() / cover.height() - 297 / 210) < 0.04
+    window.export_view._page_buttons["a4-portrait"].click()
+    app.processEvents()
+    window._show_page("project")
     app.processEvents()
     collapse = window.sidebar._collapse
     assert collapse.x() + collapse.width() == window.sidebar.width()
@@ -139,6 +216,109 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     assert window.timeline_view._trip_title.placeholderText() == "Titel der Reise"
     assert not window.timeline_view._trip_title.isEnabled()
     _ = app
+
+
+def test_country_picker_adds_flag_and_shape() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QLabel
+
+    from traveljournal.widgets.country_picker import CountryPicker
+
+    app = QApplication.instance() or QApplication([])
+    picker = CountryPicker()
+    picker.set_codes(["IT"])
+    picker.search.setText("Slowenien")
+    picker._add_from_field()
+    app.processEvents()
+    assert picker.codes() == ("IT", "SI")
+    rows = [
+        item.widget()
+        for item in (picker._list.itemAt(index) for index in range(picker._list.count()))
+        if item is not None and item.widget() is not None and item.widget().objectName() == "countryRow"
+    ]
+    assert len(rows) == 2
+    names = [row.findChild(QLabel, "countryRowName").text() for row in rows]
+    assert names == ["Italien", "Slowenien"]
+    pixmaps = [label.pixmap() for row in rows for label in row.findChildren(QLabel)]
+    assert sum(1 for pixmap in pixmaps if pixmap is not None and not pixmap.isNull()) >= 4
+    picker.deleteLater()
+
+
+def test_project_span_edits_update_duration() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import QDate
+    from PySide6.QtWidgets import QApplication
+
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.project_view import ProjectView
+
+    app = QApplication.instance() or QApplication([])
+    view = ProjectView(Workspace())
+    assert not view.start_edit.isEnabled()
+    assert view.duration_label.text() == "Dauer: –"
+    view.start_edit.setEnabled(True)
+    view.end_edit.setEnabled(True)
+    view.start_edit.setDate(QDate(2025, 5, 15))
+    view.end_edit.setDate(QDate(2025, 5, 16))
+    app.processEvents()
+    assert view.duration_label.text() == "Dauer: 2 Tage"
+    view.deleteLater()
+
+
+def test_summary_countries_stack_evenly_with_flag_in_outline() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QLabel, QWidget
+
+    from traveljournal.widgets.book_preview import _NAME_FLAG, _PageSheet
+
+    app = QApplication.instance() or QApplication([])
+    sheet = _PageSheet()
+    sheet.resize(360, 520)
+    sheet.set_summary(("IT", "AT", "SI"), (("3", "Tage"),))
+    sheet.show()
+    app.processEvents()
+    items = [child for child in sheet.findChildren(QWidget) if child.objectName() == "bookCountryItem"]
+    marks = [child for child in sheet.findChildren(QWidget) if child.objectName() == "bookCountryMark"]
+    assert len(items) == 3
+    assert len(marks) == 3
+    names = [item.findChild(QLabel, "bookCountryName").text() for item in items]
+    assert names == ["ITALIEN", "ÖSTERREICH", "SLOWENIEN"]
+    stretches = []
+    for index in range(sheet._countries_host.count()):
+        widget = sheet._countries_host.itemAt(index).widget()
+        if widget is not None and widget.objectName() == "bookCountryItem":
+            stretches.append(sheet._countries_host.stretch(index))
+    assert stretches == [0, 0, 0]
+    for item in items:
+        mark = item.findChild(QWidget, "bookCountryMark")
+        name = item.findChild(QLabel, "bookCountryName")
+        flag = item.findChild(QLabel, "bookCountryFlag")
+        assert mark is not None
+        assert name is not None
+        assert flag is not None
+        assert not flag.pixmap().isNull()
+        assert flag.size() == _NAME_FLAG
+        assert flag.x() >= name.x() + name.width() - 2
+        assert abs(flag.y() - name.y()) <= 8
+        assert name.y() - (mark.y() + mark.height()) <= 8
+    sheet.close()
+
+
+def test_fitted_sheet_keeps_page_aspect() -> None:
+    from PySide6.QtCore import QSize
+
+    from traveljournal.widgets.book_preview import fitted_sheet_size
+
+    cover = fitted_sheet_size(QSize(800, 600), 210, 297, page_count=1)
+    assert cover.height() == 600
+    assert abs(cover.width() / cover.height() - 210 / 297) < 0.01
+    spread = fitted_sheet_size(QSize(800, 600), 210, 297, page_count=2, gutter=8)
+    assert abs(spread.width() / spread.height() - 210 / 297) < 0.01
+    assert 2 * spread.width() + 8 <= 800
+    assert spread.height() <= 600
+    landscape = fitted_sheet_size(QSize(600, 800), 297, 210, page_count=1)
+    assert landscape.width() == 600
+    assert abs(landscape.width() / landscape.height() - 297 / 210) < 0.01
 
 
 def test_app_window_title_includes_version() -> None:

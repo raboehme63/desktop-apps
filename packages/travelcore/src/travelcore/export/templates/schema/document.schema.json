@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://traveljournal.local/schemas/export-document-v1.json",
+  "title": "Travelbook-Dokument (Editiermodus)",
+  "description": "Komposition im Projektordner (travelbook.json). Der Binder legt fehlende Kapitel aus published_entries an. Der Renderer liest nur dieses Dokument.",
+  "type": "object",
+  "required": ["schema_version", "product", "chapters"],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "product": { "type": "string", "const": "travelbook" },
+    "chapters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["section_id", "spreads"],
+        "properties": {
+          "section_id": { "type": "integer" },
+          "spreads": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "$ref": "#/$defs/spread" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "spread": {
+      "type": "object",
+      "required": ["id", "verso", "recto"],
+      "properties": {
+        "id": { "type": "string" },
+        "initial": { "type": "boolean" },
+        "verso": { "$ref": "#/$defs/page_instance" },
+        "recto": { "$ref": "#/$defs/page_instance" }
+      }
+    },
+    "page_instance": {
+      "type": "object",
+      "required": ["layout"],
+      "properties": {
+        "layout": { "type": "string" },
+        "locked": { "type": "boolean" },
+        "media": {
+          "type": "array",
+          "items": { "type": ["integer", "null"] },
+          "description": "source_file_id je Media-Slot (Foto, Video oder Track), null = leer. Länge = Anzahl der Media-Slots des Layouts."
+        }
+      }
+    }
+  }
+}

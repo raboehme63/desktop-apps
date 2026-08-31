@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "product": "travelbook",
+  "format": "html",
+  "note": "Beispiel eines gebundenen Dokuments (nach dem Binder, vor dem Renderer). Die Werte folgen der Cover-/Titelseiten-/Übersichts-Vorlage; Koordinaten sind Ortsmittelpunkte, keine persönlichen Trackpunkte.",
+  "trip": {
+    "title": "Sommerurlaub 2022",
+    "year": 2022,
+    "start_date": "2022-07-01",
+    "end_date": "2022-07-24"
+  },
+  "export": {
+    "authors": "Birgit & Ralf Böhme",
+    "cover_image": "media/cover.jpg",
+    "home": {
+      "name": "Bad Tölz",
+      "latitude": 47.76,
+      "longitude": 11.56
+    }
+  },
+  "stats": {
+    "countries": [
+      { "id": "DE", "name": "Germany" },
+      { "id": "AT", "name": "Austria" },
+      { "id": "IT", "name": "Italy" },
+      { "id": "SI", "name": "Slovenia" }
+    ],
+    "distance_km": 2053,
+    "duration_days": 24,
+    "step_count": 32,
+    "photo_count": 90,
+    "furthest_point": {
+      "from": { "name": "Bad Tölz" },
+      "to": { "name": "Tolmin", "latitude": 46.18, "longitude": 13.73 },
+      "distance_km": 238
+    },
+    "overview_map": {
+      "tiles": "satellite",
+      "route": "geometry/route.json",
+      "photo_markers": "geometry/photo-markers.json"
+    }
+  },
+  "pages": [
+    {
+      "id": "cover",
+      "kind": "cover",
+      "label": "Cover",
+      "title": "SOMMERURLAUB 2022",
+      "badge": "2022",
+      "image": "media/cover.jpg"
+    },
+    {
+      "id": "title_page",
+      "kind": "title_page",
+      "spread_label": "2/90",
+      "verso": "blank",
+      "recto": {
+        "authors": "BIRGIT & RALF BÖHME",
+        "title": "SOMMERURLAUB 2022",
+        "watermark": "world_map"
+      }
+    },
+    {
+      "id": "trip_summary",
+      "kind": "trip_summary",
+      "spread_label": "3-4/90",
+      "verso": {
+        "heading": "TRIP SUMMARY",
+        "countries": ["Germany", "Austria", "Italy", "Slovenia"],
+        "metrics": {
+          "distance_km": 2053,
+          "duration_days": 24,
+          "step_count": 32,
+          "photo_count": 90
+        },
+        "furthest_point": {
+          "from": "Bad Tölz",
+          "to": "Tolmin",
+          "distance_km": 238
+        }
+      },
+      "recto": {
+        "map": "stats.overview_map"
+      }
+    }
+  ]
+}

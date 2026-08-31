@@ -84,6 +84,211 @@ QPushButton#primary:disabled:hover {
     color: #6b7385;
 }
 
+QPushButton#exportChoice {
+    min-width: 108px;
+    padding: 10px 14px;
+    text-align: center;
+}
+
+QPushButton#exportChoice:checked {
+    background-color: #243b3a;
+    border: 1px solid #2eb8a0;
+    color: #7eebcf;
+    font-weight: 600;
+}
+
+QPushButton#exportChoice:checked:hover {
+    background-color: #2a4744;
+}
+
+QPushButton#exportChoice:disabled {
+    color: #6b7385;
+    background-color: #1a2030;
+}
+
+QWidget#bookStage {
+    background-color: #152038;
+    border-radius: 12px;
+}
+
+QFrame#bookPage,
+QFrame#bookPage QStackedWidget,
+QFrame#bookPage QStackedWidget > QWidget {
+    background-color: #f7f4ee;
+    color: #1a2744;
+    border-radius: 2px;
+}
+
+QFrame#bookPage QLabel {
+    background-color: transparent;
+    color: #1a2744;
+}
+
+QLabel#bookCenteredTitle {
+    font-size: 28px;
+    font-weight: 600;
+    color: #1a2744;
+    background-color: #f7f4ee;
+}
+
+QFrame#bookCountries {
+    background-color: #1a2744;
+    color: #f4f7fb;
+}
+
+QFrame#bookPage QFrame#bookCountries,
+QFrame#bookPage QFrame#bookCountries QWidget {
+    background-color: #1a2744;
+    color: #f4f7fb;
+}
+
+QFrame#bookPage QFrame#bookCountries QLabel {
+    background-color: #1a2744;
+    color: #f4f7fb;
+}
+
+QLabel#bookCountriesKicker {
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    color: #9ec9b8;
+}
+
+QLabel#bookCountriesList {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+QWidget#bookCountryItem,
+QWidget#bookCountryMark {
+    background-color: #1a2744;
+}
+
+QLabel#bookCountryName {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: #f4f7fb;
+}
+
+QScrollArea#countryList {
+    background-color: #1c2230;
+    border: 1px solid #2a3144;
+    border-radius: 8px;
+}
+
+QWidget#countryListInner,
+QWidget#countryRow {
+    background-color: #1c2230;
+}
+
+QLabel#countryRowName {
+    font-weight: 600;
+}
+
+QPushButton#countryAdd {
+    padding: 8px 12px;
+}
+
+QPushButton#countryRemove {
+    padding: 4px 10px;
+    min-width: 0;
+}
+
+QFrame#bookMetrics,
+QFrame#bookPage QFrame#bookMetrics,
+QFrame#bookPage QFrame#bookMetrics QWidget {
+    background-color: #f7f4ee;
+    color: #1a2744;
+}
+
+QFrame#bookPage QFrame#bookMetrics QLabel {
+    background-color: #f7f4ee;
+    color: #1a2744;
+}
+
+QLabel#bookMetricsHeading {
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    color: #5c6b7a;
+}
+
+QLabel#bookMetricValue {
+    font-size: 28px;
+    font-weight: 600;
+    color: #1a2744;
+}
+
+QLabel#bookMetricCaption {
+    font-size: 12px;
+    color: #5c6b7a;
+}
+
+QLabel#bookPageTitle {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+QLabel#bookKicker {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: #5c6b7a;
+}
+
+QFrame#bookCover {
+    background-color: #1a2744;
+    border-radius: 2px;
+    color: #f4f7fb;
+}
+
+QFrame#bookCover QStackedWidget,
+QFrame#bookCover QStackedWidget > QWidget {
+    background-color: #1a2744;
+    color: #f4f7fb;
+}
+
+QFrame#bookCover QLabel {
+    background: transparent;
+    color: #f4f7fb;
+}
+
+QFrame#bookCover QLabel#bookKicker {
+    color: #9ec9b8;
+    letter-spacing: 0.12em;
+}
+
+QLabel#bookImage {
+    background-color: #d9d3c7;
+    border-radius: 2px;
+}
+
+QFrame#bookCover QLabel#bookImage {
+    background-color: #12151c;
+}
+
+QLabel#bookIndicator {
+    color: #e8edf5;
+    font-weight: 600;
+}
+
+QPushButton#bookFlip {
+    min-width: 44px;
+    max-width: 44px;
+    padding: 0;
+    font-size: 22px;
+}
+
+QPushButton#exportCollapse {
+    min-width: 32px;
+    max-width: 32px;
+    padding: 4px 0;
+}
+
+QPushButton#bookNav {
+    min-width: 44px;
+    max-width: 44px;
+    padding: 8px 0;
+}
+
 #timelinePool {
     background-color: #181c27;
     border-left: 1px solid #2a3144;

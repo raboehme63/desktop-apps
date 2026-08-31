@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "product": "travelbook",
+  "note": "Beispiel einer Komposition. media-Einträge sind source_file_id (Foto, Video oder Track).",
+  "chapters": [
+    {
+      "section_id": 4,
+      "spreads": [
+        {
+          "id": "section-4-initial",
+          "initial": true,
+          "verso": {
+            "layout": "section_intro",
+            "locked": true,
+            "media": [101]
+          },
+          "recto": {
+            "layout": "photos_1",
+            "locked": false,
+            "media": [102]
+          }
+        },
+        {
+          "id": "section-4-extra-1",
+          "initial": false,
+          "verso": {
+            "layout": "journal",
+            "locked": false
+          },
+          "recto": {
+            "layout": "photos_4",
+            "locked": false,
+            "media": [103, 104, 105, null]
+          }
+        }
+      ]
+    }
+  ]
+}

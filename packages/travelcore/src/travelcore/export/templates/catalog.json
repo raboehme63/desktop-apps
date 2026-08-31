@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "description": "Index der Ausgabetypen und Ausgabeformate. Die Seitenfolge steht in products/*.json. Nicht jede Zelle der Matrix ist erlaubt.",
+  "formats": [
+    {
+      "id": "html",
+      "label": { "de": "HTML", "en": "HTML" },
+      "offline": true,
+      "note": "Eigenständige Seite, Jinja2, CSS getrennt. Erster Renderer (Phase 8)."
+    },
+    {
+      "id": "pdf",
+      "label": { "de": "PDF", "en": "PDF" },
+      "offline": true,
+      "note": "Über PdfRenderer (HTML-Druckengine oder LaTeX). Kein PyMuPDF als Zwang."
+    },
+    {
+      "id": "epub",
+      "label": { "de": "EPUB", "en": "EPUB" },
+      "offline": true,
+      "note": "Geplant. Feste Doppelseiten als EPUB3, nicht umbrechender Fließtext."
+    },
+    {
+      "id": "latex",
+      "label": { "de": "LaTeX", "en": "LaTeX" },
+      "offline": true,
+      "note": "Kompilierbares Projekt (main.tex). PDF-Lauf optional extern."
+    },
+    {
+      "id": "cewe",
+      "label": { "de": "CEWE", "en": "CEWE" },
+      "offline": true,
+      "note": "Platzhalter bis Format- und Lizenzprüfung (OP-02)."
+    },
+    {
+      "id": "video",
+      "label": { "de": "Video", "en": "Video" },
+      "offline": true,
+      "note": "Geplant. Linearer Durchlauf eines Buches (Travelbook/Jahrbuch), kein Karten-Export."
+    }
+  ],
+  "products": [
+    {
+      "id": "travelbook",
+      "template": "products/travelbook.json"
+    },
+    {
+      "id": "yearbook",
+      "template": "products/yearbook.json"
+    },
+    {
+      "id": "travelbook-interactive",
+      "template": "products/travelbook-interactive.json"
+    }
+  ],
+  "matrix": {
+    "travelbook": ["html", "pdf", "epub", "latex", "cewe"],
+    "yearbook": ["html", "pdf", "epub", "latex", "cewe"],
+    "travelbook-interactive": ["html"]
+  },
+  "first_path": {
+    "product": "travelbook",
+    "format": "html"
+  },
+  "default_page_size": "a4-portrait",
+  "page_sizes": [
+    {
+      "id": "a4-portrait",
+      "label": { "de": "DIN A4 Hochformat", "en": "ISO A4 portrait" },
+      "width_mm": 210,
+      "height_mm": 297
+    },
+    {
+      "id": "a4-landscape",
+      "label": { "de": "DIN A4 Querformat", "en": "ISO A4 landscape" },
+      "width_mm": 297,
+      "height_mm": 210
+    },
+    {
+      "id": "square",
+      "label": { "de": "Quadratisch", "en": "Square" },
+      "width_mm": 210,
+      "height_mm": 210
+    }
+  ]
+}

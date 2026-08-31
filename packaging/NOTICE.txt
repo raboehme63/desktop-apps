@@ -24,6 +24,21 @@ https://www.svgrepo.com/svg/480908/camper-2
 https://www.svgrepo.com/svg/307723/climb-person-people-climber
 Phosphor: https://github.com/phosphor-icons/core
 
+Länderkatalog (eingebettet)
+---------------------------
+Flaggen-SVG: lipis/flag-icons v7.3.2 (MIT)
+https://github.com/lipis/flag-icons
+
+Länderumrisse: vereinfacht aus datasets/geo-countries
+(Natural Earth, Public Domain; Datensatz ODC-PDDL-1.0)
+https://github.com/datasets/geo-countries
+https://www.naturalearthdata.com/
+
+Ländernamen Deutsch/Englisch: Unicode CLDR
+https://github.com/unicode-org/cldr-json
+
+Detail und Pinning: travelcore/geo/data/NOTICE.txt
+
 Optionale Kartenkacheln (Netzwerk, nicht im Paket)
 -------------------------------------------------
 - OpenStreetMap / openstreetmap.de (Straßenkarte)

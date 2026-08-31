@@ -7,7 +7,7 @@ from dataclasses import replace
 from datetime import UTC, date, datetime, time
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from travelcore.config import DEFAULT_THUMBNAIL_SIZE, AppSettings
@@ -31,8 +31,10 @@ from travelcore.media.orientation import normalize_rotation_degrees
 from travelcore.media.thumbnails import cached_thumbnail_path, ensure_photo_and_video_rows
 from travelcore.media.types import FileKind
 from travelcore.similarity.clusters import ClusterMarks, ClusterOverlay, load_cluster_overlay
+from travelcore.timeline.countries import parse_countries, serialize_countries
 from travelcore.timeline.journal import aware, display_position
 from travelcore.timeline.links import (
+    is_igc_filename,
     parse_leonardo_urls,
     parse_youtube_urls,
     serialize_leonardo_urls,
@@ -194,10 +196,14 @@ def load_timeline(
     sections = _section_views(session, trip.id, thumbs_dir, size, track_urls, overlay)
     entries = _build_entries(sections)
     ordered_sections = tuple(entry.section for entry in entries if entry.section is not None)
+    span = resolve_trip_dates(session, trip)
     return TimelineSnapshot(
         trip_id=trip.id,
         title=trip.title,
         origin=trip.origin,
+        countries=parse_countries(trip.countries),
+        start_date=span[0],
+        end_date=span[1],
         days=tuple(snapshot_days),
         sections=ordered_sections,
         entries=tuple(entries),
@@ -268,6 +274,94 @@ def save_trip_title(session: Session, trip_id: int, title: str) -> None:
         return
     trip.title = cleaned
     trip.origin = ORIGIN_MANUAL
+
+
+def save_trip_countries(session: Session, trip_id: int, names: list[str] | tuple[str, ...]) -> None:
+    trip = session.get(Trip, trip_id)
+    if trip is None:
+        return
+    trip.countries = serialize_countries(names)
+    trip.origin = ORIGIN_MANUAL
+
+
+def infer_trip_dates(
+    session: Session,
+    project_id: int,
+    trip_id: int | None = None,
+) -> tuple[date | None, date | None]:
+    """Earliest and latest calendar day from media, sections, and trip days."""
+
+    keys: list[date] = []
+    min_captured, max_captured = session.execute(
+        select(func.min(SourceFile.captured_at), func.max(SourceFile.captured_at)).where(
+            SourceFile.project_id == project_id
+        )
+    ).one()
+    keys.extend(_present_dates(min_captured, max_captured))
+    if trip_id is not None:
+        min_started, max_started, min_ended, max_ended = session.execute(
+            select(
+                func.min(TripSection.started_at),
+                func.max(TripSection.started_at),
+                func.min(TripSection.ended_at),
+                func.max(TripSection.ended_at),
+            ).where(TripSection.trip_id == trip_id)
+        ).one()
+        keys.extend(_present_dates(min_started, max_started, min_ended, max_ended))
+        min_day, max_day = session.execute(
+            select(func.min(TripDay.date), func.max(TripDay.date)).where(TripDay.trip_id == trip_id)
+        ).one()
+        keys.extend(_present_dates(min_day, max_day))
+    if not keys:
+        return None, None
+    return min(keys), max(keys)
+
+
+def resolve_trip_dates(session: Session, trip: Trip) -> tuple[date | None, date | None]:
+    """Stored trip von–bis, filling gaps from indexed data."""
+
+    inferred = infer_trip_dates(session, trip.project_id, trip.id)
+    start = calendar_key(trip.start_date)
+    end = calendar_key(trip.end_date)
+    if start is not None and end is not None:
+        return _ordered_span(start, end)
+    start = start or inferred[0]
+    end = end or inferred[1]
+    if start is None or end is None:
+        return start, end
+    return _ordered_span(start, end)
+
+
+def save_trip_dates(
+    session: Session,
+    trip_id: int,
+    start: date | None,
+    end: date | None,
+) -> None:
+    trip = session.get(Trip, trip_id)
+    if trip is None:
+        return
+    if start is None and end is None:
+        trip.start_date = None
+        trip.end_date = None
+        return
+    if start is None or end is None:
+        raise ProjectError("Bitte Reise von und bis angeben.")
+    if end < start:
+        raise ProjectError("Das Endedatum darf nicht vor dem Startdatum liegen.")
+    trip.start_date = datetime.combine(start, time.min, tzinfo=UTC)
+    trip.end_date = datetime.combine(end, time.min, tzinfo=UTC)
+    trip.origin = ORIGIN_MANUAL
+
+
+def _present_dates(*moments: datetime | None) -> list[date]:
+    return [key for key in (calendar_key(moment) for moment in moments) if key is not None]
+
+
+def _ordered_span(start: date, end: date) -> tuple[date, date]:
+    if end < start:
+        return end, start
+    return start, end
 
 
 def save_day_youtube_urls(session: Session, day_id: int, urls: list[str]) -> None:
@@ -664,7 +758,15 @@ def _photo_view(
         group_status=None if marks is None else marks.group_status,
         quality_light=_photo_quality_light(photo),
         quality_tooltip=_photo_quality_tooltip(photo, row),
+        pilot=_igc_pilot(row),
     )
+
+
+def _igc_pilot(row: SourceFile) -> str | None:
+    if row.file_kind != FileKind.GPS.value or not is_igc_filename(row.filename):
+        return None
+    name = (row.camera or "").strip()
+    return name or None
 
 
 def _section_views(

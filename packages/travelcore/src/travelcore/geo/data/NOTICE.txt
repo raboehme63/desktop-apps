@@ -1,0 +1,20 @@
+Country assets bundled with Reisetagebuch
+=============================================
+
+Flags
+-----
+SVG flags from lipis/flag-icons (MIT License), 4x3 ratio.
+https://github.com/lipis/flag-icons
+Pinned version: 7.3.2
+
+Country outlines
+----------------
+Simplified from datasets/geo-countries (Open Data Commons PDDL 1.0).
+Original cartography: Natural Earth (public domain).
+https://github.com/datasets/geo-countries
+https://www.naturalearthdata.com/
+
+Names
+-----
+German and English territory names from Unicode CLDR.
+https://github.com/unicode-org/cldr-json

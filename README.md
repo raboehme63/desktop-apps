@@ -11,6 +11,8 @@ vorgesehen (Dublettensuche, Qualitätsbewertung).
 Aktueller Stand: **Phase 7** plus Medien-Pipeline, Software **R3.1.0**
 (`Reisetagebuch R3.1.0` in der Titelleiste). Abschnitte lassen sich in der
 Timeline für Karte und Export ausblenden; **Speichern** ist sonst grau.
+Auf der Projektseite wählt man bereiste Länder aus dem Katalog und setzt
+Reise von–bis (vorbefüllt aus den Daten, danach editierbar).
 
 Die Anwendung importiert Medien, liest Metadaten und GPS-Tracks, erzeugt
 Vorschaubilder, zeigt eine Karte (Titelbild-Kreise, Verbindungslinien mit
@@ -81,6 +83,24 @@ options:
 pro JSON-Datei und am Ende `JSON n, GPX m`.
 
 Die erzeugte GPX kann anschließend wie jede andere Trackdatei importiert werden.
+
+## Länderkatalog
+
+Bereiste Länder wählt man auf der **Projektseite** aus einem eingebetteten Katalog
+(ISO-3166-1 alpha-2, deutscher Name, Flagge, Umriss). Die App speichert ISO-Codes
+in `trips.countries`. Die Reiseübersicht zeigt Umriss, Namen in Versalien und eine
+kleine Flagge hinter dem Namen.
+
+Die Assets liegen versioniert unter `packages/travelcore/src/travelcore/geo/data/`
+(kein Download zur Laufzeit). Quellen und Lizenzen: [docs/dependencies.md](docs/dependencies.md),
+`travelcore/geo/data/NOTICE.txt`. Neu erzeugen nur nach Katalog-Änderung:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\build_country_catalog.py
+```
+
+Cache: `build/country-catalog-cache/` (nicht versioniert). Die Frozen-EXE nimmt
+`geo/data` mit (`packaging/traveljournal.spec`).
 
 ## Windows-Installer
 

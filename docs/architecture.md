@@ -22,6 +22,11 @@ nicht `transitionRoute`). Aufruf und Kurzhilfe: [README.md](../README.md).
 Tests: `tests/test_json_routes_to_gpx.py`. Das Skript gehört nicht zur GUI
 und ändert die JSON-Datei nicht.
 
+Der Länderkatalog (`travelcore.geo`) wird mit `scripts/build_country_catalog.py`
+erzeugt (Flaggen, Umrisse, CLDR-Namen) und liegt versioniert unter
+`travelcore/geo/data/`. Die Projektseite speichert ausgewählte Länder als ISO-2
+in `trips.countries`. Aufruf und Quellen: [README.md](../README.md).
+
 ## Schichten
 
 | Schicht | Ort | Aufgabe |
@@ -42,7 +47,8 @@ und ändert die JSON-Datei nicht.
 | `geolocation` | Aufenthaltscluster (Haversine, Radius 150 m) |
 | `timeline` | Tage, Transfers und Aufenthalte als Abschnitte, Mitglieder, Journal-Zeit, Pool (`parked`), Links, Cover, Sichtbarkeit (`hidden`), manuelle Edits, Snapshots zum Wiederherstellen (`history`) |
 | `maps` | `MapScene` + Folium/Leaflet; statische OSM-Ausschnitte für Track-Thumbs |
-| `export` | Vertrag `Exporter`; HTML/PDF/LaTeX/CEWE noch Platzhalter |
+| `geo` | Länderkatalog (ISO-2, Name DE/EN, Flaggen-SVG, Umriss-SVG); Quellen: flag-icons, Natural Earth über geo-countries, CLDR |
+| `export` | Vertrag `Exporter`; Produkt- und Seiten-Templates JSON; Travelbook-Editiermodus (`travelbook.json`); Katalog Typ×Format; Renderer noch Platzhalter (erster Pfad: Travelbook × HTML) |
 | `image_analysis` | `PillowQualityAnalyzer`, `analyze_project_photos`, Ampel aus `technical_quality` (`photo_analyses`) |
 | `similarity` | SHA-256-Stapel, 30-s-Szenengruppen, manuelle Gruppen, Overlay (`load_cluster_overlay`), `compute_media_stats` / `MediaStats`; pHash/Embeddings noch ohne Engine |
 
@@ -196,6 +202,11 @@ Eintrags-Titelbilder (`cover_source_file_id`, Foto oder GPS-Track) und
 Anzeigedrehung (`rotation_degrees`) überleben Re-Sync bzw. Re-Import.
 Der Reisetitel (`trips.title`) folgt zuerst dem Projektnamen; nach manueller
 Eingabe in der Timeline (`origin=manual`) überschreibt der Abgleich ihn nicht.
+`trips.start_date` / `trips.end_date` sind Kalendertage (Mitternacht UTC). Die
+Projektseite füllt von–bis aus Aufnahmezeiten, Abschnitten und Tagen, solange
+die Felder leer sind; gespeicherte Werte überlebt der Abgleich. Die Kennzahl
+Tage der Reiseübersicht ist inklusiv diese Spanne (sonst Fallback auf
+veröffentlichte Abschnitte).
 Fotos gehören über `journal_at` (Mitgliedschaft) zu einem Tag; `captured_at`
 ändert die Zugehörigkeit nicht. Das Flag `used_in_journal` ebenfalls nicht.
 
@@ -382,7 +393,8 @@ Bereits in Phase 1 angelegt, schrittweise gefüllt:
 - Anzeigedrehung in `travelcore.media.orientation` – nach EXIF-Transpose,
   Cachepfad enthält `_r90` bei nicht-null `rotation_degrees`
 - `VideoMetadataProvider` – ffprobe-Adapter (noch nicht aktiv)
-- `Exporter` – HTML, PDF, LaTeX, CEWE (Implementierung ab Phase 8)
+- `Exporter` – HTML, PDF, LaTeX, CEWE (Implementierung ab Phase 8). Ausgabetyp ist ein JSON-Template unter `travelcore/export/templates/products/`. **Travelbook** und **Jahrbuch** sind Blätterbücher (Karten als Bild). Travelbook hat einen Editiermodus (`travelbook.json` im Projekt): erste Doppelseite je Abschnitt, weitere Spreads mit Seiten-Layouts `photos_1`–`photos_8` und `journal`; Medienleiste des Abschnitts (Foto/Video/Track-Thumbs) per Drag-and-drop auf Media-Slots. **Travelbook (interaktiv)** ist die Read-only-Kartenwebsite (schwenken, zoomen), nur HTML. Katalog: `templates/catalog.json`. Erster Pfad: Travelbook × HTML. `load_product` / `load_page_layout`; `supports(typ, format)` prüft die Matrix.
+- Länderkatalog in `travelcore.geo` – ISO-2, Namen DE/EN, Flaggen- und Umriss-SVG; Auswahl auf der Projektseite (`trips.countries`)
 - `MapBackend` – Folium/Leaflet, Übersicht als Titelbild-Kreise je Tag/Transfer/Aufenthalt, Layer-Menü Straßenkarte/Topo/Satellit, Fit-Reise, Zahnrad für Fotokegel, Reserve, Satelliten-Ortsnamen und Satelliten-Straßen (in `settings.toml`; Fotokegel am Stapel und nach der Auswahl, nicht im Fächer; überlappende Marker ab Zoom 17 per Klick zum Fächer, Klick in die Karte stellt den Stapel wieder her),
   Verbindungslinien zwischen Tag- und Aufenthaltskreisen (Richtungsmarker, Zoom-Überdeckung, Transfer-Kreis per dünner Linie am Symbol),
   Qt-Leiste unter der Karte (Tag mit Kalender, Transfer als liegendes Sechseck), Tagebucheintrag rechts, YouTube-Thumbs unten rechts auf der Karte, Detail mit GPX-Polylinien, IGC-Flugtracks ab Zoom 10

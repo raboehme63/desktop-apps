@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from sqlalchemy import select
@@ -504,6 +504,57 @@ class Workspace:
             lambda: self._apply_trip_title(trip_id, previous),
             lambda: self._apply_trip_title(trip_id, cleaned),
         )
+
+    def load_trip_countries(self) -> tuple[str, ...]:
+        snapshot = self.load_timeline()
+        if snapshot is None:
+            return ()
+        return snapshot.countries
+
+    def save_trip_countries(self, names: list[str]) -> None:
+        if self.current is None:
+            return
+        project_id = self.current.project_id
+
+        def _write(session) -> None:  # noqa: ANN001
+            trip = session.scalar(select(Trip).where(Trip.project_id == project_id).order_by(Trip.id.asc()))
+            if trip is None:
+                return
+            timeline_build.save_trip_countries(session, trip.id, names)
+
+        self._mutate(_write)
+
+    def load_trip_span(self) -> tuple[date | None, date | None]:
+        if self.current is None:
+            return None, None
+        with self.current.session_factory() as session:
+            project = session.get(Project, self.current.project_id)
+            if project is None:
+                return None, None
+            trip = session.scalar(
+                select(Trip).where(Trip.project_id == project.id).order_by(Trip.id.asc())
+            )
+            if trip is None:
+                return timeline_build.infer_trip_dates(session, project.id)
+            return timeline_build.resolve_trip_dates(session, trip)
+
+    def save_trip_span(self, start: date | None, end: date | None) -> None:
+        if self.current is None:
+            return
+        project_id = self.current.project_id
+
+        def _write(session) -> None:  # noqa: ANN001
+            project = session.get(Project, project_id)
+            if project is None:
+                return
+            trip = session.scalar(select(Trip).where(Trip.project_id == project_id).order_by(Trip.id.asc()))
+            if trip is None:
+                trip = Trip(project_id=project_id, title=project.name, origin="auto")
+                session.add(trip)
+                session.flush()
+            timeline_build.save_trip_dates(session, trip.id, start, end)
+
+        self._mutate(_write)
 
     def save_transfer_links(self, section_id: int, links: list) -> None:
         from travelcore.timeline.transfer_links import save_transfer_links

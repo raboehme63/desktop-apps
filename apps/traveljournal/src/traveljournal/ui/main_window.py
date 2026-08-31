@@ -22,11 +22,11 @@ from traveljournal.services.edit_history import redo_focused_text, undo_focused_
 from traveljournal.services.workspace import Workspace
 from traveljournal.ui.sidebar import Sidebar
 from traveljournal.views.export_view import ExportView
+from traveljournal.views.help_dialog import HelpDialog
 from traveljournal.views.import_view import ImportView
 from traveljournal.views.map_view import MapView
 from traveljournal.views.photos_view import PhotosView
 from traveljournal.views.project_view import ProjectView
-from traveljournal.views.help_dialog import HelpDialog
 from traveljournal.views.settings_dialog import SettingsDialog
 from traveljournal.views.timeline_view import TimelineView
 from traveljournal.widgets.media_inspector import MediaInspectorWindow
@@ -54,7 +54,7 @@ class MainWindow(QMainWindow):
         self.photos_view = PhotosView(self.workspace)
         self.timeline_view = TimelineView(self.workspace)
         self.map_view = MapView(self.workspace)
-        self.export_view = ExportView()
+        self.export_view = ExportView(self.workspace)
 
         self._pages = {
             "project": self.stack.addWidget(self.project_view),
@@ -306,6 +306,8 @@ class MainWindow(QMainWindow):
                 self.timeline_view.refresh()
             else:
                 self.timeline_view.ensure_loaded()
+        if key == "export":
+            self.export_view.refresh()
 
     def _on_timeline_changed(self) -> None:
         self.map_view.prepare_in_background(force=True)
@@ -356,6 +358,7 @@ class MainWindow(QMainWindow):
         self.photos_view.refresh()
         self.map_view.refresh()
         self.timeline_view.refresh()
+        self.export_view.refresh()
 
     def _set_status(self, message: str) -> None:
         self.statusBar().showMessage(message)

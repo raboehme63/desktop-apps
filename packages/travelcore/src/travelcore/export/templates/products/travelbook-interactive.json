@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "id": "travelbook-interactive",
+  "label": { "de": "Travelbook (interaktiv)", "en": "Travelbook (interactive)" },
+  "description": {
+    "de": "Die Reisekarte als eigenständige Website: nur lesen. Schwenken, zoomen, Layer wechseln, Abschnitte und Fotos ansehen. Keine Bearbeitung, kein Buchlayout.",
+    "en": "The trip map as a standalone website: read-only. Pan, zoom, switch layers, inspect sections and photos. No editing, no book layout."
+  },
+  "status": "draft",
+  "formats": ["html"],
+  "layout": {
+    "kind": "map_site",
+    "orientation": "landscape",
+    "spread": false
+  },
+  "viewer": {
+    "chrome": "map",
+    "read_only": true,
+    "features": [
+      "pan",
+      "zoom",
+      "fit_trip",
+      "layers",
+      "cover_click",
+      "photo_popup"
+    ],
+    "forbidden": [
+      "edit",
+      "place_pin",
+      "rate",
+      "pool",
+      "journal_edit",
+      "add_section"
+    ]
+  },
+  "bindings": {
+    "trip.title": {
+      "path": "trip.title",
+      "source": "trip",
+      "required": true
+    },
+    "map.scene": {
+      "path": "map.scene",
+      "source": "computed",
+      "required": true,
+      "note": "Dieselbe MapScene wie in der App (published_entries, Cover-Kreise, Verbindungslinien). Export schreibt ein HTML-Paket unter exports/, lokal im Browser, ohne Qt und ohne Server."
+    }
+  },
+  "pages": [
+    {
+      "id": "map",
+      "kind": "map_site",
+      "status": "draft",
+      "spread": false,
+      "numbered": false,
+      "label": { "de": "Karte", "en": "Map" },
+      "slots": {
+        "title": { "bind": "trip.title" },
+        "scene": { "bind": "map.scene" }
+      },
+      "note": "Read-only-Klon der Kartenseite: Übersicht, Detail, Foto-Popup. Zahnrad nur für Anzeige (Fotokegel, Layer), nicht für Redaktion."
+    }
+  ]
+}

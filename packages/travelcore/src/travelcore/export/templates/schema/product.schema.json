@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://traveljournal.local/schemas/export-product-v1.json",
+  "title": "Export-Ausgabetyp (Produkt-Template)",
+  "description": "Beschreibt einen Ausgabetyp (Travelbook, Jahrbuch, …): Seitenfolge, Slots und unterstützte Ausgabeformate. Kein gerendertes Dokument — das entsteht erst durch Binden an TimelineSnapshot plus Export-Einstellungen.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "label", "formats", "pages"],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "Stabiler Schlüssel, z. B. travelbook."
+    },
+    "extends": {
+      "type": "string",
+      "description": "Optionales Eltern-Produkt. Seiten und Slots werden übernommen, Formate und Viewer ersetzen."
+    },
+    "label": { "$ref": "#/$defs/i18n" },
+    "description": { "$ref": "#/$defs/i18n" },
+    "status": {
+      "type": "string",
+      "enum": ["active", "draft", "planned"],
+      "default": "draft"
+    },
+    "formats": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": ["html", "pdf", "epub", "latex", "cewe", "video"]
+      },
+      "description": "Ausgabeformate, die dieser Typ rendern kann. Nicht jedes Format gilt für jeden Typ."
+    },
+    "layout": { "$ref": "#/$defs/layout" },
+    "bindings": {
+      "type": "object",
+      "description": "Welche Daten der Binder liefern muss. Werte sind Pfade wie trip.title oder export.home.",
+      "additionalProperties": { "$ref": "#/$defs/binding_decl" }
+    },
+    "pages": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/page" }
+    },
+    "editor": { "$ref": "#/$defs/editor" },
+    "viewer": {
+      "type": "object",
+      "description": "book_nav = Blättern im statischen Buch. map = Read-only-Kartenwebsite (schwenken, zoomen).",
+      "properties": {
+        "chrome": { "type": "string", "enum": ["none", "book_nav", "map"] },
+        "read_only": { "type": "boolean", "default": true },
+        "features": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "forbidden": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "i18n": {
+      "type": "object",
+      "required": ["de"],
+      "properties": {
+        "de": { "type": "string" },
+        "en": { "type": "string" }
+      },
+      "additionalProperties": { "type": "string" }
+    },
+    "layout": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["book", "map_site"],
+          "description": "book = Doppelseiten zum Blättern; map_site = eine Karten-Website."
+        },
+        "orientation": { "type": "string", "enum": ["landscape", "portrait"] },
+        "spread": {
+          "type": "boolean",
+          "description": "true = Doppelseite (Verso | Recto), Cover bleibt einzeln."
+        },
+        "page_size": {
+          "type": "string",
+          "description": "Hinweis für Print/PDF, z. B. a4-landscape oder square."
+        },
+        "binding": { "type": "string", "enum": ["left", "right"] }
+      }
+    },
+    "binding_decl": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "path": { "type": "string" },
+        "source": {
+          "type": "string",
+          "enum": ["trip", "export", "stats", "computed"],
+          "description": "trip = TimelineSnapshot, export = Dialog/ExportConfig, stats = Binder-Kennzahlen."
+        },
+        "required": { "type": "boolean", "default": false },
+        "note": { "type": "string" }
+      }
+    },
+    "slot": {
+      "type": "object",
+      "description": "Ein Platzhalter. Entweder bind (Datenpfad) oder value (Konstante).",
+      "properties": {
+        "bind": { "type": "string" },
+        "value": {},
+        "fallback": {},
+        "optional": { "type": "boolean", "default": false },
+        "transform": {
+          "type": "string",
+          "enum": ["uppercase", "year", "integer", "km", "count"]
+        }
+      }
+    },
+    "page": {
+      "type": "object",
+      "required": ["id", "kind"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "cover",
+            "title_page",
+            "trip_summary",
+            "year_summary",
+            "toc",
+            "chronicle",
+            "section_intro",
+            "photos",
+            "journal",
+            "trip_chapter",
+            "map_site",
+            "blank"
+          ]
+        },
+        "status": { "type": "string", "enum": ["active", "draft", "planned"] },
+        "label": { "$ref": "#/$defs/i18n" },
+        "spread": { "type": "boolean" },
+        "numbered": {
+          "type": "boolean",
+          "description": "false = Cover-Label statt Seitenzahl (1/n)."
+        },
+        "repeat": {
+          "type": "object",
+          "required": ["over"],
+          "properties": {
+            "over": { "type": "string" },
+            "as": { "type": "string" }
+          }
+        },
+        "slots": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/slot" }
+        },
+        "verso": { "$ref": "#/$defs/page_side" },
+        "recto": { "$ref": "#/$defs/page_side" },
+        "style": { "type": "object" },
+        "note": { "type": "string" }
+      }
+    },
+    "page_side": {
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string" },
+        "layout": { "type": "string" },
+        "slots": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/slot" }
+        },
+        "style": { "type": "object" }
+      }
+    },
+    "editor": {
+      "type": "object",
+      "description": "Komposition vor dem Export. Die gerenderte Ausgabe bleibt ein Blätterbuch (viewer.read_only).",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "persist": { "type": "string" },
+        "note": { "type": "string" },
+        "chronicle": {
+          "type": "object",
+          "properties": {
+            "source": { "type": "string" },
+            "initial_spread": { "type": "object" },
+            "add_spread": { "type": "boolean" },
+            "remove_extra_spreads": { "type": "boolean" },
+            "change_page_layout": { "type": "boolean" },
+            "assign_media": { "type": "boolean" },
+            "media_tray": { "type": "object" },
+            "page_layouts": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

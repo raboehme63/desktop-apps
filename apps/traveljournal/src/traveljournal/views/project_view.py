@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QDate, Qt, Signal
 from PySide6.QtWidgets import (
     QApplication,
+    QDateEdit,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -27,6 +29,7 @@ from PySide6.QtWidgets import (
 from travelcore.database.project_store import folder_name_from_project_name
 from travelcore.exceptions import ProjectError
 from traveljournal.services.workspace import Workspace
+from traveljournal.widgets.country_picker import CountryPicker
 
 
 def format_local_datetime(value: datetime) -> str:
@@ -37,12 +40,40 @@ def format_local_datetime(value: datetime) -> str:
     return value.astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
+_EMPTY_DATE = QDate(100, 1, 1)
+
+
+def _configure_trip_date_edit(edit: QDateEdit) -> None:
+    edit.setCalendarPopup(True)
+    edit.setDisplayFormat("dd.MM.yyyy")
+    edit.setSpecialValueText("–")
+    edit.setMinimumDate(_EMPTY_DATE)
+    edit.setDate(_EMPTY_DATE)
+    edit.setMinimumWidth(140)
+    edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+
+def _date_from_edit(edit: QDateEdit) -> date | None:
+    chosen = edit.date()
+    if chosen <= edit.minimumDate():
+        return None
+    return date(chosen.year(), chosen.month(), chosen.day())
+
+
+def _set_date_edit(edit: QDateEdit, value: date | None) -> None:
+    if value is None:
+        edit.setDate(edit.minimumDate())
+        return
+    edit.setDate(QDate(value.year, value.month, value.day))
+
+
 class ProjectView(QWidget):
     project_changed = Signal(str)
 
     def __init__(self, workspace: Workspace, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.workspace = workspace
+        self._span_updating = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 28)
@@ -51,7 +82,10 @@ class ProjectView(QWidget):
         title = QLabel("Projekt")
         title.setObjectName("pageTitle")
         subtitle = QLabel(
-            "Beim Anlegen werden Name und übergeordneter Ordner gewählt; daraus entsteht der Projektordner."
+            "Beim Anlegen werden Name und übergeordneter Ordner gewählt; daraus entsteht der Projektordner. "
+            "Reise von–bis kommt aus den indexierten Daten und lässt sich hier anpassen; "
+            "daraus folgt die Reisedauer. "
+            "Bereiste Länder (Flagge und Umriss) erscheinen in der Travelbook-Reiseübersicht."
         )
         subtitle.setObjectName("pageSubtitle")
         root.addWidget(title)
@@ -67,6 +101,32 @@ class ProjectView(QWidget):
         self.name_edit.setPlaceholderText("Reisename, z. B. Italien 2025")
         card_layout.addWidget(QLabel("Name"))
         card_layout.addWidget(self.name_edit)
+
+        span_caption = QLabel("Reise von–bis")
+        span_caption.setObjectName("fieldCaption")
+        card_layout.addWidget(span_caption)
+        span_row = QHBoxLayout()
+        span_row.setSpacing(10)
+        span_row.addWidget(QLabel("Von"))
+        self.start_edit = QDateEdit()
+        _configure_trip_date_edit(self.start_edit)
+        span_row.addWidget(self.start_edit, 1)
+        span_row.addWidget(QLabel("Bis"))
+        self.end_edit = QDateEdit()
+        _configure_trip_date_edit(self.end_edit)
+        span_row.addWidget(self.end_edit, 1)
+        card_layout.addLayout(span_row)
+        self.duration_label = QLabel("Dauer: –")
+        self.duration_label.setObjectName("pageSubtitle")
+        card_layout.addWidget(self.duration_label)
+        self.start_edit.dateChanged.connect(self._on_start_changed)
+        self.end_edit.dateChanged.connect(self._on_end_changed)
+
+        countries_caption = QLabel("Bereiste Länder")
+        countries_caption.setObjectName("fieldCaption")
+        card_layout.addWidget(countries_caption)
+        self.country_picker = CountryPicker()
+        card_layout.addWidget(self.country_picker)
 
         buttons = QHBoxLayout()
         new_btn = QPushButton("Neues Projekt")
@@ -132,6 +192,11 @@ class ProjectView(QWidget):
         if current is None or project is None:
             self.name_edit.setText("")
             self.name_edit.setEnabled(False)
+            self._set_span(None, None)
+            self.start_edit.setEnabled(False)
+            self.end_edit.setEnabled(False)
+            self.country_picker.set_codes(())
+            self.country_picker.setEnabled(False)
             self.name_label.setText("–")
             self.path_label.setText("Kein Projekt geöffnet")
             self.created_label.setText("–")
@@ -140,6 +205,12 @@ class ProjectView(QWidget):
             return
         self.name_edit.setEnabled(True)
         self.name_edit.setText(project.name)
+        self.start_edit.setEnabled(True)
+        self.end_edit.setEnabled(True)
+        start, end = self.workspace.load_trip_span()
+        self._set_span(start, end)
+        self.country_picker.setEnabled(True)
+        self.country_picker.set_codes(self.workspace.load_trip_countries())
         self.name_label.setText(project.name)
         self.path_label.setText(str(current.directory))
         self.created_label.setText(format_local_datetime(project.created_at))
@@ -211,6 +282,11 @@ class ProjectView(QWidget):
             return
         try:
             self.workspace.rename(name)
+            self.workspace.save_trip_span(
+                _date_from_edit(self.start_edit),
+                _date_from_edit(self.end_edit),
+            )
+            self.workspace.save_trip_countries(list(self.country_picker.codes()))
         except ProjectError as exc:
             QMessageBox.warning(self, "Projekt", str(exc))
             return
@@ -221,6 +297,47 @@ class ProjectView(QWidget):
         self.workspace.close()
         self.refresh()
         self.project_changed.emit("")
+
+    def _set_span(self, start: date | None, end: date | None) -> None:
+        self._span_updating = True
+        _set_date_edit(self.start_edit, start)
+        _set_date_edit(self.end_edit, end)
+        self._span_updating = False
+        self._update_duration()
+
+    def _on_start_changed(self) -> None:
+        if self._span_updating:
+            return
+        start = _date_from_edit(self.start_edit)
+        end = _date_from_edit(self.end_edit)
+        if start is not None and end is not None and start > end:
+            self._span_updating = True
+            self.end_edit.setDate(self.start_edit.date())
+            self._span_updating = False
+        self._update_duration()
+
+    def _on_end_changed(self) -> None:
+        if self._span_updating:
+            return
+        start = _date_from_edit(self.start_edit)
+        end = _date_from_edit(self.end_edit)
+        if start is not None and end is not None and end < start:
+            self._span_updating = True
+            self.start_edit.setDate(self.end_edit.date())
+            self._span_updating = False
+        self._update_duration()
+
+    def _update_duration(self) -> None:
+        start = _date_from_edit(self.start_edit)
+        end = _date_from_edit(self.end_edit)
+        if start is None or end is None:
+            self.duration_label.setText("Dauer: –")
+            return
+        days = (end - start).days + 1
+        if days == 1:
+            self.duration_label.setText("Dauer: 1 Tag")
+            return
+        self.duration_label.setText(f"Dauer: {days} Tage")
 
 
 class NewProjectDialog(QDialog):

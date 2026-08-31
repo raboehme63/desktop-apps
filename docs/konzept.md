@@ -84,7 +84,7 @@ Das Grundgerüst entsteht **automatisch nach dem Import**, nicht als zweite Wahr
 
 - **Ein Reisetag je Kalendertag** der Journal-Zeit (`journal_at.date()`), initialisiert aus der Aufnahmezeit. Jeder Tag ist ein Abschnitt mit Mitgliedern wie Aufenthalt und Transfer. Medien ohne Zeit landen unter „Ohne Datum“, bis sie auf der Timeline eine Uhr bekommen. Nicht zugeordnete Medien liegen im **Medienpool**, nicht als Resttage.
 - **Reiseabschnitte** legt der Benutzer in der Timeline an: aus einer Mehrfachauswahl (Aufenthalt oder Transfer), ohne Auswahl als leeren Abschnitt (**Neuen Reiseabschnitt erstellen**: Tag mit **Am**, Aufenthalt/Transfer mit **Von Datum** / **Bis Datum**) oder über **+** auf der Linie zwischen zwei Karten bzw. zwischen den Leistenkarten auf der Karte (derselbe Dialog, Datum der Lücke vorausgefüllt). **Menü** **Datum…** bzw. **Zeitraum…** ändert die Spanne später; die Karte rutscht in der Timeline an die passende Stelle. Dateien ohne Abschnitt liegen im **Medienpool**. Der Typ (Tag, Transfer, Aufenthalt) ist an jeder Timeline-Karte änderbar. **Löschen** im **Menü** legt alle Medien in den Medienpool. Neu angelegte Abschnitte existieren nur im Speicher, bis Timeline-**Speichern**. **Zur Karte** an einem gespeicherten Abschnitt oder Tag öffnet die Karte und fokussiert die passende Karte in der Leiste. Rechtsklick auf ein Thumbnail mit Ort öffnet **Zur Karte…** in der Detailansicht an der Position des Bildes (Leistenkarte des Bildes in der Mitte). Ist die Karte schon geladen, bleibt das HTML.
-- **Der Reisetitel** steht oben in der Timeline. Zuerst gilt der Projektname; nach Timeline-**Speichern** ist er manuell und überlebt den erneuten Abgleich.
+- **Der Reisetitel** steht oben in der Timeline. Zuerst gilt der Projektname; nach Timeline-**Speichern** ist er manuell und überlebt den erneuten Abgleich. **Reise von–bis** und **bereiste Länder** stehen auf der Projektseite (Katalog, nicht Freitext); **Projekt speichern** schreibt sie. Die Dauer der Reiseübersicht folgt inklusiv von–bis.
 - **Speichern in der Timeline** schreibt neue Abschnitte, Reisetitel, Titel/Texte und YouTube. Der Button ist nur dann aktiv, sonst grau; Rückgängig/Wiederherstellen dieser Edits schaltet ihn mit. **Timeline aktualisieren** schreibt geänderte Texte und den Reisetitel mit, persistiert aber keine Abschnitte und kein YouTube. Bewertungen, Eintrags-Titelbild an gespeicherten Einträgen und DHV-Leonardo an gespeicherten Einträgen speichern sofort und lassen **Speichern** inaktiv. Verlassen der Seite (oder Schließen des Fensters) fragt bei jedem solchen ungespeicherten Stand Speichern / Verwerfen / Abbrechen.
 - **Zwei Uhren (R2.2.0):** Die Aufnahmezeit (`captured_at`) bleibt unverändert. Die Journal-Zeit (`journal_at` an der Mitgliedschaft) bestimmt die Position auf der Timeline. **Journal-Zeit…** verschiebt Clips; überschreitet die Uhr Mitternacht, wechselt der Clip den Tag. **Originalzeit** kopiert die Aufnahmezeit zurück. Im Pool entfällt die Journal-Zeit. Die Medien-Anzeigezeit (`media_at`, auch im Pool) folgt in der Medien-Pipeline, Abschnitt 9.1.
 - **Ortsvorschläge** entstehen aus GPS-Fotos desselben Tages: greedy Cluster mit Haversine, Radius 150 m (`stay_radius_meters`). Sie bleiben unbestätigt (`origin=auto`), bis der Benutzer sie benennt, bestätigt oder löscht. Hat ein Tag bereits Orte, legt der Abgleich keine zweiten Auto-Orte an. Medien ohne GPS erben eine Anzeigeposition vom Abschnitt (Aufenthalt: Ort/Cover live; Tag: Cover-Pin als Snapshot; Transfer: Track bei Journal-Zeit), ohne Original-GPS zu überschreiben. Beim Verschieben auf einen Abschnitt (aus dem Pool oder von einer anderen Karte) fragt die Timeline, ob vorhandenes GPS auf der Karte bleiben soll oder die Abschnittsposition gilt (mehrere Medien leicht versetzt). Die Journal-Zeit übernimmt das Datum bzw. die Spanne des Zielabschnitts. Ziehen auf den Pool parkt. Am Fenster- bzw. Spaltenrand scrollt die Timeline während des Ziehens.
@@ -106,7 +106,7 @@ Linke Navigation, rechts der Arbeitsbereich. Die Pipeline (Projekt, Import, Medi
 
 | Seite | Rolle im Konzept |
 | --- | --- |
-| **Projekt** | Behälter: Name, Ordner, Öffnen/Anlegen. Keine Medienbearbeitung. |
+| **Projekt** | Behälter: Name, Ordner, Öffnen/Anlegen; **Reise von–bis** (vorbefüllt aus indexierten Daten, editierbar, inklusiv die Kennzahl Tage); **bereiste Länder** aus dem Katalog (ISO-2, Flagge, Umriss). Keine Medienbearbeitung. |
 | **Import** | Brücke zur Außenwelt. Einzige Stelle, die das Quellverzeichnis scannt. Analyse ergänzt; Synchronisieren entfernt Fehlende und fragt Timeline oder Pool für Neue. Thumbnail-Schieber skaliert die rechte Dateivorschau. |
 | **Medien** | Vorauswahl und Vorbereitung vor der Chronik: links Reise-Galerie, rechts Medienpool, Register Alle/Favoriten/Reserve/Aussortiert, Filter inkl. **Filtern** (Qualität, Zeitraum, Bewertung), Bewertungen, Inspektor, **Dubletten stapeln** / **Ähnliche gruppieren** / **Auswahl gruppieren**, Kennzeichen G/×n, Statistikleiste, **Qualität prüfen** (Ampel unten links; Hover begründet gelb/rot). Geplant: unechte Dubletten (pHash). Siehe Abschnitt 9. |
 | **Timeline** | Chronologische und narrative Bearbeitung: Reisetitel, Tage, Transfers und Aufenthalte, Sichtbarkeits-Schalter (ein = Karte/Export, aus = nur Timeline), einblendbare Pool-Spalte rechts über die volle Höhe (eigenes Bewertungsregister), Typwahl, Titel/Text, Bewertungen, Eintrags-Titelbild, YouTube/DHV-Leonardo, **Speichern** nur bei ungespeicherten Abschnitten/Texten/Reisetitel/YouTube (sonst grau), beim Verlassen Speichern/Verwerfen/Abbrechen, **Rückgängig / Wiederherstellen** (Strg+Z / Strg+Y), Medieninspektor. |
@@ -159,7 +159,7 @@ Geplant (Medien-Pipeline): eine dritte Uhr **`media_at`** (Medien-Anzeigezeit) a
 
 ### 5.4 Projektordner
 
-SQLite ist die Arbeitsdatei, nicht das Archiv der Bilder. Thumbnails und Analyseergebnisse liegen neben der Datenbank, damit das Projekt kopierbar bleibt. Die Quellwurzel der Originale steht in `settings.toml` (Projekt → Einstellungen), zusammen mit GPS-Zeitfenster, Standardzeitzone, Kartenanbieter (`leaflet` / `offline`) und der Farbe der Verbindungslinien auf der Karte (Standard weiß). Wird der Ordner verschoben, setzt man den neuen Pfad; der Index wird umgeschrieben, die Originaldateien nicht. Zuletzt geöffnete Projekte merkt die App unter `%LOCALAPPDATA%\TravelJournal\recent.json`; die Liste erscheint noch nicht in der Oberfläche. Das Medienregister (`timeline_media_tab`, Timeline und Medienseite), die Thumbnail-Schieber (`timeline_thumb_zoom`, `map_thumb_zoom`, `media_thumb_zoom`, `import_thumb_zoom`), die eingeklappte Navigation (`sidebar_collapsed`), der Medienpool (`timeline_pool_visible`, `pool_width`), die Inspektor-Fenstergröße (`inspector_width`, `inspector_height`, `inspector_maximized`) und der Projekte-Stammordner liegen in `config.json`. Der Fenstertitel zeigt die Softwareversion (`Reisetagebuch R3.1.0` bzw. mit Projekttitel). `inspector_show_rejected` steuert die Inspektor-Checkbox **Aussortierte anzeigen**.
+SQLite ist die Arbeitsdatei, nicht das Archiv der Bilder. Thumbnails und Analyseergebnisse liegen neben der Datenbank, damit das Projekt kopierbar bleibt. Die Quellwurzel der Originale steht in `settings.toml` (Projekt → Einstellungen), zusammen mit GPS-Zeitfenster, Standardzeitzone, Kartenanbieter (`leaflet` / `offline`) und der Farbe der Verbindungslinien auf der Karte (Standard weiß). Wird der Ordner verschoben, setzt man den neuen Pfad; der Index wird umgeschrieben, die Originaldateien nicht. Zuletzt geöffnete Projekte merkt die App unter `%LOCALAPPDATA%\TravelJournal\recent.json`; die Liste erscheint noch nicht in der Oberfläche. Das Medienregister (`timeline_media_tab`, Timeline und Medienseite), die Thumbnail-Schieber (`timeline_thumb_zoom`, `map_thumb_zoom`, `media_thumb_zoom`, `import_thumb_zoom`), die eingeklappte Navigation (`sidebar_collapsed`), der Medienpool (`timeline_pool_visible`, `pool_width`), die Inspektor-Fenstergröße (`inspector_width`, `inspector_height`, `inspector_maximized`) und der Projekte-Stammordner liegen in `config.json`. Der Fenstertitel zeigt die Softwareversion (`Reisetagebuch R3.1.0` bzw. mit Projekttitel). `inspector_show_rejected` steuert die Inspektor-Checkbox **Aussortierte anzeigen**. Bereiste Länder (`trips.countries`, ISO-2) und Reise von–bis (`trips.start_date` / `trips.end_date`) gehören zur Projektdatenbank, nicht zu `settings.toml`.
 
 ---
 
@@ -206,7 +206,7 @@ Wichtige Verträge (bereits angelegt, schrittweise gefüllt):
 | Vertrag | Zweck |
 | --- | --- |
 | `MetadataProvider` | Pillow, ExifTool, später ffprobe |
-| `Exporter` | HTML, PDF, LaTeX, CEWE |
+| `Exporter` | HTML, PDF, LaTeX, CEWE; Ausgabetyp als JSON-Template |
 | `MapBackend` | Folium zuerst, später ersetzbar |
 | `RankingStrategy` | Foto-Score ohne fest verdrahtete Formel |
 
@@ -235,12 +235,80 @@ Build: [packaging/README.md](../packaging/README.md).
 
 ## 8. Exportkonzept
 
-Export ist eine **Abbildung des bearbeiteten Tagebuchs**, nicht des Rohimports.
+Export ist eine **Abbildung des bearbeiteten Tagebuchs**, nicht des Rohimports. Ausgeblendete Abschnitte (`trip_sections.hidden`, `TimelineSnapshot.published_entries`) fehlen wie auf der Karte. Originale werden nicht verändert; die Ausgabe liegt unter `exports/`.
 
-- **HTML zuerst:** eigenständige Seite, Jinja2, CSS getrennt, optional Karte.
-- **PDF:** nicht über AGPL-Zwang (kein PyMuPDF als zentrale Abhängigkeit). Pfad HTML→Druckengine oder LaTeX→PDF hinter `PdfRenderer`.
+Zwei Achsen, die unabhängig wachsen:
+
+```
+Ausgabetyp (JSON-Template)          Ausgabeformat (Renderer)
+├── Travelbook                      ├── HTML
+├── Jahrbuch                        ├── PDF
+├── Travelbook (interaktiv)         ├── EPUB
+└── … später neues Template         ├── LaTeX
+                                    ├── CEWE
+                                    └── Video
+```
+
+Ein **Ausgabetyp** ist ein Produkt-Template (Seitenfolge, Slots, Stil). Ein neues Produkt entsteht durch eine neue JSON-Datei unter `travelcore/export/templates/products/`, nicht durch einen neuen Exporter. Ein **Ausgabeformat** ist der Renderer derselben gebundenen Daten. Nicht jede Zelle der Matrix ist erlaubt:
+
+| Typ | HTML | PDF | EPUB | LaTeX | CEWE | Video |
+| --- | --- | --- | --- | --- | --- | --- |
+| Travelbook | ja (erster Pfad) | ja | später | ja | später | nein |
+| Jahrbuch | ja | ja | später | ja | später | nein |
+| Travelbook (interaktiv) | ja | nein | nein | nein | nein | nein |
+
+Zwei Betrachter, klar getrennt:
+
+- **Buch** (Travelbook, Jahrbuch): statische Seiten. Blättern wie in einem Buch (Anfang, zurück, weiter, Ende; Cover-Label statt 1/n). Die Karte auf der Reiseübersicht ist ein **Bild**, nicht schwenk- oder zoombar. Gilt für HTML ebenso wie für PDF/EPUB/LaTeX/CEWE.
+- **Karte** (Travelbook interaktiv): die Reisekarte als **Website**, nur lesen. Schwenken, zoomen, Layer, Abschnitte und Fotos ansehen — wie die Kartenseite der App, ohne Editor (kein Platzieren, keine Bewertung, kein Tagebuchtext). Nur HTML; lokal im Browser, ohne Server.
+
+Pipeline:
+
+```mermaid
+flowchart LR
+  Snapshot["TimelineSnapshot published_entries"] --> Sync["Dokument anlegen/abgleichen"]
+  Template["Produkt-JSON plus Seiten-Layouts"] --> Sync
+  Sync --> Editor["Editiermodus: Leiste, Drag-and-drop, Templates"]
+  Editor --> Document["travelbook.json im Projekt"]
+  Document --> HTML
+  Document --> PDF
+  Document --> Other["EPUB / LaTeX / CEWE / Video"]
+```
+
+Slots vom Typ `trip.*` kommen aus der Timeline, `export.*` aus dem Export-Dialog (`export_configs.settings_json`), `stats.*` berechnet der Binder. Autoren und Heimatort gibt es am Trip noch nicht.
+
+**Travelbook** (Phase 8, zuerst HTML) folgt der Buchmetapher. Auf der Seite Export wählt man den **Ausgabetyp**, danach das **Seitenverhältnis einer Seite** (Standard DIN A4 Hochformat; auch Querformat und Quadratisch). Das Buch füllt den restlichen Arbeitsbereich und wird in die Fenstergröße eingepasst (Cover eine Seite, sonst Doppelseite). Blättern: Cover, Titelseite, Reiseübersicht, Chronik. Das **Ausgabeformat** wird erst beim Klick auf Exportieren gefragt, und nur die Formate des Typs. Die Komposition liegt als `travelbook.json` im Projektordner.
+
+1. **Buchdeckel** — ein Vollbild, Titel zentriert, optionales Jahr-Badge. Die Blätterleiste zeigt „Cover“, nicht 1/n.
+2. **Titelseite** — Doppelseite: links leer, rechts der Reisetitel mittig zentriert. Seitenzahl 2/n.
+3. **Reiseübersicht** — Doppelseite 3–4/n. Links zweispaltig: dunkle Länderleiste (Auswahl auf der **Projektseite**; jedes Land als Umriss, darunter Name in Versalien mit kleiner Flagge dahinter, gleichmäßig über die Seitenhöhe) und Kennzahlen (Tage, Reiseabschnitte, Fotos, YouTube-Videos, Gleitschirmflüge/IGC). Rechts ein **statisches** Satellitenbild mit Route und Foto-Markern.
+4. **Chronik** — ein Kapitel je veröffentlichtem Abschnitt (`published_entries`):
+
+   - **Erste Doppelseite (automatisch):** links Abschnittsstart (Titelbild, Land/Koordinaten soweit vorhanden, Titel, Datum, optional Höhe und Tageszähler, YouTube-Links **und QR-Code**). Rechts zunächst das Template **1 Foto** (vollflächig, wie in der Vorlage). Die linke Seite ist gesperrt, die rechte Layoutwahl und das Foto sind editierbar.
+   - **Weitere Doppelseiten:** im Editor hinzufügen und wieder entfernen. Jede Seite (links/rechts unabhängig) bekommt ein Template: **1–8 Medien** oder **Tagebucheintrag** (Text aus der Timeline). Neue Templates sind weitere JSON-Dateien unter `export/templates/page_layouts/`.
+
+**Medienleiste (Editiermodus):** Zum geöffneten Abschnitt stehen die sichtbaren Mitglieder bereit — Fotos, Videos und Tracks als Thumbnails (dieselben Caches wie Timeline/Galerie; Aussortierte und versteckte Cluster-Mitglieder fehlen, Pool nicht). Per **Drag-and-drop** auf die Media-Slots der aktuellen Doppelseite (Foto-Raster und Titelbild der Intro-Seite). Ein Slot zeigt das Vorschaubild; Tracks nutzen die Track-Vorschau. Dieselbe Datei darf mehrfach liegen. Ablegen auf einem belegten Slot ersetzt. Die Komposition schreibt `source_file_id` nach `travelbook.json`, nicht in die Timeline und nicht ins Original. Die Journal-Seite hat keine Media-Slots.
+
+Wetter auf der Abschnittsseite ist ein leerer Slot — im Journal gibt es dafür noch kein Feld. Flagge und Länderumriss kommen aus dem lokalen Katalog (`travelcore.geo`, ISO-3166-1). Welches Land ein Abschnitt hat, bleibt manuell bzw. später Reverse-Geocoding (OP-01).
+
+Neue oder wieder eingeblendete Abschnitte bekommen die erste Doppelseite nach. Ausgeblendete Abschnitte (`hidden`) verschwinden aus dem Buch wie auf der Karte.
+
+Die HTML-Ausgabe ist ein Blätterbuch (Leiste wie in den Vorlagen), keine Live-Karte.
+
+**Jahrbuch** ist geplant: Cover und Übersicht für ein Kalenderjahr, Inhaltsverzeichnis, ein Kapitel je Reise; ebenfalls Blätterbuch. Die App ist heute ein Projekt = eine Reise; die Jahresbibliothek kommt später.
+
+**Travelbook (interaktiv)** ist kein Buch und erbt keine Buchseiten. Es exportiert die **Karte** (`MapScene` der veröffentlichten Abschnitte) als Read-only-Website: Schwenken, Zoomen, Layer, Cover-Klick, Foto-Popup. Redaktion bleibt in der App.
+
+Formate:
+
+- **HTML zuerst:** zwei Renderer derselben Schnittstelle: Blätterbuch (Travelbook/Jahrbuch) und Karten-Website (interaktiv). Jinja2, CSS getrennt, lokal ohne Server.
+- **PDF:** nicht über AGPL-Zwang (kein PyMuPDF als zentrale Abhängigkeit). Pfad HTML-Buch→Druckengine oder LaTeX→PDF hinter `PdfRenderer`.
+- **EPUB:** geplant, feste Doppelseiten (EPUB3), kein Fließtext-Umbau des Buches.
 - **LaTeX:** kompilierbares Projekt; der PDF-Lauf darf extern bleiben.
 - **CEWE:** Schnittstelle und Platzhalter, bis das echte Format geprüft ist. Keine geratenen proprietären Binärformate.
+- **Video:** später, linearer Durchlauf eines Buches, nicht der Karten-Website.
+
+Kennzahlen der Reiseübersicht, die der Binder in Phase 8 schon liefern kann: Dauer, Abschnittzahl, Fotos, eindeutige YouTube-Links, IGC-Flüge. **0 wird nicht angezeigt.** Bei Gleitschirmflügen von mehr als einem Piloten steht hinter dem Label `(n Piloten)`. IGC zählen auch, wenn sie im Medienpool liegen, solange sie ein Kalendertag haben. Die Dauer folgt dem Reisezeitraum auf der Projektseite (von–bis, vorbefüllt aus den indexierten Daten, danach editierbar, inklusiv). Länder wählt man auf der Projektseite aus dem Katalog (ISO-Code, deutscher Name, Flagge, Umriss). Kilometer und weitesten Punkt bleiben optionale spätere Slots. Der weiteste Punkt braucht den Heimatort als Export-Slot.
 
 ---
 
@@ -361,4 +429,4 @@ Nicht das ganze Polarsteps-Abbild auf einmal. Jede Phase bleibt startbar und tes
 | 8 | Die Reise verlässt die App. |
 | 9–10 | Die Auswahl wird begründet (Qualität, Dubletten, Stapel/Gruppe mit Schlüsselfotos). R3.0.0 liefert SHA-256-Stapel, Zeitszenen, manuelle Gruppen, Statistik, Qualitätsampel mit Hover-Begründung und **Filtern**; pHash bleibt offen. |
 
-Aktueller Konzeptstand: **Phase 7** plus Medien-Pipeline, Software **R3.1.0** (Journal-Modell nach Design-Review plus Verbindungslinien; Sichtbarkeits-Schalter Karte/Export; **Speichern** grau außer bei Dirty-Stand, Undo/Redo schaltet mit, Verlassen-Dialog Speichern/Verwerfen/Abbrechen; Kartenbedienung: Cover-Zoom, Fit-Reise, vorab zentriertes Foto-Popup mit Blättern und Schieber-Zoom; **Zur Karte** letzter Klick gewinnt, geladene Karte ohne Neuaufbau, Sichtbarkeitswechsel ohne Timeline-Neubau; Track-Bewertung wie Medien; Timeline mit **Menü**, Inspektor mit Schlüsselfotos, Track-Vorschauen, Karten-Leiste, Rückgängig/Wiederherstellen; Stapel/Gruppe/Statistik, Qualitätsampel mit Hover, **Filtern** und Import-Thumbnail-Schieber). Windows-Endnutzerpaket (onedir/Zip, optional Inno-Setup) ist baubar und keine eigene Fachphase. HTML-Export folgt in Phase 8.
+Aktueller Konzeptstand: **Phase 7** plus Medien-Pipeline, Software **R3.1.0** (Journal-Modell nach Design-Review plus Verbindungslinien; Sichtbarkeits-Schalter Karte/Export; **Speichern** grau außer bei Dirty-Stand, Undo/Redo schaltet mit, Verlassen-Dialog Speichern/Verwerfen/Abbrechen; Kartenbedienung: Cover-Zoom, Fit-Reise, vorab zentriertes Foto-Popup mit Blättern und Schieber-Zoom; **Zur Karte** letzter Klick gewinnt, geladene Karte ohne Neuaufbau, Sichtbarkeitswechsel ohne Timeline-Neubau; Track-Bewertung wie Medien; Timeline mit **Menü**, Inspektor mit Schlüsselfotos, Track-Vorschauen, Karten-Leiste, Rückgängig/Wiederherstellen; Stapel/Gruppe/Statistik, Qualitätsampel mit Hover, **Filtern** und Import-Thumbnail-Schieber; Projektseite: Länderkatalog und Reise von–bis). Windows-Endnutzerpaket (onedir/Zip, optional Inno-Setup) ist baubar und keine eigene Fachphase. HTML-Export folgt in Phase 8.

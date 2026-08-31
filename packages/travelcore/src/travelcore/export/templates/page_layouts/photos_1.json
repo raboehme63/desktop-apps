@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "id": "photos_1",
+  "kind": "photos",
+  "label": { "de": "1 Foto", "en": "1 photo" },
+  "applies_to": "page",
+  "photo_count": 1,
+  "grid": { "unit": "percent", "gutter": 0 },
+  "slots": [
+    { "id": "p1", "type": "media", "accept": ["photo", "video", "track"], "x": 0, "y": 0, "w": 100, "h": 100, "fit": "cover" }
+  ]
+}

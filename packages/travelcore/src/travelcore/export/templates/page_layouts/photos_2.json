@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "photos_2",
+  "kind": "photos",
+  "label": { "de": "2 Fotos", "en": "2 photos" },
+  "applies_to": "page",
+  "photo_count": 2,
+  "grid": { "unit": "percent", "gutter": 2 },
+  "slots": [
+    { "id": "p1", "type": "media", "accept": ["photo", "video", "track"], "x": 0, "y": 0, "w": 100, "h": 49, "fit": "cover" },
+    { "id": "p2", "type": "media", "accept": ["photo", "video", "track"], "x": 0, "y": 51, "w": 100, "h": 49, "fit": "cover" }
+  ]
+}

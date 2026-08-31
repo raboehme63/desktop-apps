@@ -1,0 +1,271 @@
+{
+  "schema_version": 1,
+  "id": "travelbook",
+  "label": { "de": "Travelbook", "en": "Travelbook" },
+  "description": {
+    "de": "Klassisches Reisebuch: Buchdeckel, innenliegende Titelseite, Doppelseite Reiseübersicht, danach die Chronik. Statisch — blättern wie in einem Buch, Karten sind Bilder.",
+    "en": "Classic travel book: cover, inner title page, trip-summary spread, then the chronicle. Static — turn pages like a book; maps are images."
+  },
+  "status": "active",
+  "formats": ["html", "pdf", "epub", "latex", "cewe"],
+  "layout": {
+    "kind": "book",
+    "orientation": "portrait",
+    "spread": true,
+    "page_size": "a4-portrait",
+    "binding": "left"
+  },
+  "viewer": {
+    "chrome": "book_nav",
+    "read_only": true,
+    "features": [
+      "first_last_page",
+      "prev_next",
+      "spread_indicator",
+      "cover_label"
+    ]
+  },
+  "editor": {
+    "enabled": true,
+    "persist": "travelbook.json",
+    "note": "Vor dem Export auf der Seite Export. Das Dokument liegt im Projektordner (travelbook.json), Originale bleiben unberührt. Die HTML-/PDF-Ausgabe ist danach nur noch blättern.",
+    "chronicle": {
+      "source": "published_entries",
+      "initial_spread": {
+        "verso": { "layout": "section_intro", "locked": true },
+        "recto": { "layout": "photos_1", "locked": false }
+      },
+      "add_spread": true,
+      "remove_extra_spreads": true,
+      "change_page_layout": true,
+      "assign_media": true,
+      "media_tray": {
+        "source": "section_members",
+        "scope": "current_section",
+        "kinds": ["photo", "video", "track"],
+        "thumbnails": true,
+        "interaction": "drag_drop",
+        "exclude": ["rejected", "hidden_cluster_members", "parked"],
+        "reuse": true,
+        "note": "Leiste mit Vorschaubildern der Medien und Tracks des geöffneten Abschnitts. Ziehen auf Media-Slots (Foto-Raster und Titelbild der Intro-Seite). Dieselbe Datei darf mehrfach liegen. Journal-Seiten haben keine Media-Slots."
+      },
+      "page_layouts": [
+        "photos_1",
+        "photos_2",
+        "photos_3",
+        "photos_4",
+        "photos_5",
+        "photos_6",
+        "photos_7",
+        "photos_8",
+        "journal"
+      ]
+    }
+  },
+  "bindings": {
+    "trip.title": {
+      "path": "trip.title",
+      "source": "trip",
+      "required": true,
+      "note": "Reisetitel aus der Timeline (trips.title)."
+    },
+    "trip.year": {
+      "path": "trip.start_date.year",
+      "source": "trip",
+      "required": false,
+      "note": "Jahr-Badge auf dem Cover. Leer, wenn kein Startdatum."
+    },
+    "export.authors": {
+      "path": "export.authors",
+      "source": "export",
+      "required": false,
+      "note": "Noch kein Autorenfeld am Trip. Steht im Export-Dialog und in export_configs.settings_json."
+    },
+    "export.cover_image": {
+      "path": "export.cover_source_file_id",
+      "source": "export",
+      "required": false,
+      "note": "Fallback: Titelbild des ersten veröffentlichten Abschnitts, sonst erstes Foto."
+    },
+    "export.home": {
+      "path": "export.home",
+      "source": "export",
+      "required": false,
+      "note": "Heimatort (Name + Koordinaten) für den weitesten Punkt. Fehlt er, entfällt der Block."
+    },
+    "trip.countries": {
+      "path": "trip.countries",
+      "source": "trip",
+      "required": false,
+      "note": "Manuelle Liste auf der Projektseite. Ein Land pro Zeile."
+    },
+    "stats.distance_km": {
+      "path": "stats.distance_km",
+      "source": "stats",
+      "required": false,
+      "note": "Summe der GPS-Tracks (GPX/IGC) der veröffentlichten Abschnitte; ohne Track grobe Haversine entlang der Cover-Positionen."
+    },
+    "stats.duration_days": {
+      "path": "stats.duration_days",
+      "source": "stats",
+      "required": true,
+      "note": "Kalendertage inklusiv aus trips.start_date/end_date (Projektseite von–bis). Leer bzw. Fallback: Spanne der veröffentlichten Abschnitte."
+    },
+    "stats.section_count": {
+      "path": "stats.section_count",
+      "source": "stats",
+      "required": true,
+      "note": "Anzahl published_entries (Tag, Aufenthalt, Transfer)."
+    },
+    "stats.photo_count": {
+      "path": "stats.photo_count",
+      "source": "stats",
+      "required": true,
+      "note": "Sichtbare Fotos der veröffentlichten Abschnitte (Schlüsselfotos, nicht Aussortiert, nicht Pool)."
+    },
+    "stats.youtube_count": {
+      "path": "stats.youtube_count",
+      "source": "stats",
+      "required": true,
+      "note": "Eindeutige YouTube-Links der veröffentlichten Abschnitte."
+    },
+    "stats.flight_count": {
+      "path": "stats.flight_count",
+      "source": "stats",
+      "required": true,
+      "note": "IGC-Dateien (Gleitschirmflüge) der Reise, ohne Aussortierte; auch im Pool, sofern ein Kalendertag existiert. Mehrere Piloten: Label mit (n Piloten)."
+    },
+    "stats.furthest_point": {
+      "path": "stats.furthest_point",
+      "source": "stats",
+      "required": false,
+      "note": "Maximale Haversine von export.home zu einer Foto- oder Cover-Position."
+    },
+    "stats.overview_map": {
+      "path": "stats.overview_map",
+      "source": "stats",
+      "required": false,
+      "note": "Statisches Kartenbild (Route plus Foto-Marker). Auch im HTML-Buch nicht schwenk- oder zoombar — das ist der Ausgabetyp Travelbook (interaktiv)."
+    }
+  },
+  "pages": [
+    {
+      "id": "cover",
+      "kind": "cover",
+      "status": "active",
+      "spread": false,
+      "numbered": false,
+      "label": { "de": "Cover", "en": "Cover" },
+      "slots": {
+        "title": {
+          "bind": "trip.title",
+          "transform": "uppercase"
+        },
+        "badge": {
+          "bind": "trip.year",
+          "optional": true
+        },
+        "image": {
+          "bind": "export.cover_image",
+          "fallback": "trip.first_cover"
+        }
+      },
+      "style": {
+        "title_align": "center",
+        "title_color": "#ffffff",
+        "badge_background": "#2d5a3d",
+        "badge_color": "#ffffff",
+        "image_fit": "cover",
+        "overlay": "none"
+      }
+    },
+    {
+      "id": "title_page",
+      "kind": "title_page",
+      "status": "active",
+      "spread": true,
+      "numbered": true,
+      "label": { "de": "Titelseite", "en": "Title page" },
+      "verso": {
+        "kind": "blank"
+      },
+      "recto": {
+        "kind": "title_page",
+        "slots": {
+          "authors": {
+            "bind": "export.authors",
+            "transform": "uppercase",
+            "optional": true
+          },
+          "title": {
+            "bind": "trip.title",
+            "align": "center"
+          }
+        },
+        "style": {
+          "title_align": "center",
+          "title_valign": "center",
+          "title_color": "#1a2744",
+          "title_size": "xlarge"
+        }
+      }
+    },
+    {
+      "id": "trip_summary",
+      "kind": "trip_summary",
+      "status": "active",
+      "spread": true,
+      "numbered": true,
+      "label": { "de": "Reiseübersicht", "en": "Trip summary" },
+      "verso": {
+        "kind": "trip_summary_stats",
+        "slots": {
+          "heading": { "value": "REISEÜBERSICHT" },
+          "countries_heading": { "value": "LÄNDER" },
+          "countries": { "bind": "trip.countries", "optional": true },
+          "duration_days": { "bind": "stats.duration_days", "transform": "count" },
+          "section_count": { "bind": "stats.section_count", "transform": "count" },
+          "photo_count": { "bind": "stats.photo_count", "transform": "count" },
+          "youtube_count": { "bind": "stats.youtube_count", "transform": "count" },
+          "flight_count": { "bind": "stats.flight_count", "transform": "count" }
+        },
+        "style": {
+          "sidebar": "countries",
+          "sidebar_background": "#1a2744",
+          "metrics": [
+            "duration_days",
+            "section_count",
+            "photo_count",
+            "youtube_count",
+            "flight_count"
+          ]
+        }
+      },
+      "recto": {
+        "kind": "trip_summary_map",
+        "slots": {
+          "map": { "bind": "stats.overview_map", "optional": true }
+        },
+        "style": {
+          "mode": "static_image",
+          "tiles": "satellite",
+          "route_color": "#ffffff",
+          "photo_markers": "thumbnails",
+          "bleed": true
+        }
+      }
+    },
+    {
+      "id": "chronicle",
+      "kind": "chronicle",
+      "status": "active",
+      "spread": true,
+      "numbered": true,
+      "label": { "de": "Chronik", "en": "Chronicle" },
+      "repeat": { "over": "published_entries", "as": "entry" },
+      "note": "Je veröffentlichtem Abschnitt zuerst eine Doppelseite (links Abschnittsstart, rechts 1-Foto-Template). Weitere Doppelseiten im Editor, jede Seite ein Layout photos_1–8 oder journal.",
+      "verso": { "kind": "section_intro", "layout": "section_intro" },
+      "recto": { "kind": "photos", "layout": "photos_1" }
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "photos_4",
+  "kind": "photos",
+  "label": { "de": "4 Fotos", "en": "4 photos" },
+  "applies_to": "page",
+  "photo_count": 4,
+  "grid": { "unit": "percent", "gutter": 2 },
+  "slots": [
+    { "id": "p1", "type": "media", "accept": ["photo", "video", "track"], "x": 0, "y": 0, "w": 49, "h": 49, "fit": "cover" },
+    { "id": "p2", "type": "media", "accept": ["photo", "video", "track"], "x": 51, "y": 0, "w": 49, "h": 49, "fit": "cover" },
+    { "id": "p3", "type": "media", "accept": ["photo", "video", "track"], "x": 0, "y": 51, "w": 49, "h": 49, "fit": "cover" },
+    { "id": "p4", "type": "media", "accept": ["photo", "video", "track"], "x": 51, "y": 51, "w": 49, "h": 49, "fit": "cover" }
+  ]
+}

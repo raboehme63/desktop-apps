@@ -47,6 +47,14 @@ datas += [
         str(SRC_CORE / "travelcore" / "database" / "migrations"),
         "travelcore/database/migrations",
     ),
+    (
+        str(SRC_CORE / "travelcore" / "export" / "templates"),
+        "travelcore/export/templates",
+    ),
+    (
+        str(SRC_CORE / "travelcore" / "geo" / "data"),
+        "travelcore/geo/data",
+    ),
     (str(ROOT / "LICENSE"), "."),
     (str(SPECDIR / "NOTICE.txt"), "."),
 ]

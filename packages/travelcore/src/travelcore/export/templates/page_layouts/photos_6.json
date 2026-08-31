@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "photos_6",
+  "kind": "photos",
+  "label": { "de": "6 Fotos", "en": "6 photos" },
+  "applies_to": "page",
+  "photo_count": 6,
+  "grid": { "unit": "percent", "gutter": 2 },
+  "slots": [
+    { "id": "p1", "type": "media", "accept": ["photo", "video", "track"], "x": 0, "y": 0, "w": 32, "h": 49, "fit": "cover" },
+    { "id": "p2", "type": "media", "accept": ["photo", "video", "track"], "x": 34, "y": 0, "w": 32, "h": 49, "fit": "cover" },
+    { "id": "p3", "type": "media", "accept": ["photo", "video", "track"], "x": 68, "y": 0, "w": 32, "h": 49, "fit": "cover" },
+    { "id": "p4", "type": "media", "accept": ["photo", "video", "track"], "x": 0, "y": 51, "w": 32, "h": 49, "fit": "cover" },
+    { "id": "p5", "type": "media", "accept": ["photo", "video", "track"], "x": 34, "y": 51, "w": 32, "h": 49, "fit": "cover" },
+    { "id": "p6", "type": "media", "accept": ["photo", "video", "track"], "x": 68, "y": 51, "w": 32, "h": 49, "fit": "cover" }
+  ]
+}

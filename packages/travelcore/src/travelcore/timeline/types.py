@@ -37,6 +37,7 @@ class TimelinePhoto:
     group_status: str | None = None
     quality_light: str | None = None
     quality_tooltip: str | None = None
+    pilot: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,6 +144,9 @@ class TimelineSnapshot:
     trip_id: int
     title: str
     origin: str
+    countries: tuple[str, ...] = field(default_factory=tuple)
+    start_date: date | None = None
+    end_date: date | None = None
     days: tuple[TimelineDay, ...] = field(default_factory=tuple)
     sections: tuple[TimelineSection, ...] = field(default_factory=tuple)
     entries: tuple[TimelineEntry, ...] = field(default_factory=tuple)

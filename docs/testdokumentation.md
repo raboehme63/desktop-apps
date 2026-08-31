@@ -24,9 +24,9 @@ Diese Dokumentation beschreibt **Teststrategie, Automatisierung, manuelle Prüfu
 
 | Stufe | Ort | Werkzeug | Was |
 | --- | --- | --- | --- |
-| Unit | `packages/travelcore/tests/` | pytest | Typen, Hash, Zeit, GPS, Provider, HEIC-Container, GPX/IGC/KML, Interpolation, ExifTool-JSON, Thumbnails, Orientierung, Timeline, Abschnitte, History-Snapshots |
+| Unit | `packages/travelcore/tests/` | pytest | Typen, Hash, Zeit, GPS, Provider, HEIC-Container, GPX/IGC/KML, Interpolation, ExifTool-JSON, Thumbnails, Orientierung, Timeline, Abschnitte, History-Snapshots, Länderkatalog |
 | Integration | `packages/travelcore/tests/test_indexer.py`, `test_database.py`, `test_timeline.py`; `tests/integration/`; `tests/test_edit_history.py` | pytest | Projektordner, Schema, Index → SQLite, Timeline-Sync, Re-Open, Workspace-Undo |
-| GUI-Rauch | `tests/test_gui_smoke.py` | pytest + Qt offscreen | Hauptfenster, sechs Seiten, Menü **Bearbeiten**, Inspektor, Register, Titel mit Version, Timeline-Speichern nur bei Abschnitten/Texten/Reisetitel/YouTube, Sichtbarkeits-Schalter, Verlassen-Dialog, Karten-Refresh ohne Live-Reuse, **Filtern**, Thumbnail-Schieber inkl. Import, Ampel-Hover |
+| GUI-Rauch | `tests/test_gui_smoke.py` | pytest + Qt offscreen | Hauptfenster, sechs Seiten, Menü **Bearbeiten**, Inspektor, Register, Titel mit Version, Timeline-Speichern nur bei Abschnitten/Texten/Reisetitel/YouTube, Sichtbarkeits-Schalter, Verlassen-Dialog, Karten-Refresh ohne Live-Reuse, **Filtern**, Thumbnail-Schieber inkl. Import, Ampel-Hover, Länderauswahl und Reise von–bis |
 | Paketierung | `packaging/` | manuell nach `build.ps1` | Frozen-EXE startet, Alembic/Karte, kein Python nötig (MT-22) |
 | Manuell | dieses Dokument, Abschnitt 7 | Windows-Desktop | Import echter HEIC/JPEG, Liste, Timeline, Abschnitte, Karte, Inspektor, Undo/Redo |
 | Statisch | Repository-Wurzel | Ruff, später pyright | Stil, Imports, grundlegende Typen |
@@ -185,7 +185,7 @@ Stand nach `pytest --collect-only`: **452 Tests** (31. August 2026). Neue Tests 
 | `test_indexer_reads_heic_quicktime_gps` | `test_indexer.py` | Index speichert QuickTime-GPS |
 | `test_indexer_reads_heic_embedded_exif_camera_and_gps` | `test_indexer.py` | Index speichert Kamera und EXIF-GPS |
 
-### 4.6 Projekt, Schema, Schnittstellen — FA-110 bis FA-113, FA-120, FA-090
+### 4.6 Projekt, Schema, Schnittstellen — FA-110 bis FA-113, FA-120, FA-125, FA-090
 
 | Test | Datei | Prüft |
 | --- | --- | --- |
@@ -206,8 +206,25 @@ Stand nach `pytest --collect-only`: **452 Tests** (31. August 2026). Neue Tests 
 | `test_rebase_rewrites_indexed_paths` | `test_project_settings.py` | Pfad-Rebase ohne Original-Move |
 | `test_project_survives_close_and_reopen` | `tests/integration/test_project_lifecycle.py` | Index überlebt Re-Open |
 | `test_exporters_share_interface` | `test_interfaces.py` | HTML/PDF/LaTeX/CEWE sind `Exporter` |
+| `test_first_path_is_travelbook_html` | `test_export_catalog.py` | Katalog: erster Pfad Travelbook × HTML |
+| `test_travelbook_is_static_book_with_page_turn` | `test_export_catalog.py` | Travelbook: Blätterbuch, Karte als Bild, Chronik-Intro, Editor |
+| `test_travelbook_page_layouts_are_one_to_eight_photos_and_journal` | `test_export_catalog.py` | Seiten-Templates photos_1–8 und journal; Media-Slots Foto/Video/Track |
+| `test_interactive_is_readonly_map_website` | `test_export_catalog.py` | Interaktiv: Read-only-Karte, nur HTML, kein Buch |
+| `test_yearbook_is_planned_and_print_capable` | `test_export_catalog.py` | Jahrbuch geplant, ohne Video |
+| `test_trip_summary_counts_days_sections_media_and_flights` | `test_export_stats.py` | Reiseübersicht: Tage, Abschnitte, Fotos, YouTube, IGC |
+| `test_trip_summary_omits_zero_metrics` | `test_export_stats.py` | Kennzahl 0 (z. B. YouTube) fehlt in der Übersicht |
+| `test_trip_summary_flight_label_includes_pilot_count` | `test_export_stats.py` | Gleitschirmflüge (n Piloten) nur bei mehr als einem Piloten |
+| `test_trip_summary_counts_igc_on_days_even_without_section_members` | `test_export_stats.py` | IGC `.IGC` zählt auch ohne Abschnittsmitgliedschaft |
+| `test_trip_summary_prefers_snapshot_span_over_sections` | `test_export_stats.py` | Kennzahl Tage aus Snapshot-von–bis, nicht aus Abschnitten |
+| `test_catalog_includes_core_travel_countries` | `test_country_catalog.py` | 200+ Länder, DE/IT/FR/NO/TW/ZA mit Flagge und Umriss |
+| `test_resolve_token_accepts_code_german_english_and_alias` | `test_country_catalog.py` | ISO, DE/EN-Name, Alias USA, Suche Slowenien und Südafrika |
+| `test_parse_countries_stores_iso_codes` | `test_country_catalog.py` | Freitext und Codes werden als ISO gespeichert |
+| `test_catalog_files_live_next_to_module` | `test_country_catalog.py` | `catalog.json`, NOTICE, `flags/de.svg`, `shapes/de.svg` |
 | `test_protocols_are_importable` | `test_interfaces.py` | `MetadataProvider`, `RankingStrategy`, `MapBackend` |
-| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R3.1.0, Menü **Bearbeiten** mit Strg+Z/Strg+Y, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren** |
+| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R3.1.0, Menü **Bearbeiten** mit Strg+Z/Strg+Y, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren**, Export ohne Kopfzeile, Modus Export/Editiermodus, einklappbare Auswahl, Blättern mit Pfeilen links/rechts, Seitenformat DIN A4 Hochformat, Dateiformat erst im Export-Dialog, Länderauswahl und Reise von–bis deaktiviert ohne Projekt |
+| `test_country_picker_adds_flag_and_shape` | `tests/test_gui_smoke.py` | Länderauswahl: Italien und Slowenien mit Flagge und Umriss |
+| `test_project_span_edits_update_duration` | `tests/test_gui_smoke.py` | Projektseite: von–bis setzt Dauer (2 Tage) |
+| `test_summary_countries_stack_evenly_with_flag_in_outline` | `tests/test_gui_smoke.py` | Reiseübersicht: Umriss, Name in Versalien, kleine Flagge hinter dem Namen |
 
 ### 4.7 GPX und zeitliche Zuordnung — FA-040 bis FA-042
 
@@ -368,6 +385,10 @@ Stand nach `pytest --collect-only`: **452 Tests** (31. August 2026). Neue Tests 
 | `test_text_only_note_creates_a_day` | `test_timeline.py` | Nur-Text erzeugt einen Tag |
 | `test_photo_sort_status_keeps_favorite_in_sync` | `test_timeline.py` | `sort_status` und `is_favorite` |
 | `test_source_rotation_is_stored_and_used_for_thumbs` | `test_timeline.py` | `rotation_degrees` steuert Cache |
+| `test_infer_trip_dates_without_media` | `test_timeline.py` | ohne Medien kein von–bis |
+| `test_load_timeline_prefills_trip_span_from_media` | `test_timeline.py` | zwei Aufnahmetage → Reise von–bis und Dauer 2 |
+| `test_saved_trip_dates_override_inferred_span` | `test_timeline.py` | gespeichertes von–bis überstimmt Medien und überlebt Sync |
+| `test_save_trip_dates_rejects_end_before_start` | `test_timeline.py` | Ende vor Start abgelehnt |
 | `test_indexer_preserves_rotation_on_reingest` | `test_indexer.py` | Re-Import überschreibt Nutzerdrehung nicht |
 | `test_parse_markdown_heading` | `test_timeline_texts.py` | `# Titel` |
 | `test_parse_first_line_as_title` | `test_timeline_texts.py` | erste Zeile als Titel |
@@ -643,12 +664,13 @@ Stand nach `pytest --collect-only`: **452 Tests** (31. August 2026). Neue Tests 
 - Reiseabschnitte, Pending-Vorschau, Eintrags-Titelbild (Foto und Track, YouTube-Fallback)
 - YouTube- und DHV-Leonardo-URL-Normalisierung
 - Anzeigedrehung (Index, Cachepfad, Re-Import, Inspektor ohne Originalschreiben)
-- GUI-Rauch: Fenstertitel mit Version R3.1.0, Menü **Bearbeiten** (Strg+Z/Strg+Y), Pipeline Import→Medien→Timeline, Pool-Spalte, getrennte Medien/Tracks, Register nur per Klick (auch Tracks), Inspektor Blättern/Zoom/Drehen/Pool/Zur Karte (letzter Klick, geladene Karte ohne Neuaufbau), Sichtbarkeits-Schalter, Speichern/Verlassen, Thumbnail-Schieber
+- GUI-Rauch: Fenstertitel mit Version R3.1.0, Menü **Bearbeiten** (Strg+Z/Strg+Y), Pipeline Import→Medien→Timeline, Pool-Spalte, getrennte Medien/Tracks, Register nur per Klick (auch Tracks), Inspektor Blättern/Zoom/Drehen/Pool/Zur Karte (letzter Klick, geladene Karte ohne Neuaufbau), Sichtbarkeits-Schalter, Speichern/Verlassen, Thumbnail-Schieber, Länderauswahl und Reise von–bis ohne Projekt deaktiviert
 - Medien-Cluster: SHA-256-Stapel, 30-s-Szenengruppen, manuelle Gruppen ohne Schlüssel, Overlay blendet Nicht-Schlüssel aus, Galerie-Kennzeichen G/×n, Inspektor-Blättern (Links/rechts Schlüssel, hoch/runter Gruppe, Leertaste, Aussortierte-Checkbox), Statistikleiste
 - Qualitätsampel: `technical_quality` in `photo_analyses`, Pillow-Analyse ohne Originalschreiben, Ampel in der Galerie, Knopf **Qualität prüfen**, Hover mit ausschlaggebenden Einzelwerten (`quality_tooltip`)
 - Medien-**Filtern**: Qualität, Zeitraum Von–Bis, Bewertung (Mehrfachauswahl) für Galerie und Pool
 - Thumbnail-Schieber auf Timeline, Medien, Karte und Import (`import_thumb_zoom`)
 - Export- und Provider-*Verträge* existieren
+- Länderkatalog: 200+ ISO-2 mit DE/EN-Namen, Flagge und Umriss (inkl. Südafrika); Projektseite-Auswahl; Reiseübersicht Umriss + Name + Flagge; Reise von–bis und Kennzahl Tage; Gleitschirmflüge/IGC inkl. Pool und Pilotenzahl in Klammern
 
 ### 5.2 Bewusst noch ohne Automatisierung
 
@@ -659,7 +681,7 @@ Stand nach `pytest --collect-only`: **452 Tests** (31. August 2026). Neue Tests 
 | Windows-Endnutzerpaket | FA-140–FA-144 | kein pytest; manuell MT-22 nach `packaging/build.ps1` |
 | Galeriefilter in der UI | FA-101 | Logik der Liste und **Filtern**-Panel automatisiert; visuell MT-09 |
 | Zuletzt verwendete Projekte in der UI | FA-091 | `recent.json` ohne Oberfläche; manuell nicht zwingend |
-| HTML-/PDF-/LaTeX-Ausgabe | FA-121–FA-123 | Phase 8 |
+| HTML-/PDF-/LaTeX-Ausgabe | FA-121–FA-127 | Phase 8 (Templates/Katalog/Editor-JSON da; Renderer offen) |
 | pHash/dHash, unechte Dubletten | FA-071 | SHA-256-Stapel und Zeitszenen automatisiert; visuelle Near-Duplicates Phase 10 |
 | Importliste „alle Dateien“ (kein 250er-Limit) | FA-025 | nur manuell / GUI, kein Unit-Test der Qt-Tabelle |
 | Originale unverändert | FA-023 | implizit (nur Lese-APIs); Thumbnail- und Inspektor-Tests prüfen mtime |
@@ -708,6 +730,8 @@ Testdaten: **Kopie** eines Fotoordners, niemals das einzige Originalarchiv als E
 | --- | --- |
 | Neues Projekt in leerem Ordner | `project.sqlite` plus `settings.toml` und Unterordner `thumbnails`, `cache`, `exports`, `logs` |
 | App schließen, denselben Ordner öffnen | Name und späterer Importzustand erhalten |
+| Projektseite: Länder **Südafrika** und **Italien** wählen, **Projekt speichern** | Zeilen mit Flagge und Umriss; nach erneutem Öffnen dieselben Länder |
+| Projektseite: Reise von–bis nach Import | Vorbefüllt aus Aufnahmezeiten; editierbar; **Dauer** inklusiv; Export-Kennzahl Tage folgt diesem Zeitraum |
 
 ### MT-02 JPEG mit EXIF
 

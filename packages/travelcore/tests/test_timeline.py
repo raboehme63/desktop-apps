@@ -1,21 +1,26 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
+import pytest
 from jpeg_fixtures import write_jpeg_with_exif
 from sqlalchemy import select
 
 from travelcore.database.models import Photo, Project
 from travelcore.database.project_store import OpenProject
+from travelcore.exceptions import ProjectError
+from travelcore.export.stats import trip_summary_counts
 from travelcore.geolocation.stays import cluster_stays, haversine_m
 from travelcore.media.indexer import FileIndexer
 from travelcore.timeline import (
     add_place_suggestions,
     add_source_rotation,
     confirm_place,
+    infer_trip_dates,
     load_timeline,
     save_day_leonardo_urls,
     save_day_text,
     save_day_youtube_urls,
+    save_trip_dates,
     save_trip_title,
     set_cover_photo,
     set_photo_journal_flag,
@@ -373,6 +378,76 @@ def test_source_rotation_is_stored_and_used_for_thumbs(open_project: OpenProject
         row = session.get(SourceFile, photo_id)
         assert row is not None
         assert row.rotation_degrees == 180
+
+
+def test_infer_trip_dates_without_media(open_project: OpenProject) -> None:
+    with open_project.session_factory() as session:
+        assert infer_trip_dates(session, open_project.project_id) == (None, None)
+
+
+def test_load_timeline_prefills_trip_span_from_media(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "tag1.jpg",
+        datetime_original="2025:05:15 08:20:00",
+        offset_original="+02:00",
+    )
+    write_jpeg_with_exif(
+        source / "tag2.jpg",
+        datetime_original="2025:05:16 18:00:00",
+        offset_original="+02:00",
+    )
+    snapshot = _index_and_sync(open_project, source)
+    assert snapshot.start_date == date(2025, 5, 15)
+    assert snapshot.end_date == date(2025, 5, 16)
+    assert trip_summary_counts(snapshot)["duration_days"] == 2
+
+
+def test_saved_trip_dates_override_inferred_span(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "tag1.jpg",
+        datetime_original="2025:05:15 08:20:00",
+        offset_original="+02:00",
+    )
+    write_jpeg_with_exif(
+        source / "tag2.jpg",
+        datetime_original="2025:05:16 18:00:00",
+        offset_original="+02:00",
+    )
+    snapshot = _index_and_sync(open_project, source)
+    with open_project.session_factory() as session:
+        save_trip_dates(session, snapshot.trip_id, date(2025, 5, 10), date(2025, 5, 20))
+        session.commit()
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        loaded = load_timeline(session, project)
+        sync_timeline(session, project, thumbs_dir=open_project.directory / "thumbnails")
+        session.commit()
+        again = load_timeline(session, project)
+    assert loaded is not None
+    assert loaded.start_date == date(2025, 5, 10)
+    assert loaded.end_date == date(2025, 5, 20)
+    assert trip_summary_counts(loaded)["duration_days"] == 11
+    assert again is not None
+    assert again.start_date == date(2025, 5, 10)
+    assert again.end_date == date(2025, 5, 20)
+
+
+def test_save_trip_dates_rejects_end_before_start(open_project: OpenProject, tmp_path: Path) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "tag1.jpg",
+        datetime_original="2025:05:15 08:20:00",
+        offset_original="+02:00",
+    )
+    snapshot = _index_and_sync(open_project, source)
+    with open_project.session_factory() as session, pytest.raises(ProjectError, match="Endedatum"):
+        save_trip_dates(session, snapshot.trip_id, date(2025, 5, 16), date(2025, 5, 15))
 
 
 def _index_and_sync(open_project: OpenProject, source: Path) -> TimelineSnapshot:

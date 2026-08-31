@@ -70,6 +70,7 @@ Diese Werkzeuge bleiben optional, wie in der laufenden Entwicklung:
   `traveljournal.main`. So bleiben ProcessPool-Worker ohne extra GUI-Fenster,
   ohne die App-Quellen anzufassen.
 - PySide6 unterliegt der LGPL-3.0. `NOTICE.txt` liegt im Paket; siehe auch
-  [docs/dependencies.md](../docs/dependencies.md).
+  [docs/dependencies.md](../docs/dependencies.md). Der Länderkatalog
+  (`travelcore/geo/data`, Flaggen und Umrisse) wird mit in die EXE gepackt.
 - Es wird **onedir** gebaut (Ordner mit EXE), nicht eine einzelne Datei. Das
   ist für Qt WebEngine und den ProcessPool zuverlässiger.

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "photos_8",
+  "kind": "photos",
+  "label": { "de": "8 Fotos", "en": "8 photos" },
+  "applies_to": "page",
+  "photo_count": 8,
+  "grid": { "unit": "percent", "gutter": 2 },
+  "slots": [
+    { "id": "p1", "type": "media", "accept": ["photo", "video", "track"], "x": 0, "y": 0, "w": 24, "h": 49, "fit": "cover" },
+    { "id": "p2", "type": "media", "accept": ["photo", "video", "track"], "x": 25.5, "y": 0, "w": 24, "h": 49, "fit": "cover" },
+    { "id": "p3", "type": "media", "accept": ["photo", "video", "track"], "x": 51, "y": 0, "w": 24, "h": 49, "fit": "cover" },
+    { "id": "p4", "type": "media", "accept": ["photo", "video", "track"], "x": 76.5, "y": 0, "w": 23.5, "h": 49, "fit": "cover" },
+    { "id": "p5", "type": "media", "accept": ["photo", "video", "track"], "x": 0, "y": 51, "w": 24, "h": 49, "fit": "cover" },
+    { "id": "p6", "type": "media", "accept": ["photo", "video", "track"], "x": 25.5, "y": 51, "w": 24, "h": 49, "fit": "cover" },
+    { "id": "p7", "type": "media", "accept": ["photo", "video", "track"], "x": 51, "y": 51, "w": 24, "h": 49, "fit": "cover" },
+    { "id": "p8", "type": "media", "accept": ["photo", "video", "track"], "x": 76.5, "y": 51, "w": 23.5, "h": 49, "fit": "cover" }
+  ]
+}

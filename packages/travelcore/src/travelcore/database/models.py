@@ -179,6 +179,7 @@ class Trip(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     start_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     end_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    countries: Mapped[str | None] = mapped_column(Text, nullable=True)
     origin: Mapped[str] = mapped_column(String(16), nullable=False, default="auto")
 
     project: Mapped[Project] = relationship(back_populates="trips")

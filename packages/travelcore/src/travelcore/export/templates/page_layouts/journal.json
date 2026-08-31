@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "id": "journal",
+  "kind": "journal",
+  "label": { "de": "Tagebucheintrag", "en": "Journal entry" },
+  "applies_to": "page",
+  "photo_count": 0,
+  "note": "Eine Buchseite mit Titel und Text des Abschnitts. Der Text kommt aus der Timeline (section.notes), im Editor nicht extra gesetzt.",
+  "slots": [
+    {
+      "id": "title",
+      "type": "text",
+      "bind": "entry.title",
+      "x": 8,
+      "y": 8,
+      "w": 84,
+      "h": 10
+    },
+    {
+      "id": "body",
+      "type": "text",
+      "bind": "entry.notes",
+      "x": 8,
+      "y": 20,
+      "w": 84,
+      "h": 72
+    }
+  ]
+}

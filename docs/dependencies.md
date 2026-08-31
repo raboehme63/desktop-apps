@@ -96,6 +96,10 @@ von SVG Repo. Tabelle, URLs und Schritte zum Ergänzen:
 [architecture.md — Verkehrsmittelsymbole](architecture.md#verkehrsmittelsymbole).
 Lizenzhinweis im Paket: `packaging/NOTICE.txt`.
 
+## Eingebettete Länderdaten (keine pip-Abhängigkeit)
+
+Lokal in `travelcore/geo/data/`: Flaggen (lipis/flag-icons v7.3.2, MIT), vereinfachte Umrisse aus [datasets/geo-countries](https://github.com/datasets/geo-countries) (Natural Earth, Public Domain / ODC-PDDL), Namen aus Unicode CLDR. API: `travelcore.geo.catalog` (`list_countries`, `resolve_token`, `search_countries`). Erzeugen: `scripts/build_country_catalog.py` (siehe [README.md](../README.md)). Rebuild nicht zur Laufzeit. PyInstaller: `packaging/traveljournal.spec` nimmt `geo/data` mit.
+
 ## Externe Werkzeuge (optional, nicht per pip erzwungen)
 
 | Werkzeug | Geplante Phase | Hinweis |
