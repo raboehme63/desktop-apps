@@ -4,14 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import replace
+from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QMimeData, QSize, Qt
+from PySide6.QtCore import QByteArray, QMimeData, QSize, Qt, QThreadPool, Signal
 from PySide6.QtGui import QDrag, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -27,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from travelcore.exceptions import ExportError
+from travelcore.export.book import export_rotations, export_sources
 from travelcore.export.catalog import (
     default_page_size_id,
     first_path,
@@ -52,7 +55,10 @@ from travelcore.export.document import (
     replace_spread,
     save_document,
 )
+from travelcore.export.pdf import export_filename, normalize_pdf_save_path, unique_export_path
 from travelcore.export.photo_layouts import layout_from_frames, save_user_layout
+from travelcore.export.quality import DEFAULT_QUALITY_ID, list_pdf_qualities
+from traveljournal.services.workers import ExportPdfRunnable
 from traveljournal.services.workspace import Workspace
 from traveljournal.views.photo_templates_dialog import (
     PhotoTemplateDialog,
@@ -148,7 +154,13 @@ def _choice_button(caption: str, key: str, on_pick: Callable[[str], None]) -> QP
 class ExportFormatDialog(QDialog):
     """Ask for an output format supported by the chosen product."""
 
-    def __init__(self, product_id: str, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        product_id: str,
+        parent: QWidget | None = None,
+        *,
+        quality_id: str = DEFAULT_QUALITY_ID,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Exportieren")
         self.setModal(True)
@@ -156,7 +168,10 @@ class ExportFormatDialog(QDialog):
         allowed = product_formats(product_id)
         preferred = first_path()[1]
         self._format_id = preferred if preferred in allowed else (allowed[0] if allowed else "")
+        known = {item.id for item in list_pdf_qualities()}
+        self._quality_id = quality_id if quality_id in known else DEFAULT_QUALITY_ID
         self._buttons: dict[str, QPushButton] = {}
+        self._quality_buttons: dict[str, QPushButton] = {}
 
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 18, 20, 18)
@@ -180,6 +195,33 @@ class ExportFormatDialog(QDialog):
             self._buttons[format_id] = button
             grid.addWidget(button, index // 3, index % 3)
         root.addLayout(grid)
+
+        self._quality_host = QWidget()
+        quality_layout = QVBoxLayout(self._quality_host)
+        quality_layout.setContentsMargins(0, 4, 0, 0)
+        quality_layout.setSpacing(8)
+        quality_caption = QLabel("Qualität")
+        quality_caption.setObjectName("fieldCaption")
+        quality_layout.addWidget(quality_caption)
+        quality_grid = QGridLayout()
+        quality_grid.setSpacing(8)
+        quality_group = QButtonGroup(self)
+        quality_group.setExclusive(True)
+        for index, item in enumerate(list_pdf_qualities()):
+            button = _choice_button(item.label_de, item.id, self._pick_quality)
+            button.setObjectName("exportQualityChoice")
+            button.setChecked(item.id == self._quality_id)
+            button.setToolTip(item.note_de)
+            quality_group.addButton(button)
+            self._quality_buttons[item.id] = button
+            quality_grid.addWidget(button, index // 3, index % 3)
+        quality_layout.addLayout(quality_grid)
+        self._quality_note = QLabel("")
+        self._quality_note.setObjectName("pageSubtitle")
+        self._quality_note.setWordWrap(True)
+        quality_layout.addWidget(self._quality_note)
+        root.addWidget(self._quality_host)
+
         box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         box.button(QDialogButtonBox.StandardButton.Ok).setText("Exportieren")
         box.button(QDialogButtonBox.StandardButton.Cancel).setText("Abbrechen")
@@ -187,18 +229,43 @@ class ExportFormatDialog(QDialog):
         box.rejected.connect(self.reject)
         box.button(QDialogButtonBox.StandardButton.Ok).setEnabled(bool(allowed))
         root.addWidget(box)
+        self._sync_quality()
 
     def selected_format(self) -> str:
         return self._format_id
 
+    def selected_quality(self) -> str:
+        return self._quality_id
+
     def _pick(self, format_id: str) -> None:
         self._format_id = format_id
+        self._sync_quality()
+
+    def _pick_quality(self, quality_id: str) -> None:
+        self._quality_id = quality_id
+        self._sync_quality()
+
+    def _sync_quality(self) -> None:
+        pdf = self._format_id == "pdf"
+        self._quality_host.setVisible(pdf)
+        for quality_id, button in self._quality_buttons.items():
+            button.setChecked(quality_id == self._quality_id)
+        if not pdf:
+            self._quality_note.setText("")
+            return
+        chosen = next((item for item in list_pdf_qualities() if item.id == self._quality_id), None)
+        self._quality_note.setText(chosen.note_de if chosen is not None else "")
 
 
 class ExportView(QWidget):
+    export_progress = Signal(int, int, str)
+    export_finished = Signal()
+
     def __init__(self, workspace: Workspace, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.workspace = workspace
+        self._pool = QThreadPool.globalInstance()
+        self._exporting = False
         self._product_id, _default_format = first_path()
         self._page_size_id = default_page_size_id()
         self._photo_layout_id = ""
@@ -211,6 +278,7 @@ class ExportView(QWidget):
         self._layout_buttons: dict[str, QPushButton] = {}
         self._mode_buttons: dict[str, QPushButton] = {}
         self._document: TravelbookDocument | None = None
+        self._pdf_quality_id = DEFAULT_QUALITY_ID
 
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 12, 24, 12)
@@ -503,9 +571,7 @@ class ExportView(QWidget):
         if not ok:
             return
         try:
-            saved = save_user_layout(
-                layout_from_frames(frames, name=name, page_size=self._page_size_id)
-            )
+            saved = save_user_layout(layout_from_frames(frames, name=name, page_size=self._page_size_id))
         except ExportError as exc:
             QMessageBox.warning(self, "Vorlage", str(exc))
             return
@@ -594,7 +660,7 @@ class ExportView(QWidget):
         else:
             self._other_hint.setText("Jahrbuch-Vorschau folgt.")
             self._other_hint.show()
-        self._export_button.setEnabled(self.workspace.current is not None)
+        self._export_button.setEnabled(self.workspace.current is not None and not self._exporting)
 
     def _sync_editor(self) -> None:
         leaf = self._preview.current_leaf()
@@ -679,16 +745,85 @@ class ExportView(QWidget):
         self._save_document()
         self._reload_leaves()
 
+    def _choose_pdf_destination(self, suggested: Path) -> Path | None:
+        suggested.parent.mkdir(parents=True, exist_ok=True)
+        chosen, _filter = QFileDialog.getSaveFileName(
+            self,
+            "PDF speichern unter",
+            str(suggested),
+            "PDF (*.pdf)",
+        )
+        if not chosen.strip():
+            return None
+        return normalize_pdf_save_path(chosen)
+
     def _export(self) -> None:
         if self.workspace.current is None:
             QMessageBox.information(self, "Export", "Bitte zuerst ein Projekt öffnen.")
             return
-        dialog = ExportFormatDialog(self._product_id, self)
+        if self._exporting:
+            return
+        dialog = ExportFormatDialog(self._product_id, self, quality_id=self._pdf_quality_id)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        chosen = _format_caption(dialog.selected_format())
+        self._pdf_quality_id = dialog.selected_quality()
+        format_id = dialog.selected_format()
+        if format_id != "pdf":
+            chosen = _format_caption(format_id)
+            QMessageBox.information(
+                self,
+                "Export",
+                f"{chosen}-Datei nach exports/ schreiben folgt. Die Vorschau bleibt das Blätterbuch.",
+            )
+            return
+        if self._product_id != "travelbook":
+            QMessageBox.information(self, "Export", "PDF gibt es in dieser Version nur für das Travelbook.")
+            return
+        snapshot = self.workspace.load_timeline()
+        if snapshot is None or self._document is None:
+            QMessageBox.information(self, "Export", "Kein Travelbook zum Exportieren.")
+            return
+        self._save_document()
+        suggested = unique_export_path(
+            self.workspace.current.directory / "exports",
+            export_filename(snapshot.title),
+        )
+        destination = self._choose_pdf_destination(suggested)
+        if destination is None:
+            return
+        worker = ExportPdfRunnable(
+            self._document,
+            snapshot,
+            destination,
+            export_sources(snapshot),
+            export_rotations(snapshot),
+            quality=dialog.selected_quality(),
+            host=self,
+        )
+        worker.signals.progress.connect(self._on_export_progress)
+        worker.signals.finished.connect(self._on_export_finished)
+        worker.signals.failed.connect(self._on_export_failed)
+        self._exporting = True
+        self._export_button.setEnabled(False)
+        self.export_progress.emit(0, 0, "PDF wird geschrieben…")
+        self._pool.start(worker)
+
+    def _on_export_progress(self, current: int, total: int) -> None:
+        self.export_progress.emit(current, total, f"PDF {current}/{total}")
+
+    def _on_export_finished(self, result: object) -> None:
+        self._exporting = False
+        self._export_button.setEnabled(self.workspace.current is not None)
+        self.export_finished.emit()
+        path = getattr(result, "output_path", None)
         QMessageBox.information(
             self,
             "Export",
-            f"{chosen}-Datei nach exports/ schreiben folgt. Die Vorschau bleibt das Blätterbuch.",
+            f"PDF geschrieben:\n{path}" if path is not None else "PDF geschrieben.",
         )
+
+    def _on_export_failed(self, message: str) -> None:
+        self._exporting = False
+        self._export_button.setEnabled(self.workspace.current is not None)
+        self.export_finished.emit()
+        QMessageBox.warning(self, "Export", message or "PDF-Export fehlgeschlagen.")

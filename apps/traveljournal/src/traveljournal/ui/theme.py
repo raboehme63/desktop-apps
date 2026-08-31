@@ -84,24 +84,28 @@ QPushButton#primary:disabled:hover {
     color: #6b7385;
 }
 
-QPushButton#exportChoice {
+QPushButton#exportChoice,
+QPushButton#exportQualityChoice {
     min-width: 108px;
     padding: 10px 14px;
     text-align: center;
 }
 
-QPushButton#exportChoice:checked {
+QPushButton#exportChoice:checked,
+QPushButton#exportQualityChoice:checked {
     background-color: #243b3a;
     border: 1px solid #2eb8a0;
     color: #7eebcf;
     font-weight: 600;
 }
 
-QPushButton#exportChoice:checked:hover {
+QPushButton#exportChoice:checked:hover,
+QPushButton#exportQualityChoice:checked:hover {
     background-color: #2a4744;
 }
 
-QPushButton#exportChoice:disabled {
+QPushButton#exportChoice:disabled,
+QPushButton#exportQualityChoice:disabled {
     color: #6b7385;
     background-color: #1a2030;
 }

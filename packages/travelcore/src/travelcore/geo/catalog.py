@@ -124,6 +124,12 @@ def country_label(token: str) -> str:
     return token.strip()
 
 
+def outline_rings(iso2: str) -> tuple[tuple[tuple[float, float], ...], ...]:
+    """Silhouette path rings (x = longitude, y = −latitude). Empty if unknown."""
+
+    return _country_rings(str(iso2).strip().upper())
+
+
 def shape_lonlat_box(country: Country) -> tuple[float, float, float, float] | None:
     """Bounding box of the silhouette: ``(min_lon, min_lat, max_lon, max_lat)``.
 

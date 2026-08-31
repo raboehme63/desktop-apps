@@ -159,9 +159,21 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     assert "pdf" in format_dialog._buttons
     assert "video" not in format_dialog._buttons
     assert format_dialog._buttons["html"].isChecked()
+    assert format_dialog._quality_host.isHidden()
+    format_dialog._buttons["pdf"].click()
+    app.processEvents()
+    assert not format_dialog._quality_host.isHidden()
+    assert list(format_dialog._quality_buttons) == ["screen", "print", "magazine"]
+    assert format_dialog._quality_buttons["print"].isChecked()
+    assert format_dialog._quality_buttons["magazine"].text() == "Beste Qualität"
+    format_dialog._quality_buttons["magazine"].click()
+    app.processEvents()
+    assert format_dialog.selected_quality() == "magazine"
+    assert "300 dpi" in format_dialog._quality_note.text()
     format_dialog.close()
     interactive_formats = ExportFormatDialog("travelbook-interactive", window)
     assert list(interactive_formats._buttons) == ["html"]
+    assert interactive_formats._quality_host.isHidden()
     interactive_formats.close()
     templates = PhotoTemplateDialog(
         page_size_id="a4-portrait",
@@ -259,6 +271,32 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     assert not window.timeline_view._show_rejected.isChecked()
     assert window.timeline_view._trip_title.placeholderText() == "Titel der Reise"
     assert not window.timeline_view._trip_title.isEnabled()
+    _ = app
+
+
+def test_pdf_export_asks_save_as_path(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QFileDialog
+
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.ui.main_window import MainWindow
+
+    monkeypatch.setattr(workspace_mod, "_CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    suggested = tmp_path / "exports" / "reise.pdf"
+    chosen = tmp_path / "Dokumente" / "Alpen"
+    monkeypatch.setattr(
+        QFileDialog,
+        "getSaveFileName",
+        lambda *args, **kwargs: (str(chosen), "PDF (*.pdf)"),
+    )
+    path = window.export_view._choose_pdf_destination(suggested)
+    assert path == tmp_path / "Dokumente" / "Alpen.pdf"
+    assert suggested.parent.is_dir()
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *args, **kwargs: ("", ""))
+    assert window.export_view._choose_pdf_destination(suggested) is None
     _ = app
 
 

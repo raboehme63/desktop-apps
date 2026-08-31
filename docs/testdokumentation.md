@@ -216,6 +216,12 @@ Stand nach `pytest --collect-only`: **452 Tests** (31. August 2026). Neue Tests 
 | `test_trip_summary_flight_label_includes_pilot_count` | `test_export_stats.py` | Gleitschirmflüge (n Piloten) nur bei mehr als einem Piloten |
 | `test_trip_summary_counts_igc_on_days_even_without_section_members` | `test_export_stats.py` | IGC `.IGC` zählt auch ohne Abschnittsmitgliedschaft |
 | `test_trip_summary_prefers_snapshot_span_over_sections` | `test_export_stats.py` | Kennzahl Tage aus Snapshot-von–bis, nicht aus Abschnitten |
+| `test_book_pages_front_matter_then_intro_and_photos` | `test_export_pdf.py` | PDF-Seitenfolge Cover, Titel, Übersicht, Intro, Fotos |
+| `test_folio_sits_on_the_outer_edge` | `test_export_pdf.py` | Folio außen: ungerade links, gerade rechts (1–2/n) |
+| `test_photo_page_paints_folio_on_the_outer_edge` | `test_export_pdf.py` | Fotoseiten tragen dieselbe Seitenzahl am Außenrand |
+| `test_hidden_section_is_omitted_from_pdf_pages` | `test_export_pdf.py` | Ausgeblendete Abschnitte fehlen im PDF |
+| `test_pdf_writes_one_image_page_per_sheet` | `test_export_pdf.py` | Raster-PDF, Fortschritt, Originale unberührt, Doppelseite (`TwoPageRight`) |
+| `test_pdf_qualities_magazine_is_300dpi_full_chroma` | `test_export_pdf.py` | Beste Qualität: 300 dpi, JPEG 4:4:4 |
 | `test_catalog_includes_core_travel_countries` | `test_country_catalog.py` | 200+ Länder, DE/IT/FR/NO/TW/ZA mit Flagge und Umriss |
 | `test_resolve_token_accepts_code_german_english_and_alias` | `test_country_catalog.py` | ISO, DE/EN-Name, Alias USA, Suche Slowenien und Südafrika |
 | `test_parse_countries_stores_iso_codes` | `test_country_catalog.py` | Freitext und Codes werden als ISO gespeichert |
@@ -683,7 +689,7 @@ Stand nach `pytest --collect-only`: **452 Tests** (31. August 2026). Neue Tests 
 | Windows-Endnutzerpaket | FA-140–FA-144 | kein pytest; manuell MT-22 nach `packaging/build.ps1` |
 | Galeriefilter in der UI | FA-101 | Logik der Liste und **Filtern**-Panel automatisiert; visuell MT-09 |
 | Zuletzt verwendete Projekte in der UI | FA-091 | `recent.json` ohne Oberfläche; manuell nicht zwingend |
-| HTML-/PDF-/LaTeX-Ausgabe | FA-121–FA-127 | Phase 8 (Templates/Katalog/Editor-JSON da; Renderer offen) |
+| HTML-/PDF-/LaTeX-Ausgabe | FA-121–FA-127 | HTML und LaTeX offen; Travelbook-PDF rasterisiert (`test_export_pdf.py`) |
 | pHash/dHash, unechte Dubletten | FA-071 | SHA-256-Stapel und Zeitszenen automatisiert; visuelle Near-Duplicates Phase 10 |
 | Importliste „alle Dateien“ (kein 250er-Limit) | FA-025 | nur manuell / GUI, kein Unit-Test der Qt-Tabelle |
 | Originale unverändert | FA-023 | implizit (nur Lese-APIs); Thumbnail- und Inspektor-Tests prüfen mtime |
@@ -1060,7 +1066,7 @@ Diese Fälle werden mit der jeweiligen Phase verbindlich.
 | ID | Phase | Kurzbeschreibung |
 | --- | --- | --- |
 | MT-14 | 8 | HTML-Export öffnet sich im Browser, lokale Bilder, kein Server |
-| MT-15 | 8 | Export schreibt nach `exports/`, Originale unverändert |
+| MT-15 | 8 | Export schreibt nach `exports/` (PDF Travelbook), Originale unverändert |
 | MT-16 | 9 | erledigt als MT-27 (Ampel, kein Löschen) |
 | MT-17 | 10 | unechte Dubletten per pHash, Originale bleiben (SHA-256 und Zeitszenen: MT-26) |
 

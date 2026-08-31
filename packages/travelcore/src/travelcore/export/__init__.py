@@ -1,8 +1,9 @@
-"""Export backends. HTML is implemented in phase 8; others stay abstract.
+"""Export backends. HTML is still abstract; PDF rasterizes the Travelbook.
 
 Ausgabetyp (Travelbook, Jahrbuch, …) ist ein JSON-Template.
 Ausgabeformat (HTML, PDF, …) ist der Renderer. Nicht jede Zelle der Matrix
-ist erlaubt; der erste Pfad ist Travelbook × HTML.
+ist erlaubt; der erste Pfad ist Travelbook × HTML. PDF (Travelbook) nutzt
+den Raster-PdfRenderer.
 """
 
 from travelcore.export.base import Exporter, ExportResult
@@ -17,9 +18,11 @@ from travelcore.export.document import (
 )
 from travelcore.export.html import HtmlExporter
 from travelcore.export.latex import LatexExporter
-from travelcore.export.pdf import PdfExporter, PdfRenderer
+from travelcore.export.pdf import PdfExporter, PdfRenderer, export_travelbook_pdf
+from travelcore.export.quality import DEFAULT_QUALITY_ID, list_pdf_qualities, pdf_quality
 
 __all__ = [
+    "DEFAULT_QUALITY_ID",
     "DOCUMENT_FILENAME",
     "CeweExporter",
     "ExportResult",
@@ -29,10 +32,13 @@ __all__ = [
     "PdfExporter",
     "PdfRenderer",
     "TravelbookDocument",
+    "export_travelbook_pdf",
     "first_path",
+    "list_pdf_qualities",
     "load_or_create",
     "load_page_layout",
     "load_product",
+    "pdf_quality",
     "save_document",
     "supports",
     "sync_document",

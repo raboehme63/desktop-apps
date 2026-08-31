@@ -12,7 +12,7 @@
       "id": "pdf",
       "label": { "de": "PDF", "en": "PDF" },
       "offline": true,
-      "note": "Über PdfRenderer (HTML-Druckengine oder LaTeX). Kein PyMuPDF als Zwang."
+      "note": "Raster-PdfRenderer (Pillow-Seiten → JPEG-PDF). HTML-Druck und LaTeX später. Kein PyMuPDF."
     },
     {
       "id": "epub",

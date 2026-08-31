@@ -89,6 +89,8 @@ class MainWindow(QMainWindow):
         self.photos_view.status_message.connect(self._set_status)
         self.photos_view.quality_progress.connect(self._on_quality_progress)
         self.photos_view.quality_finished.connect(self._on_quality_finished)
+        self.export_view.export_progress.connect(self._on_export_progress)
+        self.export_view.export_finished.connect(self._on_export_finished)
         self.photos_view.rating_changed.connect(self.timeline_view.apply_media_rating)
         self.photos_view.rating_changed.connect(self.map_view.apply_media_rating)
         self.photos_view.open_media_on_map.connect(self._open_map_media)
@@ -278,6 +280,21 @@ class MainWindow(QMainWindow):
         self._load_progress.setFormat(message or "Qualität wird geprüft…")
 
     def _on_quality_finished(self) -> None:
+        self._load_progress.hide()
+        self._load_progress.setRange(0, 100)
+        self._load_progress.setValue(0)
+        self._load_progress.setFormat("Bereit")
+
+    def _on_export_progress(self, current: int, total: int, message: str) -> None:
+        self._load_progress.show()
+        if total <= 0:
+            self._load_progress.setRange(0, 0)
+        else:
+            self._load_progress.setRange(0, total)
+            self._load_progress.setValue(current)
+        self._load_progress.setFormat(message or "PDF wird geschrieben…")
+
+    def _on_export_finished(self) -> None:
         self._load_progress.hide()
         self._load_progress.setRange(0, 100)
         self._load_progress.setValue(0)

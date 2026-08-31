@@ -85,8 +85,9 @@ hinzugefügt, wenn der zugehörige Code sie tatsächlich nutzt.
 | PyMuPDF | Dual AGPL / kommerziell – nur nach bewusster Lizenzentscheidung |
 | GPL-only Bild- oder PDF-Engines | können eine proprietäre Veröffentlichung erschweren |
 
-PDF-Export (Phase 8+) soll über HTML→Druckengine oder LaTeX→PDF erfolgen,
-hinter einer austauschbaren `PdfRenderer`-Schnittstelle.
+PDF-Export (Phase 8+) schreibt Travelbook-Seiten mit Pillow (Raster) in ein
+JPEG-PDF hinter `PdfRenderer`. HTML→Druckengine und LaTeX→PDF bleiben spätere
+Backends. PyMuPDF ist keine Abhängigkeit.
 
 ## Eingebettete Pictogramme (keine pip-Abhängigkeit)
 

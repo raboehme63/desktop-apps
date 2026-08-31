@@ -12,6 +12,7 @@ from travelcore.database.models import Project
 from travelcore.database.project_store import OpenProject
 from travelcore.database.session import session_scope
 from travelcore.exceptions import ProjectError
+from travelcore.export.quality import DEFAULT_QUALITY_ID
 from travelcore.maps import ensure_map_cache
 from travelcore.media.indexer import FileIndexer, IndexProgress, IndexResult
 from travelcore.media.thumbnails import generate_project_thumbnails
@@ -188,6 +189,56 @@ class IndexLoadRunnable(QRunnable):
             urls = self.workspace.gps_track_urls() if rows else {}
             self.signals.ready.emit(rows, urls)
         except Exception as exc:  # noqa: BLE001 - surface load failures to the UI
+            self.signals.failed.emit(str(exc))
+
+
+class ExportPdfSignals(QObject):
+    progress = Signal(int, int)
+    finished = Signal(object)
+    failed = Signal(str)
+
+
+class ExportPdfRunnable(QRunnable):
+    """Rasterize the Travelbook to PDF off the GUI thread."""
+
+    def __init__(
+        self,
+        document: object,
+        snapshot: object,
+        destination: Path,
+        sources: dict[int, Path],
+        rotations: dict[int, int],
+        quality: str = DEFAULT_QUALITY_ID,
+        host: QObject | None = None,
+    ) -> None:
+        super().__init__()
+        self.document = document
+        self.snapshot = snapshot
+        self.destination = destination
+        self.sources = sources
+        self.rotations = rotations
+        self.quality = quality
+        self.signals = ExportPdfSignals(host)
+        self.setAutoDelete(True)
+
+    def run(self) -> None:
+        try:
+            from travelcore.export.pdf import export_travelbook_pdf
+
+            def on_progress(current: int, total: int) -> None:
+                self.signals.progress.emit(current, total)
+
+            result = export_travelbook_pdf(
+                self.document,
+                self.snapshot,
+                self.destination,
+                sources=self.sources,
+                rotations=self.rotations,
+                quality=self.quality,
+                progress=on_progress,
+            )
+            self.signals.finished.emit(result)
+        except Exception as exc:  # noqa: BLE001 - surface export failures to the UI
             self.signals.failed.emit(str(exc))
 
 

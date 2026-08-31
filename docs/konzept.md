@@ -302,7 +302,7 @@ Die HTML-Ausgabe ist ein Blätterbuch (Leiste wie in den Vorlagen), keine Live-K
 Formate:
 
 - **HTML zuerst:** zwei Renderer derselben Schnittstelle: Blätterbuch (Travelbook/Jahrbuch) und Karten-Website (interaktiv). Jinja2, CSS getrennt, lokal ohne Server.
-- **PDF:** nicht über AGPL-Zwang (kein PyMuPDF als zentrale Abhängigkeit). Pfad HTML-Buch→Druckengine oder LaTeX→PDF hinter `PdfRenderer`.
+- **PDF:** nicht über AGPL-Zwang (kein PyMuPDF als zentrale Abhängigkeit). Erster Pfad: Rasterseiten aus `travelbook.json` (Fotoseiten wie die Vorschau, Cover/Titel/Journal/Intro/Übersicht in Pillow) → JPEG-PDF hinter `PdfRenderer`. Qualität wählt man beim Export: Bildschirm 150 dpi, Druck 250 dpi, **Beste Qualität** 300 dpi mit voller Farbauflösung (JPEG 4:4:4) für Fotodruck auf einem guten Farblaser. HTML-Buch→Druckengine und LaTeX→PDF bleiben spätere Renderer.
 - **EPUB:** geplant, feste Doppelseiten (EPUB3), kein Fließtext-Umbau des Buches.
 - **LaTeX:** kompilierbares Projekt; der PDF-Lauf darf extern bleiben.
 - **CEWE:** Schnittstelle und Platzhalter, bis das echte Format geprüft ist. Keine geratenen proprietären Binärformate.
