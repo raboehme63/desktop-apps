@@ -24,7 +24,15 @@ from travelcore.export.book import (
     BookPage,
 )
 from travelcore.export.raster import render_photo_page
-from travelcore.geo.catalog import country_label, outline_rings, resolve_countries
+from travelcore.export.svgicon import rasterize_flag
+from travelcore.geo.catalog import (
+    Country,
+    country_label,
+    get_country,
+    lonlat_cosine,
+    outline_rings,
+    resolve_countries,
+)
 from travelcore.media.orientation import orient_image
 
 PAGE_BG = (247, 244, 238)
@@ -336,8 +344,16 @@ def _paint_summary_countries(
                 SHAPE_FILL,
             )
             name_font = _font(_pt(11, dpi), bold=True)
-            label = country.name_de.upper()
-            draw.text((margin, y0 + round((y1 - y0) * 0.66)), label, font=name_font, fill=NAVY_FG)
+            _draw_name_and_flag(
+                canvas,
+                draw,
+                country,
+                (margin, y0 + round((y1 - y0) * 0.66), split - margin),
+                name_font,
+                NAVY_FG,
+                dpi,
+                flag_first=False,
+            )
     heading = _font(_pt(10, dpi), bold=True)
     draw.text((split + margin, round(height * 0.05)), "REISEÜBERSICHT", font=heading, fill=PAGE_MUTED)
     value_font = _font(_pt(28, dpi), bold=True)
@@ -398,12 +414,25 @@ def _paint_intro(
             pin=(page.latitude, page.longitude),
         )
         name_font = _font(_pt(11, dpi), bold=True)
-        draw.text(
-            (margin, margin + header_h + _pt(4, dpi)),
-            country_label(page.country).upper(),
-            font=name_font,
-            fill=PAGE_FG,
-        )
+        resolved = get_country(page.country)
+        if resolved is not None:
+            _draw_name_and_flag(
+                canvas,
+                draw,
+                resolved,
+                (margin, margin + header_h + _pt(4, dpi), split),
+                name_font,
+                PAGE_FG,
+                dpi,
+                flag_first=True,
+            )
+        else:
+            draw.text(
+                (margin, margin + header_h + _pt(4, dpi)),
+                country_label(page.country).upper(),
+                font=name_font,
+                fill=PAGE_FG,
+            )
     cover_box = (split + _pt(8, dpi), margin, width - margin, margin + header_h)
     image = _open_image(sources.get(page.cover_id or -1), rotations.get(page.cover_id or -1, 0))
     if image is None:
@@ -504,12 +533,14 @@ def _draw_silhouette(
     min_y, max_y = min(ys), max(ys)
     span_x = max(max_x - min_x, 1e-6)
     span_y = max(max_y - min_y, 1e-6)
-    scale = min(width / span_x, height / span_y) * 0.92
-    dx = left + (width - span_x * scale) / 2
+    cosine = lonlat_cosine(min_y, max_y)
+    geo_w = span_x * cosine
+    scale = min(width / geo_w, height / span_y) * 0.92
+    dx = left + (width - geo_w * scale) / 2
     dy = top + (height - span_y * scale) / 2
 
     def project(x: float, y: float) -> tuple[int, int]:
-        return (round(dx + (x - min_x) * scale), round(dy + (y - min_y) * scale))
+        return (round(dx + (x - min_x) * cosine * scale), round(dy + (y - min_y) * scale))
 
     for ring in rings:
         if len(ring) < 3:
@@ -521,6 +552,40 @@ def _draw_silhouette(
     px, py = project(longitude, -latitude)
     radius = max(3, min(width, height) * 0.035)
     draw.ellipse((px - radius, py - radius, px + radius, py + radius), fill=ACCENT, outline=(255, 255, 255))
+
+
+def _draw_name_and_flag(
+    canvas: Image.Image,
+    draw: ImageDraw.ImageDraw,
+    country: Country,
+    box: tuple[int, int, int],
+    font: ImageFont.ImageFont,
+    fill: tuple[int, int, int],
+    dpi: float,
+    *,
+    flag_first: bool,
+) -> None:
+    left, top, right = box
+    label = country.name_de.upper()
+    bbox = font.getbbox(label) if label else (0, 0, 0, 8)
+    text_h = max(8, bbox[3] - bbox[1])
+    flag_h = max(10, _text_height(font))
+    flag_w = max(12, round(flag_h * 4 / 3))
+    gap = _pt(4, dpi)
+    row_h = max(flag_h, text_h)
+    if flag_first:
+        flag_x = left
+        text_x = left + flag_w + gap - bbox[0]
+    else:
+        text_x = left - bbox[0]
+        flag_x = left + _text_width(font, label) + gap
+        if flag_x + flag_w > right:
+            flag_x = max(left, right - flag_w)
+    flag_y = top + (row_h - flag_h) // 2
+    text_y = top + (row_h - text_h) // 2 - bbox[1]
+    flag = rasterize_flag(country.flag_svg, flag_w, flag_h)
+    canvas.paste(flag, (flag_x, flag_y), flag)
+    draw.text((text_x, text_y), label, font=font, fill=fill)
 
 
 def folio_outer_x(number: int, width: int, text_width: int, margin: int) -> int:

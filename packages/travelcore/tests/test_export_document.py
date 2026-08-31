@@ -16,6 +16,7 @@ from travelcore.export.document import (
     document_to_dict,
     elements_from_layout,
     load_or_create,
+    overflow_visitors,
     photo_layout_id,
     remove_element,
     remove_spread,
@@ -263,6 +264,67 @@ def test_photo_layout_id_caps_at_eight() -> None:
     assert photo_layout_id(20) == "photos_8"
 
 
+def test_overflow_visitors_shift_across_gutter() -> None:
+    verso = PhotoElement(id="v", source_file_id=1, frame=Frame(80, 10, 40, 50), z=1)
+    onto_recto = overflow_visitors((verso,), onto="recto")
+    assert len(onto_recto) == 1
+    assert onto_recto[0].frame.x == -20
+    assert onto_recto[0].id == "v"
+    recto = PhotoElement(id="r", source_file_id=2, frame=Frame(-15, 0, 40, 100), z=2)
+    onto_verso = overflow_visitors((recto,), onto="verso")
+    assert onto_verso[0].frame.x == 85
+    on_page = PhotoElement(id="p", source_file_id=3, frame=Frame(10, 10, 40, 40), z=1)
+    assert overflow_visitors((on_page,), onto="recto") == ()
+    assert overflow_visitors((on_page,), onto="verso") == ()
+
+
+def test_roundtrip_spread_overlap() -> None:
+    payload = document_to_dict(TravelbookDocument(spread_overlap=True))
+    assert payload["spread_overlap"] is True
+    restored = document_from_dict(payload)
+    assert restored.spread_overlap is True
+    assert "spread_overlap" not in document_to_dict(TravelbookDocument())
+
+
+def test_load_keeps_spanning_frame() -> None:
+    document = document_from_dict(
+        {
+            "schema_version": 2,
+            "product": "travelbook",
+            "spread_overlap": True,
+            "chapters": [
+                {
+                    "section_id": 1,
+                    "spreads": [
+                        {
+                            "id": "s",
+                            "verso": {
+                                "layout": "photos_1",
+                                "elements": [
+                                    {
+                                        "id": "e1",
+                                        "source_file_id": 1,
+                                        "frame": {"x": 80, "y": 0, "w": 40, "h": 100},
+                                    }
+                                ],
+                            },
+                            "recto": {"layout": "photos_1"},
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+    frame = document.chapters[0].spreads[0].verso.elements[0].frame
+    assert frame.x == 80
+    assert frame.w == 40
+
+
+def test_add_photo_element_keeps_gutter_overflow() -> None:
+    elements = add_photo_element((), 1, frame=Frame(80, 0, 40, 100))
+    assert elements[0].frame.x + elements[0].frame.w > 100
+
+
 def test_roundtrip_photo_layout() -> None:
     payload = document_to_dict(
         TravelbookDocument(page_size="a4-portrait", photo_layouts={"a4-portrait": "photos_4"})
@@ -285,9 +347,7 @@ def test_sync_uses_book_photo_layout() -> None:
         origin="manual",
         entries=(TimelineEntry(started_at=None, section=section),),
     )
-    document = sync_document(
-        TravelbookDocument(photo_layouts={"a4-portrait": "photos_1"}), snapshot
-    )
+    document = sync_document(TravelbookDocument(photo_layouts={"a4-portrait": "photos_1"}), snapshot)
     recto = document.chapters[0].spreads[0].recto
     assert recto.layout == "photos_1"
     assert [item.source_file_id for item in recto.elements] == [1]

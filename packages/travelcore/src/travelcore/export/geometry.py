@@ -68,12 +68,41 @@ def clamp_crop(crop: Crop) -> Crop:
     )
 
 
-def clamp_frame(frame: Frame) -> Frame:
-    width = max(_MIN_FRAME_PCT, min(100.0, float(frame.w)))
+def clamp_frame(frame: Frame, *, gutter_side: str | None = None) -> Frame:
+    """Keep the frame on the page, or allow overflow only toward the spread gutter.
+
+    ``gutter_side`` is the inner edge of the owning page: ``right`` (verso) or
+    ``left`` (recto). At least ``_MIN_FRAME_PCT`` stays on the owning page.
+    """
+
     height = max(_MIN_FRAME_PCT, min(100.0, float(frame.h)))
-    x = max(0.0, min(100.0 - width, float(frame.x)))
     y = max(0.0, min(100.0 - height, float(frame.y)))
+    if gutter_side not in {"left", "right"}:
+        width = max(_MIN_FRAME_PCT, min(100.0, float(frame.w)))
+        x = max(0.0, min(100.0 - width, float(frame.x)))
+        return Frame(x=x, y=y, w=width, h=height)
+    width = max(_MIN_FRAME_PCT, min(200.0, float(frame.w)))
+    x = float(frame.x)
+    if gutter_side == "right":
+        x = max(0.0, min(100.0 - _MIN_FRAME_PCT, x))
+        width = min(max(_MIN_FRAME_PCT, width), 200.0 - x)
+        return Frame(x=x, y=y, w=width, h=height)
+    right = min(100.0, max(x + width, _MIN_FRAME_PCT))
+    x = max(-100.0, right - width)
+    width = max(_MIN_FRAME_PCT, right - x)
+    if x + width > 100.0:
+        width = 100.0 - x
     return Frame(x=x, y=y, w=width, h=height)
+
+
+def clamp_stored_frame(frame: Frame) -> Frame:
+    """Preserve gutter overflow already stored on a page."""
+
+    if frame.x < -1e-9:
+        return clamp_frame(frame, gutter_side="left")
+    if frame.x + frame.w > 100.0 + 1e-9:
+        return clamp_frame(frame, gutter_side="right")
+    return clamp_frame(frame)
 
 
 def cover_scale(image_width: float, image_height: float, frame_width: float, frame_height: float) -> float:
@@ -96,7 +125,14 @@ def frame_pixels(page_width: float, page_height: float, frame: Frame) -> tuple[f
 
 
 def pixels_to_frame(
-    page_width: float, page_height: float, left: float, top: float, width: float, height: float
+    page_width: float,
+    page_height: float,
+    left: float,
+    top: float,
+    width: float,
+    height: float,
+    *,
+    gutter_side: str | None = None,
 ) -> Frame:
     if page_width <= 0 or page_height <= 0:
         return Frame(0.0, 0.0, 100.0, 100.0)
@@ -106,7 +142,8 @@ def pixels_to_frame(
             y=100.0 * top / page_height,
             w=100.0 * width / page_width,
             h=100.0 * height / page_height,
-        )
+        ),
+        gutter_side=gutter_side,
     )
 
 

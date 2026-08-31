@@ -41,6 +41,7 @@ from travelcore.export.catalog import (
     page_size,
     product_formats,
 )
+from travelcore.export.cewe import export_mcf_filename, normalize_mcf_save_path
 from travelcore.export.document import (
     TravelbookDocument,
     add_spread,
@@ -58,7 +59,7 @@ from travelcore.export.document import (
 from travelcore.export.pdf import export_filename, normalize_pdf_save_path, unique_export_path
 from travelcore.export.photo_layouts import layout_from_frames, save_user_layout
 from travelcore.export.quality import DEFAULT_QUALITY_ID, list_pdf_qualities
-from traveljournal.services.workers import ExportPdfRunnable
+from traveljournal.services.workers import ExportMcfRunnable, ExportPdfRunnable
 from traveljournal.services.workspace import Workspace
 from traveljournal.views.photo_templates_dialog import (
     PhotoTemplateDialog,
@@ -222,6 +223,15 @@ class ExportFormatDialog(QDialog):
         quality_layout.addWidget(self._quality_note)
         root.addWidget(self._quality_host)
 
+        self._cewe_note = QLabel(
+            "Schreibt ein CEWE-Projekt (.mcf) zum Öffnen im Creator. "
+            "Fotos und Texte bleiben editierbar; Karte, Länderumrisse und die "
+            "Intro-Zeitleiste sind austauschbare Bilder."
+        )
+        self._cewe_note.setObjectName("pageSubtitle")
+        self._cewe_note.setWordWrap(True)
+        root.addWidget(self._cewe_note)
+
         box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         box.button(QDialogButtonBox.StandardButton.Ok).setText("Exportieren")
         box.button(QDialogButtonBox.StandardButton.Cancel).setText("Abbrechen")
@@ -248,6 +258,7 @@ class ExportFormatDialog(QDialog):
     def _sync_quality(self) -> None:
         pdf = self._format_id == "pdf"
         self._quality_host.setVisible(pdf)
+        self._cewe_note.setVisible(self._format_id == "cewe")
         for quality_id, button in self._quality_buttons.items():
             button.setChecked(quality_id == self._quality_id)
         if not pdf:
@@ -271,6 +282,7 @@ class ExportView(QWidget):
         self._photo_layout_id = ""
         self._photo_layouts: dict[str, str] = {}
         self._last_edit_side = "recto"
+        self._spread_overlap = False
         self._mode = "export"
         self._choices_collapsed = False
         self._product_buttons: dict[str, QPushButton] = {}
@@ -372,6 +384,12 @@ class ExportView(QWidget):
             self._page_group.addButton(button)
             self._page_buttons[size_id] = button
             size_row.addWidget(button)
+        self._overlap_button = _choice_button("Über die Mitte", "overlap", self._toggle_spread_overlap)
+        self._overlap_button.setObjectName("exportSpreadOverlap")
+        self._overlap_button.setToolTip(
+            "Fotos dürfen über die Bindung ragen. Die Lücke entfällt, eine Linie markiert die Mitte."
+        )
+        size_row.addWidget(self._overlap_button)
         size_row.addStretch(1)
         body_layout.addWidget(self._size_row_host)
 
@@ -451,8 +469,11 @@ class ExportView(QWidget):
         if self._document is not None:
             self._photo_layouts = dict(self._document.photo_layouts)
             self._photo_layout_id = self._document.photo_layout
+            self._spread_overlap = self._document.spread_overlap
+            self._preview.set_spread_overlap(self._spread_overlap)
             self._preview.set_leaves(leaves_from_document(snapshot, self._document))
         else:
+            self._preview.set_spread_overlap(self._spread_overlap)
             self._preview.set_leaves(leaves_from_snapshot(snapshot))
         self._preview.set_editable(self._mode == "edit")
         self._rebuild_layout_buttons()
@@ -492,6 +513,14 @@ class ExportView(QWidget):
         self._product_id = product_id
         self._sync_selection()
         self._sync_editor()
+
+    def _toggle_spread_overlap(self, _key: str = "") -> None:
+        self._spread_overlap = self._overlap_button.isChecked()
+        self._preview.set_spread_overlap(self._spread_overlap)
+        if self._document is not None:
+            self._document = replace(self._document, spread_overlap=self._spread_overlap)
+            self._save_document()
+        self._sync_selection()
 
     def _select_page_size(self, size_id: str) -> None:
         self._page_size_id = size_id
@@ -615,6 +644,7 @@ class ExportView(QWidget):
             button.setChecked(layout_id == self._photo_layout_id)
         for mode, button in self._mode_buttons.items():
             button.setChecked(mode == self._mode)
+        self._overlap_button.setChecked(self._spread_overlap)
         product = load_product(self._product_id)
         product_label = _label(product.get("label"), self._product_id)
         self._product_hint.setText(_label(product.get("description"), ""))
@@ -632,6 +662,8 @@ class ExportView(QWidget):
             summary_parts.append(size_label)
         if layout_label:
             summary_parts.append(layout_label)
+        if is_book and self._spread_overlap:
+            summary_parts.append("Über die Mitte")
         self._choices_summary.setText(" · ".join(summary_parts))
         self._choices_body.setVisible(not self._choices_collapsed)
         self._collapse_button.setText("▼" if self._choices_collapsed else "▲")
@@ -757,6 +789,18 @@ class ExportView(QWidget):
             return None
         return normalize_pdf_save_path(chosen)
 
+    def _choose_mcf_destination(self, suggested: Path) -> Path | None:
+        suggested.parent.mkdir(parents=True, exist_ok=True)
+        chosen, _filter = QFileDialog.getSaveFileName(
+            self,
+            "CEWE-Projekt speichern unter",
+            str(suggested),
+            "CEWE-Projekt (*.mcf)",
+        )
+        if not chosen.strip():
+            return None
+        return normalize_mcf_save_path(chosen)
+
     def _export(self) -> None:
         if self.workspace.current is None:
             QMessageBox.information(self, "Export", "Bitte zuerst ein Projekt öffnen.")
@@ -768,7 +812,7 @@ class ExportView(QWidget):
             return
         self._pdf_quality_id = dialog.selected_quality()
         format_id = dialog.selected_format()
-        if format_id != "pdf":
+        if format_id not in {"pdf", "cewe"}:
             chosen = _format_caption(format_id)
             QMessageBox.information(
                 self,
@@ -777,17 +821,39 @@ class ExportView(QWidget):
             )
             return
         if self._product_id != "travelbook":
-            QMessageBox.information(self, "Export", "PDF gibt es in dieser Version nur für das Travelbook.")
+            label = "PDF" if format_id == "pdf" else "CEWE"
+            QMessageBox.information(
+                self, "Export", f"{label} gibt es in dieser Version nur für das Travelbook."
+            )
             return
         snapshot = self.workspace.load_timeline()
         if snapshot is None or self._document is None:
             QMessageBox.information(self, "Export", "Kein Travelbook zum Exportieren.")
             return
         self._save_document()
-        suggested = unique_export_path(
-            self.workspace.current.directory / "exports",
-            export_filename(snapshot.title),
-        )
+        exports = self.workspace.current.directory / "exports"
+        if format_id == "cewe":
+            suggested = unique_export_path(exports, export_mcf_filename(snapshot.title))
+            destination = self._choose_mcf_destination(suggested)
+            if destination is None:
+                return
+            worker = ExportMcfRunnable(
+                self._document,
+                snapshot,
+                destination,
+                export_sources(snapshot),
+                export_rotations(snapshot),
+                host=self,
+            )
+            worker.signals.progress.connect(self._on_cewe_progress)
+            worker.signals.finished.connect(self._on_cewe_finished)
+            worker.signals.failed.connect(self._on_cewe_failed)
+            self._exporting = True
+            self._export_button.setEnabled(False)
+            self.export_progress.emit(0, 0, "CEWE-Projekt wird geschrieben…")
+            self._pool.start(worker)
+            return
+        suggested = unique_export_path(exports, export_filename(snapshot.title))
         destination = self._choose_pdf_destination(suggested)
         if destination is None:
             return
@@ -827,3 +893,28 @@ class ExportView(QWidget):
         self._export_button.setEnabled(self.workspace.current is not None)
         self.export_finished.emit()
         QMessageBox.warning(self, "Export", message or "PDF-Export fehlgeschlagen.")
+
+    def _on_cewe_progress(self, current: int, total: int) -> None:
+        self.export_progress.emit(current, total, f"CEWE {current}/{total}")
+
+    def _on_cewe_finished(self, result: object) -> None:
+        self._exporting = False
+        self._export_button.setEnabled(self.workspace.current is not None)
+        self.export_finished.emit()
+        path = getattr(result, "output_path", None)
+        QMessageBox.information(
+            self,
+            "Export",
+            (
+                f"CEWE-Projekt geschrieben:\n{path}\n\n"
+                "Im CEWE Creator öffnen und den Feinschliff dort machen."
+            )
+            if path is not None
+            else "CEWE-Projekt geschrieben.",
+        )
+
+    def _on_cewe_failed(self, message: str) -> None:
+        self._exporting = False
+        self._export_button.setEnabled(self.workspace.current is not None)
+        self.export_finished.emit()
+        QMessageBox.warning(self, "Export", message or "CEWE-Export fehlgeschlagen.")

@@ -29,7 +29,7 @@ _FORMAT_LABELS = {
     "html": "HTML (Reisebericht)",
     "pdf": "PDF",
     "latex": "LaTeX",
-    "cewe": "CEWE (Platzhalter)",
+    "cewe": "CEWE-Projekt (.mcf)",
 }
 
 

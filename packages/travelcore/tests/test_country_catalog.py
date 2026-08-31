@@ -6,6 +6,7 @@ from travelcore.geo.catalog import (
     list_countries,
     resolve_token,
     search_countries,
+    silhouette_display_aspect,
 )
 from travelcore.timeline.countries import country_labels, parse_countries, serialize_countries
 
@@ -80,6 +81,11 @@ def test_parse_countries_stores_iso_codes() -> None:
     assert serialize_countries([]) is None
     assert country_labels(("IT", "AT")) == ("Italien", "Österreich")
     assert parse_countries("Nimmerland") == ("Nimmerland",)
+
+
+def test_germany_silhouette_is_taller_than_wide() -> None:
+    aspect = silhouette_display_aspect("DE")
+    assert 0.55 < aspect < 0.95
 
 
 def test_catalog_files_live_next_to_module() -> None:

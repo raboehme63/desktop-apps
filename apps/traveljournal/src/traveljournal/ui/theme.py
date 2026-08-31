@@ -148,6 +148,10 @@ QWidget#bookStage {
     border-radius: 12px;
 }
 
+QWidget#bookGutterLine {
+    background-color: #6b6570;
+}
+
 QFrame#bookPage,
 QFrame#bookPage QStackedWidget,
 QFrame#bookPage QStackedWidget > QWidget {
@@ -362,6 +366,16 @@ QPushButton#bookNav {
     min-width: 44px;
     max-width: 44px;
     padding: 8px 0;
+}
+
+QPushButton#bookGoto {
+    padding: 6px 10px;
+    font-size: 12px;
+    min-width: 0;
+}
+
+QSpinBox#bookGotoPage {
+    max-width: 88px;
 }
 
 #timelinePool {

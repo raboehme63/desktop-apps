@@ -18,6 +18,10 @@
       "additionalProperties": { "type": "string" },
       "description": "Gewählte Fotoseiten-Vorlage je Seitenformat (a4-portrait, a4-landscape, square)."
     },
+    "spread_overlap": {
+      "type": "boolean",
+      "description": "Fotos dürfen über die innere Kante der Doppelseite ragen."
+    },
     "chapters": {
       "type": "array",
       "items": {

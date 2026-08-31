@@ -112,6 +112,9 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     assert window.export_view._layout_buttons["photos_4"].toolTip() == "4 Fotos"
     assert not any(button.isChecked() for button in window.export_view._layout_buttons.values())
     assert not window.export_view._layout_row_host.isHidden()
+    assert window.export_view._overlap_button.objectName() == "exportSpreadOverlap"
+    assert window.export_view._overlap_button.text() == "Über die Mitte"
+    assert not window.export_view._overlap_button.isChecked()
     assert not window.export_view._manage_layouts_button.isHidden()
     assert window.export_view._manage_layouts_button.text() == "Vorlagen…"
     window.export_view._layout_buttons["photos_4"].click()
@@ -140,7 +143,10 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     assert window.export_view._tray.isHidden()
     assert window.export_view._preview._indicator.text() == "Cover"
     assert not window.export_view._preview._prev.isEnabled()
+    assert not window.export_view._preview._first.isEnabled()
     assert window.export_view._preview._next.isEnabled()
+    assert window.export_view._preview._last.isEnabled()
+    assert window.export_view._preview._goto_button.text() == "Gehe zu"
     window.export_view._preview._next.click()
     app.processEvents()
     assert window.export_view._preview._indicator.text() == "Titelseite"
@@ -157,9 +163,18 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     format_dialog = ExportFormatDialog("travelbook", window)
     assert "html" in format_dialog._buttons
     assert "pdf" in format_dialog._buttons
+    assert "cewe" in format_dialog._buttons
     assert "video" not in format_dialog._buttons
     assert format_dialog._buttons["html"].isChecked()
     assert format_dialog._quality_host.isHidden()
+    assert format_dialog._cewe_note.isHidden()
+    format_dialog._buttons["cewe"].click()
+    app.processEvents()
+    assert not format_dialog._cewe_note.isHidden()
+    assert format_dialog._quality_host.isHidden()
+    format_dialog._buttons["html"].click()
+    app.processEvents()
+    assert format_dialog._cewe_note.isHidden()
     format_dialog._buttons["pdf"].click()
     app.processEvents()
     assert not format_dialog._quality_host.isHidden()
@@ -300,6 +315,48 @@ def test_pdf_export_asks_save_as_path(tmp_path: Path, monkeypatch) -> None:  # n
     _ = app
 
 
+def test_spread_overlap_shows_gutter_hairline(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.ui.main_window import MainWindow
+
+    monkeypatch.setattr(workspace_mod, "_CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    window.resize(1200, 800)
+    window.show()
+    window._show_page("export")
+    app.processEvents()
+    preview = window.export_view._preview
+    preview._next.click()
+    preview._next.click()
+    app.processEvents()
+    assert preview._indicator.text().startswith("1–2/")
+    assert preview._gutter_line.isHidden()
+    window.export_view._overlap_button.click()
+    app.processEvents()
+    assert window.export_view._spread_overlap
+    assert "Über die Mitte" in window.export_view._choices_summary.text()
+    assert not preview._gutter_line.isHidden()
+    assert preview._gutter_line.width() == 1
+    assert preview._gutter_line.height() == preview._verso.height()
+    preview._prev.click()
+    preview._prev.click()
+    app.processEvents()
+    assert preview._indicator.text() == "Cover"
+    assert preview._gutter_line.isHidden()
+    preview._next.click()
+    preview._next.click()
+    app.processEvents()
+    window.export_view._product_buttons["travelbook-interactive"].click()
+    app.processEvents()
+    assert not window.export_view._overlap_button.isVisible()
+    _ = app
+
+
 def test_country_picker_adds_flag_and_shape() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication, QLabel
@@ -386,6 +443,37 @@ def test_summary_countries_stack_evenly_with_flag_in_outline() -> None:
     sheet.close()
 
 
+def test_book_preview_jumps_to_ends_and_page() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from traveljournal.widgets.book_preview import BookPreview, leaf_index_for_page, leaves_from_snapshot
+
+    app = QApplication.instance() or QApplication([])
+    leaves = leaves_from_snapshot(None)
+    assert leaf_index_for_page(leaves, 1) == 2
+    assert leaf_index_for_page(leaves, 2) == 2
+    assert leaf_index_for_page(leaves, 3) is None
+    preview = BookPreview()
+    preview.set_leaves(leaves)
+    assert preview._indicator.text() == "Cover"
+    assert not preview._first.isEnabled()
+    preview._last.click()
+    app.processEvents()
+    assert preview._indicator.text().startswith("1–2/")
+    assert not preview._last.isEnabled()
+    preview._first.click()
+    app.processEvents()
+    assert preview._indicator.text() == "Cover"
+    preview._goto.setValue(2)
+    preview._goto_button.click()
+    app.processEvents()
+    assert preview._indicator.text().startswith("1–2/")
+    assert preview.go_to_page(99) is False
+    preview.close()
+    _ = app
+
+
 def test_fitted_sheet_keeps_page_aspect() -> None:
     from PySide6.QtCore import QSize
 
@@ -411,7 +499,12 @@ def test_section_intro_shows_country_journal_and_dates(tmp_path: Path) -> None:
     from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
     from travelcore.timeline.types import TimelineEntry, TimelinePhoto, TimelineSection, TimelineSnapshot
-    from traveljournal.widgets.book_preview import BookPreview, _span_fracs, leaves_from_snapshot
+    from traveljournal.widgets.book_preview import (
+        BookPreview,
+        _span_fracs,
+        leaf_index_for_page,
+        leaves_from_snapshot,
+    )
 
     app = QApplication.instance() or QApplication([])
     started = datetime(2025, 7, 17, 12, 0, tzinfo=UTC)
@@ -472,9 +565,13 @@ def test_section_intro_shows_country_journal_and_dates(tmp_path: Path) -> None:
     leaves = leaves_from_snapshot(snapshot)
     assert leaves[1].indicator == "Titelseite"
     assert leaves[2].indicator == "1–2/4"
+    assert leaves[2].first_page == 1
     intro = leaves[-1]
     assert intro.variant == "section"
     assert intro.indicator == "3–4/4"
+    assert intro.first_page == 3
+    assert leaf_index_for_page(leaves, 3) == 3
+    assert leaf_index_for_page(leaves, 4) == 3
     assert intro.country == "DE"
     assert intro.left_title == "Hochries Flug #2"
     assert intro.left_kicker == "Tag"

@@ -16,7 +16,7 @@ from uuid import uuid4
 
 from travelcore.exceptions import ExportError
 from travelcore.export.catalog import load_page_layout
-from travelcore.export.geometry import Crop, Frame, clamp_crop, clamp_frame
+from travelcore.export.geometry import Crop, Frame, clamp_crop, clamp_frame, clamp_stored_frame
 from travelcore.export.photo_layouts import is_user_layout
 from travelcore.media.gallery import SORT_REJECTED
 from travelcore.media.types import FileKind
@@ -66,6 +66,7 @@ class TravelbookDocument:
     schema_version: int = SCHEMA_VERSION
     page_size: str = "a4-portrait"
     photo_layouts: dict[str, str] = field(default_factory=dict)
+    spread_overlap: bool = False
     chapters: tuple[Chapter, ...] = ()
 
     @property
@@ -197,7 +198,7 @@ def add_photo_element(
     *,
     frame: Frame | None = None,
 ) -> tuple[PhotoElement, ...]:
-    placed = clamp_frame(frame if frame is not None else Frame(x=12.0, y=12.0, w=40.0, h=36.0))
+    placed = clamp_stored_frame(frame if frame is not None else Frame(x=12.0, y=12.0, w=40.0, h=36.0))
     added = PhotoElement(
         id=new_element_id(),
         source_file_id=source_file_id,
@@ -218,6 +219,20 @@ def replace_source(
 
 def update_element(elements: Sequence[PhotoElement], updated: PhotoElement) -> tuple[PhotoElement, ...]:
     return tuple(updated if item.id == updated.id else item for item in elements)
+
+
+def overflow_visitors(neighbor: Sequence[PhotoElement], *, onto: str) -> tuple[PhotoElement, ...]:
+    """Neighbor frames that cross the gutter, shifted into ``onto`` page coordinates."""
+
+    visitors: list[PhotoElement] = []
+    for item in neighbor:
+        if onto == "verso" and item.frame.x < -1e-9:
+            frame = Frame(item.frame.x + 100.0, item.frame.y, item.frame.w, item.frame.h)
+            visitors.append(replace(item, frame=frame))
+        elif onto == "recto" and item.frame.x + item.frame.w > 100.0 + 1e-9:
+            frame = Frame(item.frame.x - 100.0, item.frame.y, item.frame.w, item.frame.h)
+            visitors.append(replace(item, frame=frame))
+    return tuple(visitors)
 
 
 def document_path(project_dir: Path) -> Path:
@@ -368,9 +383,7 @@ def apply_photo_layout(
     return replace(document, photo_layouts=layouts, chapters=tuple(chapters))
 
 
-def _relayout_photo_page(
-    page: PageInstance, layout_id: str, fallback_ids: Sequence[int]
-) -> PageInstance:
+def _relayout_photo_page(page: PageInstance, layout_id: str, fallback_ids: Sequence[int]) -> PageInstance:
     if page.locked or not layout_is_photos(page.layout):
         return page
     existing = [item.source_file_id for item in sorted_by_z(page.elements)]
@@ -390,6 +403,7 @@ def document_from_dict(data: dict[str, Any]) -> TravelbookDocument:
         schema_version=SCHEMA_VERSION,
         page_size=size_id,
         photo_layouts=_photo_layouts_from_dict(data, size_id),
+        spread_overlap=bool(data.get("spread_overlap", False)),
         chapters=chapters,
     )
 
@@ -408,6 +422,8 @@ def document_to_dict(document: TravelbookDocument) -> dict[str, Any]:
     }
     if layouts:
         payload["photo_layouts"] = layouts
+    if document.spread_overlap:
+        payload["spread_overlap"] = True
     return payload
 
 
@@ -527,7 +543,7 @@ def _element_from_dict(data: dict[str, Any]) -> PhotoElement:
     return PhotoElement(
         id=str(element_id) if isinstance(element_id, str) and element_id else new_element_id(),
         source_file_id=source_id,
-        frame=clamp_frame(frame),
+        frame=clamp_stored_frame(frame),
         crop=crop,
         z=z,
     )

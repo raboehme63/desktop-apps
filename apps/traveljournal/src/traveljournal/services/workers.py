@@ -198,6 +198,53 @@ class ExportPdfSignals(QObject):
     failed = Signal(str)
 
 
+class ExportMcfSignals(QObject):
+    progress = Signal(int, int)
+    finished = Signal(object)
+    failed = Signal(str)
+
+
+class ExportMcfRunnable(QRunnable):
+    """Write a CEWE .mcf project off the GUI thread."""
+
+    def __init__(
+        self,
+        document: object,
+        snapshot: object,
+        destination: Path,
+        sources: dict[int, Path],
+        rotations: dict[int, int],
+        host: QObject | None = None,
+    ) -> None:
+        super().__init__()
+        self.document = document
+        self.snapshot = snapshot
+        self.destination = destination
+        self.sources = sources
+        self.rotations = rotations
+        self.signals = ExportMcfSignals(host)
+        self.setAutoDelete(True)
+
+    def run(self) -> None:
+        try:
+            from travelcore.export.cewe import export_travelbook_mcf
+
+            def on_progress(current: int, total: int) -> None:
+                self.signals.progress.emit(current, total)
+
+            result = export_travelbook_mcf(
+                self.document,
+                self.snapshot,
+                self.destination,
+                sources=self.sources,
+                rotations=self.rotations,
+                progress=on_progress,
+            )
+            self.signals.finished.emit(result)
+        except Exception as exc:  # noqa: BLE001 - surface export failures to the UI
+            self.signals.failed.emit(str(exc))
+
+
 class ExportPdfRunnable(QRunnable):
     """Rasterize the Travelbook to PDF off the GUI thread."""
 

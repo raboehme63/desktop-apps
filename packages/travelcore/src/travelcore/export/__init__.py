@@ -8,7 +8,7 @@ den Raster-PdfRenderer.
 
 from travelcore.export.base import Exporter, ExportResult
 from travelcore.export.catalog import first_path, load_page_layout, load_product, supports
-from travelcore.export.cewe import CeweExporter
+from travelcore.export.cewe import CeweExporter, export_travelbook_mcf
 from travelcore.export.document import (
     DOCUMENT_FILENAME,
     TravelbookDocument,
@@ -32,6 +32,7 @@ __all__ = [
     "PdfExporter",
     "PdfRenderer",
     "TravelbookDocument",
+    "export_travelbook_mcf",
     "export_travelbook_pdf",
     "first_path",
     "list_pdf_qualities",

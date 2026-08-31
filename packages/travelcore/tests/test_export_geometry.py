@@ -5,6 +5,7 @@ from travelcore.export.geometry import (
     clamp_angle,
     clamp_frame,
     clamp_scale,
+    clamp_stored_frame,
     contain_fit,
     cover_scale,
     frame_pixels,
@@ -76,6 +77,32 @@ def test_clamp_frame_stays_on_the_page() -> None:
     assert clipped.x + clipped.w <= 100.0
     assert clipped.y + clipped.h <= 100.0
     assert clipped.w >= 6.0
+
+
+def test_clamp_frame_verso_may_cross_gutter() -> None:
+    overflow = clamp_frame(Frame(x=80, y=10, w=40, h=40), gutter_side="right")
+    assert overflow.x == 80
+    assert overflow.x + overflow.w == 120
+    clipped = clamp_frame(Frame(x=80, y=10, w=40, h=40))
+    assert clipped.x + clipped.w <= 100.0
+
+
+def test_clamp_frame_recto_may_cross_gutter() -> None:
+    overflow = clamp_frame(Frame(x=-20, y=10, w=40, h=40), gutter_side="left")
+    assert overflow.x == -20
+    assert overflow.x + overflow.w == 20
+    clipped = clamp_frame(Frame(x=-20, y=10, w=40, h=40))
+    assert clipped.x >= 0.0
+
+
+def test_clamp_stored_frame_keeps_gutter_overflow() -> None:
+    verso = clamp_stored_frame(Frame(80, 0, 40, 100))
+    assert verso.x + verso.w > 100.0
+    recto = clamp_stored_frame(Frame(-20, 0, 40, 100))
+    assert recto.x < 0.0
+    on_page = clamp_stored_frame(Frame(10, 10, 40, 40))
+    assert on_page.x >= 0.0
+    assert on_page.x + on_page.w <= 100.0
 
 
 def test_contained_mapping_keeps_cover_window_aspect() -> None:

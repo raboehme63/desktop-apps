@@ -6,11 +6,13 @@ from travelcore.geo.catalog import (
     country_label,
     get_country,
     list_countries,
+    lonlat_cosine,
     outline_rings,
     resolve_countries,
     resolve_token,
     search_countries,
     shape_lonlat_box,
+    silhouette_display_aspect,
 )
 
 __all__ = [
@@ -19,9 +21,11 @@ __all__ = [
     "country_label",
     "get_country",
     "list_countries",
+    "lonlat_cosine",
     "outline_rings",
     "resolve_countries",
     "resolve_token",
     "search_countries",
     "shape_lonlat_box",
+    "silhouette_display_aspect",
 ]

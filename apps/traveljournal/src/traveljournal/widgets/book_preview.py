@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QSizePolicy,
+    QSpinBox,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -38,10 +39,11 @@ from travelcore.export.document import (
     book_media_items,
     elements_from_layout,
     layout_is_photos,
+    overflow_visitors,
     photo_layout_id,
 )
 from travelcore.export.stats import trip_summary_metrics
-from travelcore.geo.catalog import Country, country_at, get_country
+from travelcore.geo.catalog import Country, country_at, get_country, silhouette_display_aspect
 from travelcore.timeline.types import TimelineEntry, TimelinePhoto, TimelineSection, TimelineSnapshot
 from traveljournal.widgets.photo_canvas import BookMedia, PhotoPageCanvas
 from traveljournal.widgets.svg_pixmaps import svg_pixmap, svg_renderer
@@ -157,8 +159,8 @@ class _CountrySilhouette(QWidget):
         self.setSizePolicy(policy)
         self.setMinimumHeight(28)
         self._shape = svg_renderer(country.shape_svg, fill=_SHAPE_FILL)
-        box = self._shape.viewBoxF()
-        self._aspect = box.height() / box.width() if box.width() > 0 and box.height() > 0 else 1.0
+        display = silhouette_display_aspect(country.iso2)
+        self._aspect = 1.0 / display if display > 0 else 1.0
 
     def hasHeightForWidth(self) -> bool:  # noqa: N802
         return True
@@ -216,8 +218,8 @@ class _SectionLocator(QWidget):
         self._latitude = latitude
         self._longitude = longitude
         self._shape = svg_renderer(country.shape_svg, fill=_SHAPE_SECTION)
-        box = self._shape.viewBoxF()
-        self._aspect = box.height() / box.width() if box.width() > 0 and box.height() > 0 else 1.0
+        display = silhouette_display_aspect(country.iso2)
+        self._aspect = 1.0 / display if display > 0 else 1.0
 
     def hasHeightForWidth(self) -> bool:  # noqa: N802
         return True
@@ -531,6 +533,7 @@ class BookLeaf:
     left_elements: tuple[PhotoElement, ...] = ()
     right_elements: tuple[PhotoElement, ...] = ()
     media: tuple[BookMedia, ...] = ()
+    first_page: int | None = None
 
 
 def leaves_from_snapshot(snapshot: TimelineSnapshot | None) -> list[BookLeaf]:
@@ -561,6 +564,7 @@ def leaves_from_snapshot(snapshot: TimelineSnapshot | None) -> list[BookLeaf]:
             kind="spread",
             variant="summary",
             indicator=_spread_indicator(1, numbered),
+            first_page=1,
             countries=snapshot.countries if snapshot is not None else (),
             metrics=trip_summary_metrics(snapshot),
             right_kicker="Karte",
@@ -611,6 +615,7 @@ def leaves_from_snapshot(snapshot: TimelineSnapshot | None) -> list[BookLeaf]:
                 kind="spread",
                 variant="section",
                 indicator=_spread_indicator(page, numbered),
+                first_page=page,
                 left_kicker=_KIND_LABELS.get(entry.card_kind, "Abschnitt"),
                 left_title=heading,
                 left_image=image,
@@ -659,6 +664,7 @@ def leaves_from_document(
         leaves[2] = BookLeaf(
             kind=leaves[2].kind,
             indicator=_spread_indicator(1, numbered),
+            first_page=1,
             variant=leaves[2].variant,
             countries=leaves[2].countries,
             metrics=leaves[2].metrics,
@@ -679,6 +685,7 @@ def leaves_from_document(
                     spread.verso,
                     spread.recto,
                     indicator=_spread_indicator(page, numbered),
+                    first_page=page,
                     section_id=chapter.section_id,
                     spread_id=spread.id,
                     variant="section" if spread.initial else "extra",
@@ -732,6 +739,28 @@ def _first_cover(entries: tuple[TimelineEntry, ...]) -> Path | None:
 
 def _spread_indicator(first: int, total: int) -> str:
     return f"{first}–{first + 1}/{total}"
+
+
+def leaf_index_for_page(leaves: list[BookLeaf], page: int) -> int | None:
+    """Flip index of the spread that contains printed page ``page``."""
+
+    if page < 1:
+        return None
+    for index, leaf in enumerate(leaves):
+        first = leaf.first_page
+        if first is None:
+            continue
+        if first <= page <= first + 1:
+            return index
+    return None
+
+
+def _last_numbered_page(leaves: list[BookLeaf]) -> int:
+    last = 0
+    for leaf in leaves:
+        if leaf.first_page is not None:
+            last = max(last, leaf.first_page + 1)
+    return last
 
 
 def _trip_dates(snapshot: TimelineSnapshot | None) -> tuple[date | None, date | None]:
@@ -807,6 +836,7 @@ def _leaf_from_spread(
     recto: PageInstance,
     *,
     indicator: str,
+    first_page: int,
     section_id: int,
     spread_id: str,
     variant: str,
@@ -817,6 +847,7 @@ def _leaf_from_spread(
     return BookLeaf(
         kind="spread",
         indicator=indicator,
+        first_page=first_page,
         variant=variant,
         left_kicker=template.left_kicker,
         left_title=template.left_title,
@@ -1221,11 +1252,13 @@ class _PageSheet(QFrame):
         media: tuple[BookMedia, ...],
         *,
         side: str,
+        gutter_side: str | None = None,
+        visitors: tuple[PhotoElement, ...] = (),
     ) -> None:
         self._path = None
         self._side = side
         self._photo_canvas.set_editable(self._editable)
-        self._photo_canvas.set_page(elements, media)
+        self._photo_canvas.set_page(elements, media, gutter_side=gutter_side, visitors=visitors)
         self._stack.setCurrentIndex(5)
 
     def set_journal(self, title: str, notes: str) -> None:
@@ -1299,6 +1332,7 @@ class BookPreview(QWidget):
         self._page_width_mm = 210.0
         self._page_height_mm = 297.0
         self._editable = False
+        self._spread_overlap = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -1307,34 +1341,85 @@ class BookPreview(QWidget):
         flip = QHBoxLayout()
         flip.setContentsMargins(0, 0, 0, 0)
         flip.setSpacing(8)
+        self._first = QPushButton("«")
         self._prev = QPushButton("←")
         self._next = QPushButton("→")
-        for button in (self._prev, self._next):
+        self._last = QPushButton("»")
+        self._first.setToolTip("Zum Anfang")
+        self._prev.setToolTip("Zurück")
+        self._next.setToolTip("Weiter")
+        self._last.setToolTip("Zum Ende")
+        for button in (self._first, self._prev, self._next, self._last):
             button.setObjectName("bookFlip")
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.setFixedWidth(44)
             button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        self._first.clicked.connect(lambda: self._go(0))
         self._prev.clicked.connect(lambda: self._go(self._index - 1))
         self._next.clicked.connect(lambda: self._go(self._index + 1))
+        self._last.clicked.connect(lambda: self._go(len(self._leaves) - 1))
         self._stage = _BookStage(self._fit_sheets)
         self._stage.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._gutter_line = QWidget(self._stage)
+        self._gutter_line.setObjectName("bookGutterLine")
+        self._gutter_line.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._gutter_line.hide()
         self._verso = _PageSheet(self._stage)
         self._recto = _PageSheet(self._stage)
         self._cover = _PageSheet(self._stage, cover=True)
+        flip.addWidget(self._first)
         flip.addWidget(self._prev)
         flip.addWidget(self._stage, 1)
         flip.addWidget(self._next)
+        flip.addWidget(self._last)
         root.addLayout(flip, 1)
 
+        footer = QHBoxLayout()
+        footer.setContentsMargins(0, 0, 0, 0)
+        footer.setSpacing(8)
         self._indicator = QLabel("Cover")
         self._indicator.setObjectName("bookIndicator")
         self._indicator.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        root.addWidget(self._indicator)
+        self._goto_label = QLabel("Gehe zu")
+        self._goto_label.setObjectName("fieldCaption")
+        self._goto = QSpinBox()
+        self._goto.setObjectName("bookGotoPage")
+        self._goto.setRange(1, 1)
+        self._goto.setMinimumWidth(64)
+        self._goto.setToolTip("Nummerierte Seite ab der Reiseübersicht. Eingabe bestätigt mit Enter.")
+        goto_edit = self._goto.lineEdit()
+        if goto_edit is not None:
+            goto_edit.returnPressed.connect(self._apply_goto)
+        self._goto_button = QPushButton("Gehe zu")
+        self._goto_button.setObjectName("bookGoto")
+        self._goto_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._goto_button.setToolTip("Zur eingegebenen Seitenzahl springen.")
+        self._goto_button.clicked.connect(self._apply_goto)
+        footer.addStretch(1)
+        footer.addWidget(self._indicator)
+        footer.addSpacing(16)
+        footer.addWidget(self._goto_label)
+        footer.addWidget(self._goto)
+        footer.addWidget(self._goto_button)
+        footer.addStretch(1)
+        root.addLayout(footer)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     def mousePressEvent(self, event) -> None:  # type: ignore[no-untyped-def]
         self.setFocus(Qt.FocusReason.MouseFocusReason)
         super().mousePressEvent(event)
+
+    def set_spread_overlap(self, enabled: bool) -> None:
+        changed = self._spread_overlap != enabled
+        self._spread_overlap = enabled
+        if not changed:
+            return
+        if self._leaves:
+            leaf = self._leaves[self._index]
+            if leaf.kind != "cover":
+                self._fill_side(self._verso, "verso", leaf)
+                self._fill_side(self._recto, "recto", leaf)
+        self._fit_sheets()
 
     def set_page_size(self, width_mm: float, height_mm: float) -> None:
         self._page_width_mm = width_mm
@@ -1364,7 +1449,19 @@ class BookPreview(QWidget):
             self._leaves[self._index] = replace(leaf, left_elements=elements)
         else:
             self._leaves[self._index] = replace(leaf, right_elements=elements)
+        self._sync_gutter_visitors(from_side=side)
         self.pageEdited.emit(self._index, side)
+
+    def _sync_gutter_visitors(self, *, from_side: str | None = None) -> None:
+        if not self._spread_overlap or not self._leaves:
+            return
+        leaf = self._leaves[self._index]
+        if leaf.kind == "cover":
+            return
+        if from_side != "recto" and self._recto._stack.currentIndex() == 5:
+            self._recto._photo_canvas.set_visitors(overflow_visitors(leaf.left_elements, onto="recto"))
+        if from_side != "verso" and self._verso._stack.currentIndex() == 5:
+            self._verso._photo_canvas.set_visitors(overflow_visitors(leaf.right_elements, onto="verso"))
 
     def keyPressEvent(self, event) -> None:  # type: ignore[no-untyped-def]
         key = event.key()
@@ -1380,7 +1477,24 @@ class BookPreview(QWidget):
         if key == Qt.Key.Key_End:
             self._go(len(self._leaves) - 1)
             return
+        if key == Qt.Key.Key_G and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            self._goto.setFocus(Qt.FocusReason.ShortcutFocusReason)
+            self._goto.selectAll()
+            return
         super().keyPressEvent(event)
+
+    def go_to_page(self, page: int) -> bool:
+        """Jump to the spread that contains the printed page number."""
+
+        index = leaf_index_for_page(self._leaves, page)
+        if index is None:
+            return False
+        self._go(index)
+        return True
+
+    def _apply_goto(self) -> None:
+        self.go_to_page(int(self._goto.value()))
+        self.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _go(self, index: int) -> None:
         if not self._leaves:
@@ -1426,8 +1540,19 @@ class BookPreview(QWidget):
         self._indicator.setText(leaf.indicator)
         at_start = self._index == 0
         at_end = self._index == len(self._leaves) - 1
+        self._first.setEnabled(not at_start)
         self._prev.setEnabled(not at_start)
         self._next.setEnabled(not at_end)
+        self._last.setEnabled(not at_end)
+        last_page = _last_numbered_page(self._leaves)
+        self._goto.setMaximum(max(1, last_page))
+        self._goto.setEnabled(last_page > 0)
+        self._goto_button.setEnabled(last_page > 0)
+        self._goto_label.setEnabled(last_page > 0)
+        shown = leaf.first_page if leaf.first_page is not None else 1
+        self._goto.blockSignals(True)
+        self._goto.setValue(min(max(1, shown), max(1, last_page)))
+        self._goto.blockSignals(False)
         self._fit_sheets()
         self.currentChanged.emit()
 
@@ -1451,7 +1576,13 @@ class BookPreview(QWidget):
             sheet.set_journal(leaf.left_title, leaf.notes)
             return
         if layout_is_photos(layout) or elements or layout == "photos_1":
-            sheet.set_photo_page(elements, leaf.media, side=side)
+            gutter_side = None
+            visitors: tuple[PhotoElement, ...] = ()
+            if self._spread_overlap:
+                gutter_side = "right" if side == "verso" else "left"
+                other = leaf.right_elements if side == "verso" else leaf.left_elements
+                visitors = overflow_visitors(other, onto=side)
+            sheet.set_photo_page(elements, leaf.media, side=side, gutter_side=gutter_side, visitors=visitors)
             return
         sheet.set_blank()
 
@@ -1464,19 +1595,21 @@ class BookPreview(QWidget):
         inner = self._stage.rect().adjusted(_STAGE_MARGIN, _STAGE_MARGIN, -_STAGE_MARGIN, -_STAGE_MARGIN)
         is_cover = self._current_is_cover()
         page_count = 1 if is_cover or not self._leaves else 2
+        gutter = 0 if self._spread_overlap and page_count == 2 else _SPREAD_GUTTER
         size = fitted_sheet_size(
             inner.size(),
             self._page_width_mm,
             self._page_height_mm,
             page_count=page_count,
-            gutter=_SPREAD_GUTTER,
+            gutter=gutter,
         )
         if size.width() < 1 or size.height() < 1:
             self._cover.hide()
             self._verso.hide()
             self._recto.hide()
+            self._gutter_line.hide()
             return
-        total_w = page_count * size.width() + _SPREAD_GUTTER * (page_count - 1)
+        total_w = page_count * size.width() + gutter * (page_count - 1)
         x0 = inner.x() + max(0, (inner.width() - total_w) // 2)
         y0 = inner.y() + max(0, (inner.height() - size.height()) // 2)
         if is_cover:
@@ -1484,9 +1617,16 @@ class BookPreview(QWidget):
             self._cover.show()
             self._verso.hide()
             self._recto.hide()
+            self._gutter_line.hide()
         else:
             self._verso.setGeometry(x0, y0, size.width(), size.height())
-            self._recto.setGeometry(x0 + size.width() + _SPREAD_GUTTER, y0, size.width(), size.height())
+            self._recto.setGeometry(x0 + size.width() + gutter, y0, size.width(), size.height())
             self._verso.show()
             self._recto.show()
             self._cover.hide()
+            if self._spread_overlap:
+                self._gutter_line.setGeometry(x0 + size.width(), y0, 1, size.height())
+                self._gutter_line.show()
+                self._gutter_line.raise_()
+            else:
+                self._gutter_line.hide()

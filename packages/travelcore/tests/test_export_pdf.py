@@ -1,7 +1,8 @@
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from travelcore.exceptions import ExportError
 from travelcore.export.book import (
@@ -16,8 +17,25 @@ from travelcore.export.book import (
     BookPage,
     book_pages,
 )
-from travelcore.export.document import TravelbookDocument, add_spread, replace_chapter, sync_document
-from travelcore.export.paint import NAVY_BG, PAGE_BG, folio_outer_x, render_book_page
+from travelcore.export.document import (
+    PhotoElement,
+    TravelbookDocument,
+    add_spread,
+    replace_chapter,
+    replace_spread,
+    sync_document,
+)
+from travelcore.export.geometry import Frame
+from travelcore.export.paint import (
+    NAVY_BG,
+    PAGE_BG,
+    PAGE_FG,
+    _draw_name_and_flag,
+    _draw_silhouette,
+    _font,
+    folio_outer_x,
+    render_book_page,
+)
 from travelcore.export.pdf import (
     PdfExporter,
     export_filename,
@@ -27,6 +45,8 @@ from travelcore.export.pdf import (
 )
 from travelcore.export.quality import DEFAULT_QUALITY_ID, pdf_quality
 from travelcore.export.raster import page_pixels
+from travelcore.export.svgicon import rasterize_svg
+from travelcore.geo.catalog import get_country
 from travelcore.timeline.types import TimelineEntry, TimelinePhoto, TimelineSection, TimelineSnapshot
 from travelcore.trip.models import Trip
 
@@ -112,6 +132,22 @@ def test_book_pages_front_matter_then_intro_and_photos(tmp_path: Path) -> None:
     assert pages[3].countries == ("IT",)
 
 
+def test_book_pages_merges_gutter_visitors(tmp_path: Path) -> None:
+    photo = _photo(1, _jpeg(tmp_path / "a.jpg"))
+    snapshot = _snapshot(_section(7, (photo,)))
+    document = sync_document(TravelbookDocument(spread_overlap=True), snapshot)
+    chapter = add_spread(document.chapters[0], photo_layout="photos_1")
+    extra = chapter.spreads[-1]
+    spanning = PhotoElement(id="span", source_file_id=1, frame=Frame(80, 0, 40, 100), z=1)
+    extra = replace(extra, verso=replace(extra.verso, elements=(spanning,)))
+    document = replace_chapter(document, replace_spread(chapter, extra))
+    pages = book_pages(document, snapshot)
+    photos = [page for page in pages if page.kind == KIND_PHOTOS]
+    assert photos[1].elements[0].frame.x == 80
+    visitors = [item for item in photos[2].elements if item.id == "span"]
+    assert visitors[0].frame.x == -20
+
+
 def test_hidden_section_is_omitted_from_pdf_pages(tmp_path: Path) -> None:
     visible = _section(1, (_photo(1, _jpeg(tmp_path / "v.jpg")),), title="Sichtbar")
     hidden = _section(2, (_photo(2, _jpeg(tmp_path / "h.jpg")),), title="Verborgen", hidden=True)
@@ -158,6 +194,109 @@ def _ink_weight(image: Image.Image, xs: slice, ys: slice) -> int:
         for y in range(ys.start, ys.stop)
         for pixel in [image.getpixel((x, y))]
     )
+
+
+def test_germany_flag_svg_has_black_red_gold() -> None:
+    country = get_country("DE")
+    assert country is not None
+    image = rasterize_svg(country.flag_svg, 48, 36)
+    top = image.getpixel((24, 4))
+    mid = image.getpixel((24, 18))
+    bot = image.getpixel((32, 32))
+    assert top[0] < 40 and top[1] < 40 and top[2] < 40 and top[3] > 200
+    assert mid[0] > 180 and mid[1] < 80
+    assert bot[0] > 200 and bot[1] > 150 and bot[2] < 80
+
+
+def test_germany_silhouette_paints_taller_than_wide() -> None:
+    canvas = Image.new("RGB", (200, 200), (255, 255, 255))
+    _draw_silhouette(ImageDraw.Draw(canvas), "DE", (0, 0, 200, 200), (0, 0, 0))
+    ink = [(x, y) for y in range(200) for x in range(200) if canvas.getpixel((x, y)) != (255, 255, 255)]
+    xs = [point[0] for point in ink]
+    ys = [point[1] for point in ink]
+    assert ink
+    assert max(ys) - min(ys) > max(xs) - min(xs)
+
+
+def test_summary_page_paints_flag_stripes() -> None:
+    page = BookPage(kind=KIND_SUMMARY_COUNTRIES, countries=("DE",), metrics=())
+    image = render_book_page(page, {}, 400, 560, dpi=72)
+    gold = 0
+    red = 0
+    for y in range(image.height):
+        for x in range(int(image.width * 0.4)):
+            pixel = image.getpixel((x, y))
+            if pixel[0] > 200 and 150 < pixel[1] < 230 and pixel[2] < 80:
+                gold += 1
+            if pixel[0] > 180 and pixel[1] < 50 and pixel[2] < 50:
+                red += 1
+    assert gold > 8
+    assert red > 8
+
+
+def _is_flag_gold(pixel: tuple[int, int, int]) -> bool:
+    return pixel[0] > 200 and 150 < pixel[1] < 230 and pixel[2] < 80
+
+
+def _is_de_flag(pixel: tuple[int, int, int]) -> bool:
+    black = pixel[0] < 40 and pixel[1] < 40 and pixel[2] < 40
+    red = pixel[0] > 180 and pixel[1] < 50 and pixel[2] < 50
+    return black or red or _is_flag_gold(pixel)
+
+
+def _is_navy_ink(pixel: tuple[int, int, int]) -> bool:
+    return (
+        abs(pixel[0] - PAGE_FG[0]) < 12
+        and abs(pixel[1] - PAGE_FG[1]) < 12
+        and abs(pixel[2] - PAGE_FG[2]) < 12
+    )
+
+
+def test_intro_paints_flag_left_of_name_and_vertically_centered() -> None:
+    country = get_country("DE")
+    assert country is not None
+    canvas = Image.new("RGB", (280, 40), PAGE_BG)
+    draw = ImageDraw.Draw(canvas)
+    font = _font(16, bold=True)
+    _draw_name_and_flag(canvas, draw, country, (8, 8, 270), font, PAGE_FG, 72, flag_first=True)
+    flag_xs: list[int] = []
+    flag_ys: list[int] = []
+    navy_xs: list[int] = []
+    navy_ys: list[int] = []
+    for y in range(canvas.height):
+        for x in range(canvas.width):
+            pixel = canvas.getpixel((x, y))
+            if _is_de_flag(pixel):
+                flag_xs.append(x)
+                flag_ys.append(y)
+            elif _is_navy_ink(pixel):
+                navy_xs.append(x)
+                navy_ys.append(y)
+    assert flag_xs and navy_xs
+    assert max(flag_xs) < min(navy_xs)
+    flag_mid = (min(flag_ys) + max(flag_ys)) / 2
+    text_mid = (min(navy_ys) + max(navy_ys)) / 2
+    assert abs(flag_mid - text_mid) <= 3
+
+
+def test_intro_page_paints_flag_left_of_country_name() -> None:
+    page = BookPage(kind=KIND_INTRO, country="DE", title="Bozen")
+    image = render_book_page(page, {}, 400, 560, dpi=72)
+    margin = round(400 * 0.07)
+    header_h = round(560 * 0.28)
+    y0 = margin + header_h + 8
+    y1 = margin + header_h + 24
+    gold_x: list[int] = []
+    navy_x: list[int] = []
+    for y in range(y0, y1):
+        for x in range(margin, round(400 * 0.42)):
+            pixel = image.getpixel((x, y))
+            if _is_flag_gold(pixel):
+                gold_x.append(x)
+            elif _is_navy_ink(pixel):
+                navy_x.append(x)
+    assert gold_x and navy_x
+    assert max(gold_x) < min(navy_x)
 
 
 def test_cover_is_navy_and_title_is_cream(tmp_path: Path) -> None:

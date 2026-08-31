@@ -6,7 +6,7 @@ Hidden timeline sections are omitted, matching the map and the Qt preview.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from pathlib import Path
 
@@ -15,6 +15,7 @@ from travelcore.export.document import (
     TravelbookDocument,
     book_media_items,
     layout_is_photos,
+    overflow_visitors,
     sync_document,
 )
 from travelcore.export.stats import trip_summary_metrics
@@ -101,8 +102,13 @@ def book_pages(document: TravelbookDocument, snapshot: TimelineSnapshot) -> tupl
             continue
         context = _section_context(entry, snapshot, trip_start, trip_end)
         for spread in chapter.spreads:
-            pages.append(_page_from_instance(spread.verso, context, number))
-            pages.append(_page_from_instance(spread.recto, context, number + 1))
+            verso = _page_from_instance(spread.verso, context, number)
+            recto = _page_from_instance(spread.recto, context, number + 1)
+            if synced.spread_overlap:
+                verso = _with_gutter_visitors(verso, spread.recto.elements, "verso")
+                recto = _with_gutter_visitors(recto, spread.verso.elements, "recto")
+            pages.append(verso)
+            pages.append(recto)
             number += 2
     return tuple(pages)
 
@@ -185,6 +191,15 @@ def _page_from_instance(page, context: _SectionContext, number: int) -> BookPage
     if layout_is_photos(layout):
         return BookPage(kind=KIND_PHOTOS, number=number, elements=page.elements)
     return BookPage(kind=KIND_BLANK, number=number)
+
+
+def _with_gutter_visitors(page: BookPage, neighbor: tuple[PhotoElement, ...], onto: str) -> BookPage:
+    if page.kind != KIND_PHOTOS:
+        return page
+    extra = overflow_visitors(neighbor, onto=onto)
+    if not extra:
+        return page
+    return replace(page, elements=page.elements + extra)
 
 
 def _section_context(

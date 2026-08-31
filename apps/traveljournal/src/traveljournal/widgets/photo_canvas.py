@@ -145,6 +145,7 @@ class _PhotoItem(QGraphicsObject):
         page_height: float,
         *,
         editable: bool,
+        gutter_side: str | None = None,
     ) -> None:
         super().__init__()
         self.element = element
@@ -154,6 +155,7 @@ class _PhotoItem(QGraphicsObject):
         self._page_w = page_width
         self._page_h = page_height
         self._editable = editable
+        self._gutter_side = gutter_side
         self._handle: _Handle | None = None
         self._press = QPointF()
         self._press_item = QPointF()
@@ -264,9 +266,7 @@ class _PhotoItem(QGraphicsObject):
         }
         if handle is not None:
             self.setCursor(QCursor(cursors[handle]))
-        elif event.modifiers() & (
-            Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier
-        ):
+        elif event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier):
             self.setCursor(QCursor(Qt.CursorShape.OpenHandCursor))
         else:
             self.setCursor(QCursor(Qt.CursorShape.SizeAllCursor))
@@ -315,7 +315,13 @@ class _PhotoItem(QGraphicsObject):
         self.element = replace(
             self.element,
             frame=pixels_to_frame(
-                self._page_w, self._page_h, left + delta.x(), top + delta.y(), width, height
+                self._page_w,
+                self._page_h,
+                left + delta.x(),
+                top + delta.y(),
+                width,
+                height,
+                gutter_side=self._gutter_side,
             ),
         )
         self._place()
@@ -416,7 +422,15 @@ class _PhotoItem(QGraphicsObject):
                 bottom = top + new_h
         self.element = replace(
             self.element,
-            frame=pixels_to_frame(self._page_w, self._page_h, left, top, right - left, bottom - top),
+            frame=pixels_to_frame(
+                self._page_w,
+                self._page_h,
+                left,
+                top,
+                right - left,
+                bottom - top,
+                gutter_side=self._gutter_side,
+            ),
         )
         self._place()
         self.update()
@@ -441,6 +455,8 @@ class PhotoPageCanvas(QGraphicsView):
         self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
         self._elements: tuple[PhotoElement, ...] = ()
+        self._visitors: tuple[PhotoElement, ...] = ()
+        self._gutter_side: str | None = None
         self._media: dict[int, BookMedia] = {}
         self._editable = False
         self._pixmaps: dict[int, QPixmap] = {}
@@ -454,9 +470,22 @@ class PhotoPageCanvas(QGraphicsView):
         self._editable = editable
         self._rebuild()
 
-    def set_page(self, elements: tuple[PhotoElement, ...], media: tuple[BookMedia, ...]) -> None:
+    def set_page(
+        self,
+        elements: tuple[PhotoElement, ...],
+        media: tuple[BookMedia, ...],
+        *,
+        gutter_side: str | None = None,
+        visitors: tuple[PhotoElement, ...] = (),
+    ) -> None:
         self._elements = sorted_by_z(elements)
+        self._visitors = visitors
+        self._gutter_side = gutter_side
         self._media = {item.source_file_id: item for item in media}
+        self._rebuild()
+
+    def set_visitors(self, visitors: tuple[PhotoElement, ...]) -> None:
+        self._visitors = visitors
         self._rebuild()
 
     def clear_page(self) -> None:
@@ -475,7 +504,11 @@ class PhotoPageCanvas(QGraphicsView):
         height = max(self.viewport().height(), 1)
         self.resetTransform()
         self._scene.setSceneRect(0, 0, width, height)
-        for element in sorted_by_z(self._elements):
+        own_ids = {item.id for item in self._elements}
+        for element, editable in (
+            *((item, self._editable) for item in sorted_by_z(self._elements)),
+            *((item, False) for item in self._visitors if item.id not in own_ids),
+        ):
             media = self._media.get(element.source_file_id)
             pixmap = self._pixmap_for(media)
             image_w, image_h = _preview_image_size(pixmap, media)
@@ -486,10 +519,11 @@ class PhotoPageCanvas(QGraphicsView):
                 image_h,
                 float(width),
                 float(height),
-                editable=self._editable,
+                editable=editable,
+                gutter_side=self._gutter_side if editable else None,
             )
             self._scene.addItem(item)
-            if element.id in selected:
+            if editable and element.id in selected:
                 item.setSelected(True)
 
     def _pixmap_for(self, media: BookMedia | None) -> QPixmap:
@@ -514,7 +548,7 @@ class PhotoPageCanvas(QGraphicsView):
 
     def _commit_item(self, item: _PhotoItem) -> None:
         previous = next((element for element in self._elements if element.id == item.element.id), None)
-        if previous == item.element:
+        if previous is None or previous == item.element:
             return
         self._elements = update_element(self._elements, item.element)
         self.elementsChanged.emit()
@@ -541,7 +575,10 @@ class PhotoPageCanvas(QGraphicsView):
         source_id = ids[0]
         scene_pos = self.mapToScene(event.position().toPoint())
         hit = self._scene.itemAt(scene_pos, self.transform())
-        if isinstance(hit, _PhotoItem):
+        own_hit = isinstance(hit, _PhotoItem) and any(
+            element.id == hit.element.id for element in self._elements
+        )
+        if own_hit:
             self._set_elements(replace_source(self._elements, hit.element.id, source_id))
         else:
             page_w = max(self.viewport().width(), 1)
@@ -553,6 +590,7 @@ class PhotoPageCanvas(QGraphicsView):
                 scene_pos.y() - page_h * 0.16,
                 page_w * 0.36,
                 page_h * 0.32,
+                gutter_side=self._gutter_side,
             )
             self._set_elements(add_photo_element(self._elements, source_id, frame=frame))
         event.acceptProposedAction()

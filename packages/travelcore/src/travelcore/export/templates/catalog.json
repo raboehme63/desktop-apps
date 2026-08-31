@@ -30,7 +30,7 @@
       "id": "cewe",
       "label": { "de": "CEWE", "en": "CEWE" },
       "offline": true,
-      "note": "Platzhalter bis Format- und Lizenzprüfung (OP-02)."
+      "note": "Travelbook → klassisches .mcf plus Bilderordner. Im CEWE Creator öffnen und Feinschliff; kein offizielles SDK."
     },
     {
       "id": "video",

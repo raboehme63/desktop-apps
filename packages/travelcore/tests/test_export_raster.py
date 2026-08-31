@@ -80,6 +80,24 @@ def test_pan_selects_the_source_window(tmp_path: Path) -> None:
     assert right_px[2] > left_px[2]
 
 
+def test_spanning_frame_paints_only_the_page_slice(tmp_path: Path) -> None:
+    red = _jpeg(tmp_path / "red.jpg", (180, 10, 10), size=(80, 80))
+    verso = PhotoElement(id="v", source_file_id=1, frame=Frame(80, 0, 40, 100), z=1)
+    page = render_photo_page((verso,), {1: red}, 100, 20)
+    left = page.getpixel((10, 10))
+    right = page.getpixel((90, 10))
+    assert left == (247, 244, 238)
+    assert right[0] > 140
+    assert right[1] < 40
+    visitor = PhotoElement(id="r", source_file_id=1, frame=Frame(-20, 0, 40, 100), z=1)
+    facing = render_photo_page((visitor,), {1: red}, 100, 20)
+    left_v = facing.getpixel((10, 10))
+    right_v = facing.getpixel((90, 10))
+    assert left_v[0] > 140
+    assert left_v[1] < 40
+    assert right_v == (247, 244, 238)
+
+
 def test_rotated_photo_still_covers_the_frame(tmp_path: Path) -> None:
     red = _jpeg(tmp_path / "red.jpg", (180, 10, 10), size=(80, 80))
     element = PhotoElement(

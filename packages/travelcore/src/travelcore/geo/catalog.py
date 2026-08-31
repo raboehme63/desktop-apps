@@ -7,7 +7,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import lru_cache
-from math import hypot
+from math import cos, hypot, radians
 from pathlib import Path
 
 _DATA = Path(__file__).resolve().parent / "data"
@@ -128,6 +128,25 @@ def outline_rings(iso2: str) -> tuple[tuple[tuple[float, float], ...], ...]:
     """Silhouette path rings (x = longitude, y = −latitude). Empty if unknown."""
 
     return _country_rings(str(iso2).strip().upper())
+
+
+def lonlat_cosine(min_y: float, max_y: float) -> float:
+    """Longitude-degree scale at the silhouette mid-latitude (y = −latitude)."""
+
+    mid_lat = -(float(min_y) + float(max_y)) / 2.0
+    return max(cos(radians(mid_lat)), 0.15)
+
+
+def silhouette_display_aspect(iso2: str) -> float:
+    """Pixel width / height after correcting longitude at mid-latitude."""
+
+    box = _country_box(str(iso2).strip().upper())
+    if box is None:
+        return 1.0
+    min_lon, min_lat, max_lon, max_lat = box
+    span_x = max(max_lon - min_lon, 1e-9)
+    span_y = max(max_lat - min_lat, 1e-9)
+    return span_x * lonlat_cosine(-max_lat, -min_lat) / span_y
 
 
 def shape_lonlat_box(country: Country) -> tuple[float, float, float, float] | None:

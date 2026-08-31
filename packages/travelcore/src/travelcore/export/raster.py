@@ -46,41 +46,56 @@ def render_photo_page(
     canvas = Image.new("RGB", (width, height), background)
     rotations = rotation_degrees or {}
     for element in sorted_by_z(elements):
-        dest = _dest_box(width, height, element)
+        dest = _visible_box(width, height, element)
         if dest is None:
             continue
-        dx, dy, dw, dh = dest
+        dx, dy, dw, dh, full_w, full_h, crop_x, crop_y = dest
         image = _open_source(sources.get(element.source_file_id), rotations.get(element.source_file_id, 0))
         if image is None:
             canvas.paste(Image.new("RGB", (dw, dh), _PLACEHOLDER), (dx, dy))
             continue
         try:
-            fitted = _fit_element(image, element, dw, dh)
-            overlay = fitted if fitted.mode == "RGBA" else fitted.convert("RGBA")
+            fitted = _fit_element(image, element, full_w, full_h)
+            piece = fitted.crop((crop_x, crop_y, crop_x + dw, crop_y + dh))
+            overlay = piece if piece.mode == "RGBA" else piece.convert("RGBA")
             canvas.paste(overlay, (dx, dy), overlay)
-            if overlay is not fitted:
+            if overlay is not piece:
                 overlay.close()
+            piece.close()
             fitted.close()
         finally:
             image.close()
     return canvas
 
 
-def _dest_box(
+def _visible_box(
     page_width: int, page_height: int, element: PhotoElement
-) -> tuple[int, int, int, int] | None:
+) -> tuple[int, int, int, int, int, int, int, int] | None:
+    """Page intersection of a frame that may extend past the gutter.
+
+    Returns ``(dx, dy, dw, dh, full_w, full_h, crop_x, crop_y)``.
+    """
+
     left, top, frame_w, frame_h = frame_pixels(page_width, page_height, element.frame)
-    dx = int(round(left))
-    dy = int(round(top))
-    dw = max(1, int(round(frame_w)))
-    dh = max(1, int(round(frame_h)))
-    if dx >= page_width or dy >= page_height:
+    full_w = max(1, int(round(frame_w)))
+    full_h = max(1, int(round(frame_h)))
+    ix0 = max(0.0, left)
+    iy0 = max(0.0, top)
+    ix1 = min(float(page_width), left + frame_w)
+    iy1 = min(float(page_height), top + frame_h)
+    if ix1 <= ix0 or iy1 <= iy0:
         return None
-    dw = min(dw, page_width - max(dx, 0))
-    dh = min(dh, page_height - max(dy, 0))
-    if dw <= 0 or dh <= 0:
+    dx = int(round(ix0))
+    dy = int(round(iy0))
+    dw = max(1, int(round(ix1)) - dx)
+    dh = max(1, int(round(iy1)) - dy)
+    if dx >= page_width or dy >= page_height or dw <= 0 or dh <= 0:
         return None
-    return (max(dx, 0), max(dy, 0), dw, dh)
+    dw = min(dw, page_width - dx)
+    dh = min(dh, page_height - dy)
+    crop_x = min(max(0, dx - int(round(left))), max(full_w - dw, 0))
+    crop_y = min(max(0, dy - int(round(top))), max(full_h - dh, 0))
+    return (dx, dy, dw, dh, full_w, full_h, crop_x, crop_y)
 
 
 def _open_source(path: Path | None, degrees: int) -> Image.Image | None:
