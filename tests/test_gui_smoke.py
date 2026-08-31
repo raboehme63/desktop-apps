@@ -97,6 +97,7 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     assert not hasattr(window.export_view, "_format_buttons")
     assert window.export_view.findChild(QLabel, "pageTitle") is None
     assert window.export_view._mode_buttons["export"].isChecked()
+    assert window.export_view._mode_buttons["export"].text() == "Vorschau"
     assert window.export_view._mode_buttons["edit"].text() == "Editiermodus"
     assert window.export_view._add_spread_button.isHidden()
     assert window.export_view._page_size_id == "a4-portrait"
@@ -122,12 +123,12 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     assert window.export_view._preview._next.isEnabled()
     window.export_view._preview._next.click()
     app.processEvents()
-    assert "2/" in window.export_view._preview._indicator.text()
+    assert window.export_view._preview._indicator.text() == "Titelseite"
     assert window.export_view._preview._leaves[1].variant == "title"
     assert window.export_view._preview._recto._center_title.text() == "Reise"
     window.export_view._preview._next.click()
     app.processEvents()
-    assert "3" in window.export_view._preview._indicator.text()
+    assert window.export_view._preview._indicator.text().startswith("1–2/")
     assert window.export_view._preview._leaves[2].variant == "summary"
     assert window.export_view._preview._leaves[2].metrics == ()
     from traveljournal.views.export_view import ExportFormatDialog
@@ -319,6 +320,167 @@ def test_fitted_sheet_keeps_page_aspect() -> None:
     landscape = fitted_sheet_size(QSize(600, 800), 297, 210, page_count=1)
     assert landscape.width() == 600
     assert abs(landscape.width() / landscape.height() - 297 / 210) < 0.01
+
+
+def test_section_intro_shows_country_journal_and_dates(tmp_path: Path) -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, date, datetime
+
+    from jpeg_fixtures import write_plain_jpeg
+    from PySide6.QtWidgets import QApplication, QLabel, QWidget
+
+    from travelcore.timeline.types import TimelineEntry, TimelinePhoto, TimelineSection, TimelineSnapshot
+    from traveljournal.widgets.book_preview import BookPreview, _span_fracs, leaves_from_snapshot
+
+    app = QApplication.instance() or QApplication([])
+    started = datetime(2025, 7, 17, 12, 0, tzinfo=UTC)
+    cover_path = write_plain_jpeg(tmp_path / "cover.jpg", size=(80, 60))
+    extra_path = write_plain_jpeg(tmp_path / "extra.jpg", size=(80, 60))
+    cover_photo = TimelinePhoto(
+        source_file_id=1,
+        filename="cover.jpg",
+        path=str(cover_path),
+        thumbnail_path=cover_path,
+        captured_at=started,
+        used_in_journal=True,
+        is_cover=True,
+        is_favorite=False,
+        gps_latitude=47.767,
+        gps_longitude=12.167,
+        file_kind="photo",
+    )
+    extra_photo = TimelinePhoto(
+        source_file_id=2,
+        filename="extra.jpg",
+        path=str(extra_path),
+        thumbnail_path=extra_path,
+        captured_at=started,
+        used_in_journal=True,
+        is_cover=False,
+        is_favorite=False,
+        gps_latitude=47.767,
+        gps_longitude=12.167,
+        file_kind="photo",
+    )
+    section = TimelineSection(
+        id=1,
+        kind="day",
+        mode=None,
+        title="Hochries Flug #2",
+        notes="Start an der Bergstation, dann thermisch Richtung Chiemsee.",
+        started_at=started,
+        ended_at=started,
+        location_name=None,
+        location_from=None,
+        location_to=None,
+        origin="manual",
+        cover_source_file_id=1,
+        pin_latitude=47.767,
+        pin_longitude=12.167,
+        items=(cover_photo, extra_photo),
+    )
+    snapshot = TimelineSnapshot(
+        trip_id=1,
+        title="Alpen",
+        origin="manual",
+        countries=("DE", "IT"),
+        start_date=date(2025, 7, 1),
+        end_date=date(2025, 7, 31),
+        entries=(TimelineEntry(started_at=started, section=section),),
+    )
+    leaves = leaves_from_snapshot(snapshot)
+    assert leaves[1].indicator == "Titelseite"
+    assert leaves[2].indicator == "1–2/4"
+    intro = leaves[-1]
+    assert intro.variant == "section"
+    assert intro.indicator == "3–4/4"
+    assert intro.country == "DE"
+    assert intro.left_title == "Hochries Flug #2"
+    assert intro.left_kicker == "Tag"
+    assert intro.notes.startswith("Start an der Bergstation")
+    assert intro.dates == "17.07.2025"
+    assert intro.span_start == 16 / 30
+    assert intro.span_end == 16 / 30
+    assert intro.left_image == cover_path
+    assert intro.photos == (cover_path, extra_path)
+    assert intro.latitude == 47.767
+    assert intro.longitude == 12.167
+    assert _span_fracs(started, started, date(2025, 7, 1), date(2025, 7, 31)) == (16 / 30, 16 / 30)
+
+    stay_start = datetime(2025, 7, 17, tzinfo=UTC)
+    stay_end = datetime(2025, 7, 19, tzinfo=UTC)
+    stay = TimelineSection(
+        id=2,
+        kind="stay",
+        mode=None,
+        title="Chiemsee",
+        notes="",
+        started_at=stay_start,
+        ended_at=stay_end,
+        location_name=None,
+        location_from=None,
+        location_to=None,
+        origin="manual",
+        pin_latitude=47.85,
+        pin_longitude=12.4,
+    )
+    stay_snapshot = TimelineSnapshot(
+        trip_id=1,
+        title="Alpen",
+        origin="manual",
+        countries=("DE",),
+        start_date=date(2025, 7, 1),
+        end_date=date(2025, 7, 31),
+        entries=(TimelineEntry(started_at=stay_start, section=stay),),
+    )
+    stay_leaf = leaves_from_snapshot(stay_snapshot)[-1]
+    assert stay_leaf.left_kicker == "Aufenthalt"
+    assert stay_leaf.dates == "17.07.2025 bis 19.07.2025"
+    assert stay_leaf.span_start == 16 / 30
+    assert stay_leaf.span_end == 18 / 30
+
+    preview = BookPreview()
+    preview.resize(900, 640)
+    preview.set_leaves(leaves)
+    preview._go(len(leaves) - 1)
+    preview.show()
+    app.processEvents()
+    sheet = preview._verso
+    assert sheet._stack.currentIndex() == 4
+    assert sheet._section_title.text() == "HOCHRIES FLUG #2"
+    assert sheet._section_country.text() == "DEUTSCHLAND"
+    assert sheet._section_dates.text() == "17.07.2025"
+    assert sheet._section_notes.text().startswith("Start an der Bergstation")
+    assert sheet._section_notes_box.isVisible()
+    assert sheet._section_span._label == "17.07.2025"
+    locators = [child for child in sheet.findChildren(QWidget) if child.objectName() == "bookSectionLocator"]
+    assert len(locators) == 1
+    cover = sheet.findChild(QLabel, "bookSectionCover")
+    assert cover is not None
+    assert cover.isVisible()
+    assert not cover.pixmap().isNull()
+    left = sheet.findChild(QWidget, "bookSectionPlaceLeft")
+    assert left is not None
+    assert cover.x() >= left.x() + left.width() - 4
+    flag = sheet.findChild(QLabel, "bookSectionFlag")
+    assert flag is not None
+    assert not flag.pixmap().isNull()
+    assert flag.x() < cover.x()
+    assert flag.y() >= locators[0].y()
+    source = cover._source
+    shown = cover.pixmap()
+    assert abs(shown.width() / shown.height() - source.width() / source.height()) < 0.05
+    assert preview._recto._stack.currentIndex() == 5
+    assert len(preview._recto._photo_grid._cells) == 2
+
+    preview.set_leaves(leaves_from_snapshot(stay_snapshot))
+    preview._go(len(preview._leaves) - 1)
+    app.processEvents()
+    assert preview._verso._section_notes.text() == ""
+    assert preview._verso._section_notes_box.isVisible()
+    assert preview._verso._section_span._label == "17.07.2025 bis 19.07.2025"
+    assert preview._verso._section_dates.text() == "17.07.2025 bis 19.07.2025"
+    preview.close()
 
 
 def test_app_window_title_includes_version() -> None:

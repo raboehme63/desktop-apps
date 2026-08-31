@@ -11,8 +11,7 @@
           "initial": true,
           "verso": {
             "layout": "section_intro",
-            "locked": true,
-            "media": [101]
+            "locked": true
           },
           "recto": {
             "layout": "photos_1",

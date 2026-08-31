@@ -170,6 +170,44 @@ QLabel#bookCountryName {
     color: #f4f7fb;
 }
 
+QWidget#bookSectionLocator {
+    background-color: #f7f4ee;
+}
+
+QLabel#bookSectionCountry {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+}
+
+QLabel#bookSectionTitle {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+
+QLabel#bookSectionKind {
+    color: #5c6b7a;
+}
+
+QLabel#bookSectionNotes {
+    font-size: 12px;
+}
+
+QFrame#bookNotesBox {
+    background-color: #e4dfd6;
+    border: none;
+}
+
+QFrame#bookPage QLabel#bookSectionCover {
+    background-color: #f7f4ee;
+    border: none;
+}
+
+QWidget#bookTripSpan {
+    background-color: #f7f4ee;
+}
+
 QScrollArea#countryList {
     background-color: #1c2230;
     border: 1px solid #2a3144;

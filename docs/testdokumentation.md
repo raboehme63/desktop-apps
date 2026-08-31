@@ -220,11 +220,13 @@ Stand nach `pytest --collect-only`: **452 Tests** (31. August 2026). Neue Tests 
 | `test_resolve_token_accepts_code_german_english_and_alias` | `test_country_catalog.py` | ISO, DE/EN-Name, Alias USA, Suche Slowenien und Südafrika |
 | `test_parse_countries_stores_iso_codes` | `test_country_catalog.py` | Freitext und Codes werden als ISO gespeichert |
 | `test_catalog_files_live_next_to_module` | `test_country_catalog.py` | `catalog.json`, NOTICE, `flags/de.svg`, `shapes/de.svg` |
+| `test_country_at_uses_silhouette_outline` | `test_country_catalog.py` | Hochries/München → DE trotz AT in der Reise; Wien → AT; Vaduz → LI; Kapstadt → ZA; Mailand → IT |
 | `test_protocols_are_importable` | `test_interfaces.py` | `MetadataProvider`, `RankingStrategy`, `MapBackend` |
-| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R3.1.0, Menü **Bearbeiten** mit Strg+Z/Strg+Y, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren**, Export ohne Kopfzeile, Modus Export/Editiermodus, einklappbare Auswahl, Blättern mit Pfeilen links/rechts, Seitenformat DIN A4 Hochformat, Dateiformat erst im Export-Dialog, Länderauswahl und Reise von–bis deaktiviert ohne Projekt |
+| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R3.1.0, Menü **Bearbeiten** mit Strg+Z/Strg+Y, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren**, Export ohne Kopfzeile, Modus Vorschau/Editiermodus, einklappbare Auswahl, Blättern mit Pfeilen links/rechts, Cover dann Titelseite dann Seitenzahlen ab Reiseübersicht 1–2/n, Seitenformat DIN A4 Hochformat, Dateiformat erst im Export-Dialog, Länderauswahl und Reise von–bis deaktiviert ohne Projekt |
 | `test_country_picker_adds_flag_and_shape` | `tests/test_gui_smoke.py` | Länderauswahl: Italien und Slowenien mit Flagge und Umriss |
 | `test_project_span_edits_update_duration` | `tests/test_gui_smoke.py` | Projektseite: von–bis setzt Dauer (2 Tage) |
 | `test_summary_countries_stack_evenly_with_flag_in_outline` | `tests/test_gui_smoke.py` | Reiseübersicht: Umriss, Name in Versalien, kleine Flagge hinter dem Namen |
+| `test_section_intro_shows_country_journal_and_dates` | `tests/test_gui_smoke.py` | Abschnittsseite: Block Umriss/Flagge/Land, Titelbild rechts im Bildformat, Titel, Datum 01.01.1900 bzw. … bis …, graue Tagebuchbox, Zeitleiste, Fotos rechts, Seitenzahlen ab Übersicht |
 
 ### 4.7 GPX und zeitliche Zuordnung — FA-040 bis FA-042
 

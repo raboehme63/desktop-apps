@@ -4,10 +4,22 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
 
 from PySide6.QtCore import QRect, QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QPainter, QPaintEvent, QPalette, QPixmap, QResizeEvent
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QFontMetrics,
+    QPainter,
+    QPaintEvent,
+    QPalette,
+    QPen,
+    QPixmap,
+    QResizeEvent,
+)
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -19,10 +31,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from travelcore.export.catalog import load_page_layout
 from travelcore.export.stats import trip_summary_metrics
-from travelcore.geo.catalog import Country, get_country
-from travelcore.timeline.sections import format_card_dates
-from travelcore.timeline.types import TimelineEntry, TimelineSnapshot
+from travelcore.geo.catalog import Country, country_at, get_country
+from travelcore.media.gallery import SORT_REJECTED
+from travelcore.timeline.types import TimelineEntry, TimelinePhoto, TimelineSection, TimelineSnapshot
 from traveljournal.widgets.svg_pixmaps import svg_pixmap, svg_renderer
 
 _STAGE_MARGIN = 20
@@ -34,9 +47,16 @@ _NAVY_BG = "#1a2744"
 _NAVY_FG = "#f4f7fb"
 _NAVY_MUTED = "#9ec9b8"
 _PAGE_MUTED = "#5c6b7a"
+_ACCENT = "#2c9a8f"
 _SHAPE_FILL = "#b8c1ce"
+_SHAPE_SECTION = "#8b95a5"
 _SHAPE_WIDTH_RATIO = 0.88
 _NAME_FLAG = QSize(18, 14)
+_SECTION_FLAG = QSize(22, 16)
+_LOCATOR_MAX_H = 128
+_COVER_MAX_H = 200
+_NOTES_BOX = "#e4dfd6"
+_SPAN_TRACK = "#cfc8bc"
 
 
 def _paint(widget: QWidget, background: str, foreground: str) -> None:
@@ -97,6 +117,8 @@ def _clear_layout(layout: QVBoxLayout) -> None:
         item = layout.takeAt(0)
         widget = item.widget()
         if widget is not None:
+            widget.hide()
+            widget.setParent(None)
             widget.deleteLater()
 
 
@@ -161,6 +183,307 @@ class _CountrySilhouette(QWidget):
         if fitted.width() < 4 or fitted.height() < 4:
             return
         self._shape.render(painter, fitted)
+
+
+class _SectionLocator(QWidget):
+    """Cream-page country outline with an optional GPS pin."""
+
+    def __init__(
+        self,
+        country: Country,
+        *,
+        latitude: float | None = None,
+        longitude: float | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("bookSectionLocator")
+        _paint(self, _PAGE_BG, _PAGE_FG)
+        policy = QSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
+        policy.setHeightForWidth(True)
+        self.setSizePolicy(policy)
+        self.setMaximumWidth(240)
+        self.setMinimumHeight(48)
+        self.setMaximumHeight(_LOCATOR_MAX_H)
+        self._latitude = latitude
+        self._longitude = longitude
+        self._shape = svg_renderer(country.shape_svg, fill=_SHAPE_SECTION)
+        box = self._shape.viewBoxF()
+        self._aspect = box.height() / box.width() if box.width() > 0 and box.height() > 0 else 1.0
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802
+        return True
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802
+        inner = max(width - 4, 8)
+        natural = inner * self._aspect
+        return max(48, min(int(natural) + 4, _LOCATOR_MAX_H))
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        width = 160
+        return QSize(width, self.heightForWidth(width))
+
+    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        area = self.rect().adjusted(2, 2, -2, -2)
+        if area.width() < 8 or area.height() < 8 or not self._shape.isValid():
+            return
+        fitted = _fit_rect(area, 1 / self._aspect if self._aspect else 1.0)
+        if fitted.width() < 4 or fitted.height() < 4:
+            return
+        self._shape.render(painter, fitted)
+        self._paint_pin(painter, fitted)
+
+    def _paint_pin(self, painter: QPainter, fitted: QRectF) -> None:
+        if self._latitude is None or self._longitude is None:
+            return
+        box = self._shape.viewBoxF()
+        if box.width() <= 0 or box.height() <= 0:
+            return
+        svg_x, svg_y = _lonlat_to_svg(self._latitude, self._longitude, box)
+        if (
+            svg_x < box.x()
+            or svg_x > box.x() + box.width()
+            or svg_y < box.y()
+            or svg_y > box.y() + box.height()
+        ):
+            return
+        x = fitted.x() + (svg_x - box.x()) / box.width() * fitted.width()
+        y = fitted.y() + (svg_y - box.y()) / box.height() * fitted.height()
+        radius = max(3.5, min(fitted.width(), fitted.height()) * 0.035)
+        painter.setPen(QPen(QColor("#ffffff"), max(1.2, radius * 0.35)))
+        painter.setBrush(QBrush(QColor(_ACCENT)))
+        painter.drawEllipse(QRectF(x - radius, y - radius, radius * 2, radius * 2))
+
+
+def _lonlat_to_svg(latitude: float, longitude: float, box: QRectF) -> tuple[float, float]:
+    x = longitude
+    y = -latitude
+    right = box.x() + box.width()
+    if x < box.x() and x + 360.0 <= right + 1:
+        x += 360.0
+    elif x > right and x - 360.0 >= box.x() - 1:
+        x -= 360.0
+    return x, y
+
+
+def _format_book_dates(started_at: datetime | None, ended_at: datetime | None) -> str:
+    """Section intro dates: ``01.01.1900`` or ``01.01.1900 bis 22.02.1900``."""
+
+    start = started_at
+    end = ended_at or started_at
+    if start is None:
+        return ""
+    start_day = start.date()
+    end_day = end.date() if end is not None else start_day
+    if start_day == end_day:
+        return start_day.strftime("%d.%m.%Y")
+    return f"{start_day.strftime('%d.%m.%Y')} bis {end_day.strftime('%d.%m.%Y')}"
+
+
+class _SectionCover(QLabel):
+    """Titelbild next to the country block, letterboxed in the photo's aspect ratio."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("bookSectionCover")
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setLineWidth(0)
+        self.setMargin(0)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        policy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        policy.setHeightForWidth(True)
+        self.setSizePolicy(policy)
+        self.setMinimumHeight(48)
+        self.setMaximumHeight(_COVER_MAX_H)
+        self._source = QPixmap()
+        _paint(self, _PAGE_BG, _PAGE_FG)
+
+    def set_photo(self, path: Path | None) -> None:
+        if path is None or not path.is_file():
+            self._source = QPixmap()
+            self.clear()
+            self.hide()
+            self.updateGeometry()
+            return
+        pixmap = QPixmap(str(path))
+        self._source = pixmap
+        self.setVisible(not pixmap.isNull())
+        self.updateGeometry()
+        self._apply()
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802
+        return not self._source.isNull()
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802
+        if self._source.isNull() or self._source.width() < 1:
+            return 48
+        height = round(width * self._source.height() / self._source.width())
+        return max(48, min(height, _COVER_MAX_H))
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._apply()
+
+    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
+        del event
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(_PAGE_BG))
+        pixmap = self.pixmap()
+        if pixmap is None or pixmap.isNull():
+            return
+        x = self.rect().x() + (self.width() - pixmap.width()) // 2
+        y = self.rect().y() + (self.height() - pixmap.height()) // 2
+        painter.drawPixmap(x, y, pixmap)
+
+    def _apply(self) -> None:
+        if self._source.isNull():
+            self.clear()
+            return
+        size = self.size()
+        if size.width() < 8 or size.height() < 8:
+            return
+        self.setPixmap(
+            self._source.scaled(
+                size,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
+
+
+def _cover_crop(pixmap: QPixmap, size: QSize) -> QPixmap:
+    if pixmap.isNull() or size.width() < 1 or size.height() < 1:
+        return QPixmap()
+    scaled = pixmap.scaled(
+        size,
+        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+    x = max(0, (scaled.width() - size.width()) // 2)
+    y = max(0, (scaled.height() - size.height()) // 2)
+    return scaled.copy(x, y, size.width(), size.height())
+
+
+class _TripSpanBar(QWidget):
+    """Trip-duration bar; the date badge sits on this section's place in the journey."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("bookTripSpan")
+        _paint(self, _PAGE_BG, _PAGE_FG)
+        self.setMinimumHeight(36)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._label = ""
+        self._start = 0.0
+        self._end = 0.0
+
+    def set_span(self, label: str, start: float, end: float) -> None:
+        self._label = label
+        self._start = max(0.0, min(1.0, start))
+        self._end = max(self._start, min(1.0, end))
+        self.update()
+
+    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        width = self.width()
+        height = self.height()
+        if width < 8 or height < 8:
+            return
+        mid_y = height / 2
+        painter.setPen(QPen(QColor(_SPAN_TRACK), 2))
+        painter.drawLine(0, round(mid_y), width, round(mid_y))
+        x0 = self._start * width
+        x1 = max(self._end * width, x0 + 6)
+        painter.setPen(QPen(QColor(_ACCENT), 3))
+        painter.drawLine(round(x0), round(mid_y), round(x1), round(mid_y))
+        if not self._label:
+            return
+        font = QFont(self.font())
+        font.setBold(True)
+        font.setPointSize(9)
+        painter.setFont(font)
+        metrics = QFontMetrics(font)
+        pad_x = 10
+        pad_y = 5
+        text_w = metrics.horizontalAdvance(self._label) + pad_x * 2
+        text_h = metrics.height() + pad_y * 2
+        badge_x = x0
+        if badge_x + text_w > width:
+            badge_x = max(0.0, width - text_w)
+        if badge_x < 0:
+            badge_x = 0.0
+        badge = QRectF(badge_x, (height - text_h) / 2, min(text_w, width), text_h)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor(_ACCENT)))
+        painter.drawRoundedRect(badge, 3, 3)
+        painter.setPen(QPen(QColor("#ffffff")))
+        painter.drawText(badge, int(Qt.AlignmentFlag.AlignCenter), self._label)
+
+
+class _PhotoGrid(QWidget):
+    """Section photos laid out with the photos_1–8 templates."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("bookPhotoGrid")
+        _paint(self, _PAGE_BG, _PAGE_FG)
+        self._cells: list[QLabel] = []
+        self._slots: list[dict] = []
+        self._pixmaps: list[QPixmap] = []
+
+    def set_photos(self, paths: tuple[Path, ...]) -> None:
+        for cell in self._cells:
+            cell.deleteLater()
+        self._cells = []
+        self._slots = []
+        self._pixmaps = []
+        count = min(len(paths), 8)
+        if count <= 0:
+            return
+        layout = load_page_layout(f"photos_{count}")
+        raw_slots = layout.get("slots")
+        slots = raw_slots if isinstance(raw_slots, list) else []
+        for index, slot in enumerate(slots):
+            if not isinstance(slot, dict):
+                continue
+            label = QLabel(self)
+            label.setObjectName("bookGridCell")
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            _paint(label, "#d9d3c7", _PAGE_FG)
+            path = paths[index] if index < len(paths) else None
+            pixmap = QPixmap(str(path)) if path is not None and path.is_file() else QPixmap()
+            self._slots.append(slot)
+            self._pixmaps.append(pixmap)
+            self._cells.append(label)
+            label.show()
+        self._place()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._place()
+
+    def _place(self) -> None:
+        width = self.width()
+        height = self.height()
+        if width < 8 or height < 8:
+            return
+        for label, slot, pixmap in zip(self._cells, self._slots, self._pixmaps, strict=True):
+            x = int(width * float(slot.get("x", 0)) / 100)
+            y = int(height * float(slot.get("y", 0)) / 100)
+            cell_w = max(1, int(width * float(slot.get("w", 100)) / 100))
+            cell_h = max(1, int(height * float(slot.get("h", 100)) / 100))
+            label.setGeometry(x, y, cell_w, cell_h)
+            if pixmap.isNull():
+                label.clear()
+                continue
+            label.setPixmap(_cover_crop(pixmap, QSize(cell_w, cell_h)))
 
 
 class _CountryStackItem(QWidget):
@@ -244,6 +567,14 @@ class BookLeaf:
     right_image: Path | None = None
     countries: tuple[str, ...] = ()
     metrics: tuple[tuple[str, str], ...] = ()
+    country: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    notes: str = ""
+    dates: str = ""
+    span_start: float = 0.0
+    span_end: float = 0.0
+    photos: tuple[Path, ...] = ()
 
 
 def leaves_from_snapshot(snapshot: TimelineSnapshot | None) -> list[BookLeaf]:
@@ -252,9 +583,10 @@ def leaves_from_snapshot(snapshot: TimelineSnapshot | None) -> list[BookLeaf]:
     title = (snapshot.title if snapshot is not None else "").strip() or "Reise"
     entries = snapshot.published_entries() if snapshot is not None else ()
     section_count = len(entries)
-    total = 4 + 2 * section_count
+    numbered = 2 + 2 * section_count
     cover_image = _first_cover(entries)
     year = _year(entries)
+    trip_start, trip_end = _trip_dates(snapshot)
     leaves = [
         BookLeaf(
             kind="cover",
@@ -266,13 +598,13 @@ def leaves_from_snapshot(snapshot: TimelineSnapshot | None) -> list[BookLeaf]:
         BookLeaf(
             kind="spread",
             variant="title",
-            indicator=f"2/{total}",
+            indicator="Titelseite",
             right_title=title,
         ),
         BookLeaf(
             kind="spread",
             variant="summary",
-            indicator=f"3–4/{total}",
+            indicator=_spread_indicator(1, numbered),
             countries=snapshot.countries if snapshot is not None else (),
             metrics=trip_summary_metrics(snapshot),
             right_kicker="Karte",
@@ -282,29 +614,50 @@ def leaves_from_snapshot(snapshot: TimelineSnapshot | None) -> list[BookLeaf]:
         ),
     ]
     for index, entry in enumerate(entries):
-        page = 5 + 2 * index
+        page = 3 + 2 * index
         section = entry.section
         heading = _entry_title(entry)
         dates = ""
-        youtube = ""
+        notes = ""
         image = None
+        iso = None
+        latitude = None
+        longitude = None
+        span_start = 0.0
+        span_end = 0.0
+        photos: tuple[Path, ...] = ()
         if section is not None:
-            dates = format_card_dates(section.started_at, section.ended_at)
-            if section.youtube_urls:
-                youtube = f"{len(section.youtube_urls)} YouTube-Link(s), inkl. QR"
+            dates = _format_book_dates(section.started_at, section.ended_at)
+            notes = (section.notes or "").strip()
             image = _section_cover(entry)
+            photos = _section_photos(entry)
+            span_start, span_end = _span_fracs(
+                section.started_at,
+                section.ended_at,
+                trip_start,
+                trip_end,
+            )
+            found, latitude, longitude = _section_place(
+                section,
+                snapshot.countries if snapshot is not None else (),
+            )
+            iso = found.iso2 if found is not None else None
         leaves.append(
             BookLeaf(
                 kind="spread",
-                indicator=f"{page}–{page + 1}/{total}",
+                variant="section",
+                indicator=_spread_indicator(page, numbered),
                 left_kicker=_KIND_LABELS.get(entry.card_kind, "Abschnitt"),
                 left_title=heading,
-                left_detail="\n".join(part for part in (dates, youtube) if part),
                 left_image=image,
-                right_kicker="1 Foto",
-                right_title="Medienseite",
-                right_detail="Template photos_1 — per Drag-and-drop befüllen",
-                right_image=image,
+                notes=notes,
+                dates=dates,
+                span_start=span_start,
+                span_end=span_end,
+                country=iso,
+                latitude=latitude,
+                longitude=longitude,
+                photos=photos,
             )
         )
     return leaves
@@ -347,6 +700,113 @@ def _first_cover(entries: tuple[TimelineEntry, ...]) -> Path | None:
         path = _section_cover(entry)
         if path is not None:
             return path
+    return None
+
+
+def _spread_indicator(first: int, total: int) -> str:
+    return f"{first}–{first + 1}/{total}"
+
+
+def _trip_dates(snapshot: TimelineSnapshot | None) -> tuple[date | None, date | None]:
+    if snapshot is None:
+        return None, None
+    start = snapshot.start_date
+    end = snapshot.end_date
+    starts: list[date] = []
+    ends: list[date] = []
+    for entry in snapshot.published_entries():
+        section = entry.section
+        if section is None:
+            continue
+        if section.started_at is not None:
+            starts.append(section.started_at.date())
+        if section.ended_at is not None:
+            ends.append(section.ended_at.date())
+        elif section.started_at is not None:
+            ends.append(section.started_at.date())
+    if start is None and starts:
+        start = min(starts)
+    if end is None and ends:
+        end = max(ends)
+    if start is not None and end is not None and end < start:
+        return end, start
+    return start, end
+
+
+def _span_fracs(
+    started_at: datetime | None,
+    ended_at: datetime | None,
+    trip_start: date | None,
+    trip_end: date | None,
+) -> tuple[float, float]:
+    if trip_start is None or trip_end is None:
+        return 0.0, 0.0
+    total = (trip_end - trip_start).days
+    if total <= 0:
+        return 0.0, 1.0
+    start_day = started_at.date() if started_at is not None else trip_start
+    end_day = ended_at.date() if ended_at is not None else start_day
+    start_day = min(max(start_day, trip_start), trip_end)
+    end_day = min(max(end_day, trip_start), trip_end)
+    return (start_day - trip_start).days / total, (end_day - trip_start).days / total
+
+
+def _section_photos(entry: TimelineEntry) -> tuple[Path, ...]:
+    section = entry.section
+    if section is None:
+        return ()
+    photos = [item for item in section.items if _is_book_photo(item)]
+    ordered: list[TimelinePhoto] = []
+    cover_id = section.cover_source_file_id
+    if cover_id is not None:
+        ordered.extend(item for item in photos if item.source_file_id == cover_id)
+    ordered.extend(item for item in photos if item.source_file_id != cover_id)
+    paths: list[Path] = []
+    for item in ordered[:8]:
+        if item.thumbnail_path:
+            paths.append(item.thumbnail_path)
+    return tuple(paths)
+
+
+def _is_book_photo(item: TimelinePhoto) -> bool:
+    return item.file_kind == "photo" and item.sort_status != SORT_REJECTED
+
+
+def _section_place(
+    section: TimelineSection,
+    trip_countries: tuple[str, ...],
+) -> tuple[Country | None, float | None, float | None]:
+    pos = _section_position(section)
+    if pos is not None:
+        found = country_at(pos[0], pos[1], preferred=trip_countries)
+        return found, pos[0], pos[1]
+    if len(trip_countries) == 1:
+        return get_country(trip_countries[0]), None, None
+    return None, None, None
+
+
+def _section_position(section: TimelineSection) -> tuple[float, float] | None:
+    if section.pin_latitude is not None and section.pin_longitude is not None:
+        return (section.pin_latitude, section.pin_longitude)
+    cover_id = section.cover_source_file_id
+    if cover_id is not None:
+        for item in section.items:
+            if item.source_file_id == cover_id:
+                pos = _item_position(item)
+                if pos is not None:
+                    return pos
+    for item in section.items:
+        pos = _item_position(item)
+        if pos is not None:
+            return pos
+    return None
+
+
+def _item_position(item: TimelinePhoto) -> tuple[float, float] | None:
+    if item.display_latitude is not None and item.display_longitude is not None:
+        return (item.display_latitude, item.display_longitude)
+    if item.gps_latitude is not None and item.gps_longitude is not None:
+        return (item.gps_latitude, item.gps_longitude)
     return None
 
 
@@ -443,7 +903,99 @@ class _PageSheet(QFrame):
         summary_layout.addWidget(countries_panel, 2)
         summary_layout.addWidget(metrics_panel, 3)
 
-        for page in (standard, blank, title_page, summary):
+        section = QWidget()
+        _paint(section, _PAGE_BG, _PAGE_FG)
+        section_layout = QVBoxLayout(section)
+        section_layout.setContentsMargins(22, 20, 22, 16)
+        section_layout.setSpacing(10)
+        header = QWidget()
+        _paint(header, _PAGE_BG, _PAGE_FG)
+        header_row = QHBoxLayout(header)
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setSpacing(12)
+        self._section_place_left = QWidget()
+        self._section_place_left.setObjectName("bookSectionPlaceLeft")
+        _paint(self._section_place_left, _PAGE_BG, _PAGE_FG)
+        self._section_place_left.setMinimumWidth(96)
+        self._section_place_left.setMaximumWidth(240)
+        self._section_place_left.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
+        )
+        left_wrap = QVBoxLayout(self._section_place_left)
+        left_wrap.setContentsMargins(0, 0, 0, 0)
+        left_wrap.setSpacing(0)
+        left_wrap.addStretch(1)
+        place_block = QWidget()
+        _paint(place_block, _PAGE_BG, _PAGE_FG)
+        place_block.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        block_layout = QVBoxLayout(place_block)
+        block_layout.setContentsMargins(0, 0, 0, 0)
+        block_layout.setSpacing(6)
+        self._section_locator_column = QWidget()
+        self._section_locator_column.setObjectName("bookSectionLocatorColumn")
+        _paint(self._section_locator_column, _PAGE_BG, _PAGE_FG)
+        self._section_locator_column.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred
+        )
+        self._section_locator_host = QVBoxLayout(self._section_locator_column)
+        self._section_locator_host.setContentsMargins(0, 0, 0, 0)
+        self._section_locator_host.setSpacing(0)
+        country_row = QWidget()
+        _paint(country_row, _PAGE_BG, _PAGE_FG)
+        country_layout = QHBoxLayout(country_row)
+        country_layout.setContentsMargins(0, 0, 0, 0)
+        country_layout.setSpacing(8)
+        self._section_flag = QLabel()
+        self._section_flag.setObjectName("bookSectionFlag")
+        self._section_flag.setFixedSize(_SECTION_FLAG)
+        self._section_country = QLabel("")
+        self._section_country.setObjectName("bookSectionCountry")
+        self._section_country.setWordWrap(True)
+        _ink(self._section_country, _PAGE_FG, background=_PAGE_BG, point_size=10, bold=True)
+        country_layout.addWidget(self._section_flag, 0)
+        country_layout.addWidget(self._section_country, 1)
+        self._section_country_row = country_row
+        block_layout.addWidget(self._section_locator_column, 0)
+        block_layout.addWidget(country_row, 0)
+        left_wrap.addWidget(place_block, 0)
+        left_wrap.addStretch(1)
+        header_row.addWidget(self._section_place_left, 0)
+        self._section_cover = _SectionCover()
+        header_row.addWidget(self._section_cover, 1)
+        self._section_header = header
+        section_layout.addWidget(header, 0)
+        self._section_title = QLabel("")
+        self._section_title.setObjectName("bookSectionTitle")
+        self._section_title.setWordWrap(True)
+        _ink(self._section_title, _PAGE_FG, background=_PAGE_BG, point_size=16, bold=True)
+        self._section_dates = QLabel("")
+        self._section_dates.setObjectName("bookSectionDates")
+        self._section_dates.setWordWrap(True)
+        _ink(self._section_dates, _PAGE_MUTED, background=_PAGE_BG, point_size=11)
+        self._section_notes_box = QFrame()
+        self._section_notes_box.setObjectName("bookNotesBox")
+        _paint(self._section_notes_box, _NOTES_BOX, _PAGE_FG)
+        self._section_notes_box.setMinimumHeight(88)
+        self._section_notes_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        notes_layout = QVBoxLayout(self._section_notes_box)
+        notes_layout.setContentsMargins(12, 10, 12, 10)
+        self._section_notes = QLabel("")
+        self._section_notes.setObjectName("bookSectionNotes")
+        self._section_notes.setWordWrap(True)
+        self._section_notes.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self._section_notes.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        _ink(self._section_notes, _PAGE_FG, background=_NOTES_BOX, point_size=10)
+        notes_layout.addWidget(self._section_notes, 1)
+        section_layout.addWidget(self._section_title, 0)
+        section_layout.addWidget(self._section_dates, 0)
+        section_layout.addWidget(self._section_notes_box, 1)
+        self._section_span = _TripSpanBar()
+        section_layout.addWidget(self._section_span, 0)
+
+        photos = _PhotoGrid()
+        self._photo_grid = photos
+
+        for page in (standard, blank, title_page, summary, section, photos):
             page.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             self._stack.addWidget(page)
 
@@ -510,6 +1062,54 @@ class _PageSheet(QFrame):
         self._metrics_host.addStretch(1)
         self._stack.setCurrentIndex(3)
 
+    def set_section_intro(
+        self,
+        *,
+        country: str | None,
+        latitude: float | None,
+        longitude: float | None,
+        title: str,
+        notes: str,
+        dates: str,
+        span_start: float,
+        span_end: float,
+        cover: Path | None,
+    ) -> None:
+        self._path = None
+        _clear_layout(self._section_locator_host)
+        resolved = get_country(country)
+        if resolved is not None:
+            locator = _SectionLocator(resolved, latitude=latitude, longitude=longitude)
+            self._section_locator_host.addWidget(
+                locator,
+                0,
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+            )
+            locator.raise_()
+            self._section_flag.setPixmap(svg_pixmap(resolved.flag_svg, _SECTION_FLAG))
+            self._section_country.setText(resolved.name_de.upper())
+            self._section_country_row.show()
+            self._section_place_left.show()
+        else:
+            self._section_flag.clear()
+            self._section_country.setText("")
+            self._section_country_row.hide()
+            self._section_place_left.hide()
+        self._section_cover.set_photo(cover)
+        self._section_header.setVisible(resolved is not None or self._section_cover.isVisible())
+        self._section_title.setText(title.strip().upper())
+        self._section_dates.setText(dates)
+        self._section_dates.setVisible(bool(dates.strip()))
+        self._section_notes.setText(notes)
+        self._section_notes_box.show()
+        self._section_span.set_span(dates, span_start, span_end)
+        self._stack.setCurrentIndex(4)
+
+    def set_photos(self, paths: tuple[Path, ...]) -> None:
+        self._path = None
+        self._photo_grid.set_photos(paths)
+        self._stack.setCurrentIndex(5)
+
     def set_content(
         self,
         *,
@@ -532,24 +1132,19 @@ class _PageSheet(QFrame):
     def _fit_image(self) -> None:
         if self._stack.currentIndex() != 0:
             return
+        target = self.image
         if self._path is None or not self._path.is_file():
-            self.image.clear()
-            self.image.setText("")
+            target.clear()
+            target.setText("")
             return
         pixmap = QPixmap(str(self._path))
         if pixmap.isNull():
-            self.image.clear()
+            target.clear()
             return
-        target = self.image.size()
-        if target.width() < 8 or target.height() < 8:
+        size = target.size()
+        if size.width() < 8 or size.height() < 8:
             return
-        self.image.setPixmap(
-            pixmap.scaled(
-                target,
-                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-        )
+        target.setPixmap(_cover_crop(pixmap, size))
 
 
 class _BookStage(QWidget):
@@ -663,6 +1258,19 @@ class BookPreview(QWidget):
                     detail=leaf.right_detail,
                     image=leaf.right_image,
                 )
+            elif leaf.variant == "section":
+                self._verso.set_section_intro(
+                    country=leaf.country,
+                    latitude=leaf.latitude,
+                    longitude=leaf.longitude,
+                    title=leaf.left_title,
+                    notes=leaf.notes,
+                    dates=leaf.dates,
+                    span_start=leaf.span_start,
+                    span_end=leaf.span_end,
+                    cover=leaf.left_image,
+                )
+                self._recto.set_photos(leaf.photos)
             else:
                 self._verso.set_content(
                     kicker=leaf.left_kicker,

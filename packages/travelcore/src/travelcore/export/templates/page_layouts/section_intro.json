@@ -4,22 +4,16 @@
   "kind": "section_intro",
   "label": { "de": "Abschnittsstart", "en": "Section intro" },
   "applies_to": "page",
-  "photo_count": 1,
-  "note": "Linke Seite der ersten Doppelseite je Reiseabschnitt. Nicht durch ein Foto-Raster ersetzbar.",
+  "photo_count": 0,
+  "note": "Linke Seite der ersten Doppelseite je Reiseabschnitt. Block Länderumriss mit Position, Flagge und Land; Titelbild rechts daneben im Bildformat. Darunter Abschnittsname, Datum, Tagebuch, unten die Reise-Zeitleiste. Nicht durch ein Foto-Raster ersetzbar.",
   "slots": [
     {
       "id": "country_shape",
       "type": "country_silhouette",
       "bind": "entry.country",
+      "pin": "entry.coordinates",
       "optional": true,
-      "note": "Länderumriss. Braucht Reverse-Geocoding (OP-01) oder manuelles Land."
-    },
-    {
-      "id": "coordinates",
-      "type": "text",
-      "bind": "entry.coordinates",
-      "optional": true,
-      "transform": "dms"
+      "note": "Länderumriss mit ungefährer Position (Karten-Pin, sonst GPS von Titelbild oder Medien)."
     },
     {
       "id": "country_flag",
@@ -35,55 +29,40 @@
       "optional": true
     },
     {
+      "id": "cover",
+      "type": "media",
+      "accept": ["photo", "video", "track"],
+      "bind": "entry.cover_image",
+      "fit": "contain",
+      "optional": true,
+      "note": "Titelbild rechts neben dem Block Umriss/Flagge/Land, im Bildformat; fehlende Höhe oder Breite als Freiraum."
+    },
+    {
       "id": "title",
       "type": "text",
       "bind": "entry.title",
       "transform": "uppercase"
     },
     {
-      "id": "youtube",
-      "type": "youtube_links",
-      "bind": "entry.youtube_urls",
-      "optional": true,
-      "qr": true,
-      "note": "URL als Text und als QR-Code, mehrere Links untereinander."
+      "id": "dates",
+      "type": "text",
+      "bind": "entry.started_at",
+      "transform": "book_span",
+      "note": "01.01.1900 oder 01.01.1900 bis 22.02.1900."
     },
     {
-      "id": "cover",
-      "type": "media",
-      "accept": ["photo", "video", "track"],
-      "bind": "entry.cover_image",
-      "fit": "cover",
-      "droppable": true,
-      "note": "Standard: Eintrags-Titelbild. Per Drag-and-drop aus der Abschnittsleiste überschreibbar, ohne die Timeline zu ändern."
+      "id": "notes",
+      "type": "text",
+      "bind": "entry.notes",
+      "optional": true,
+      "note": "Tagebucheintrag aus der Timeline. Die graue Box bleibt auch ohne Text sichtbar."
     },
     {
       "id": "date",
-      "type": "text",
-      "bind": "entry.started_at",
-      "transform": "long_date"
-    },
-    {
-      "id": "day_index",
       "type": "badge",
-      "bind": "entry.day_number",
-      "optional": true,
-      "note": "DAY n in Timeline-Reihenfolge der veröffentlichten Abschnitte."
-    },
-    {
-      "id": "weather",
-      "type": "text",
-      "bind": "entry.weather",
-      "optional": true,
-      "note": "Kein Wetterfeld im Journal. Slot bleibt leer, bis eine Quelle existiert."
-    },
-    {
-      "id": "altitude",
-      "type": "text",
-      "bind": "entry.altitude_m",
-      "optional": true,
-      "transform": "meters",
-      "note": "Höhe am Cover-GPS oder Trackpunkt, sonst leer."
+      "bind": "entry.started_at",
+      "transform": "book_span",
+      "note": "Dieselbe Datumsangabe auf der Zeitleiste; Position entspricht der Lage in der Reisedauer."
     }
   ]
 }

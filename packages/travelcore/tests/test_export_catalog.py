@@ -95,15 +95,24 @@ def test_travelbook_page_layouts_are_one_to_eight_photos_and_journal() -> None:
     intro = load_page_layout("section_intro")
     assert intro["kind"] == "section_intro"
     slot_ids = [slot["id"] for slot in intro["slots"]]
-    assert slot_ids[:4] == ["country_shape", "coordinates", "country_flag", "country_name"]
-    assert "youtube" in slot_ids
-    assert "cover" in slot_ids
-    youtube = next(slot for slot in intro["slots"] if slot["id"] == "youtube")
-    assert youtube["qr"] is True
+    assert slot_ids == [
+        "country_shape",
+        "country_flag",
+        "country_name",
+        "cover",
+        "title",
+        "dates",
+        "notes",
+        "date",
+    ]
+    assert intro["photo_count"] == 0
+    shape = next(slot for slot in intro["slots"] if slot["id"] == "country_shape")
+    assert shape["pin"] == "entry.coordinates"
     cover = next(slot for slot in intro["slots"] if slot["id"] == "cover")
     assert cover["type"] == "media"
-    assert cover["droppable"] is True
-    assert "track" in cover["accept"]
+    assert cover["fit"] == "contain"
+    notes = next(slot for slot in intro["slots"] if slot["id"] == "notes")
+    assert notes["bind"] == "entry.notes"
     for layout_id in layouts:
         data = load_page_layout(layout_id)
         assert data["id"] == layout_id

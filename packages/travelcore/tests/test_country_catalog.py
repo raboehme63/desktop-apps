@@ -41,6 +41,37 @@ def test_resolve_token_accepts_code_german_english_and_alias() -> None:
     assert search_countries("südafrika")[0].iso2 == "ZA"
 
 
+def test_country_at_uses_silhouette_outline() -> None:
+    from travelcore.geo.catalog import country_at, get_country, shape_lonlat_box
+
+    germany = get_country("DE")
+    austria = get_country("AT")
+    assert germany is not None and austria is not None
+    box = shape_lonlat_box(germany)
+    assert box is not None
+    min_lon, min_lat, max_lon, max_lat = box
+    assert min_lon < 10 < max_lon
+    assert min_lat < 51 < max_lat
+    at_box = shape_lonlat_box(austria)
+    assert at_box is not None
+    hochries = (47.767, 12.167)
+    assert at_box[1] < hochries[0] < at_box[3]
+    assert at_box[0] < hochries[1] < at_box[2]
+    assert country_at(*hochries, preferred=("ZA", "DE")).iso2 == "DE"
+    assert country_at(*hochries, preferred=("AT", "DE")).iso2 == "DE"
+    assert country_at(*hochries, preferred=("AT",)).iso2 == "DE"
+    munich = country_at(48.137, 11.576, preferred=("AT",))
+    assert munich is not None and munich.iso2 == "DE"
+    vienna = country_at(48.208, 16.373, preferred=("DE", "AT"))
+    assert vienna is not None and vienna.iso2 == "AT"
+    vaduz = country_at(47.141, 9.521, preferred=("CH", "AT"))
+    assert vaduz is not None and vaduz.iso2 == "LI"
+    cape_town = country_at(-33.92, 18.42, preferred=("ZA",))
+    assert cape_town is not None and cape_town.iso2 == "ZA"
+    milan = country_at(45.46, 9.19)
+    assert milan is not None and milan.iso2 == "IT"
+
+
 def test_parse_countries_stores_iso_codes() -> None:
     assert parse_countries("Italien\nÖsterreich\nItalien") == ("IT", "AT")
     assert parse_countries("Italien, Slowenien") == ("IT", "SI")

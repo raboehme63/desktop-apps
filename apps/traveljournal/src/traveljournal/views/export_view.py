@@ -137,7 +137,7 @@ class ExportView(QWidget):
         toolbar.setSpacing(8)
         self._mode_group = QButtonGroup(self)
         self._mode_group.setExclusive(True)
-        for key, caption in (("export", "Export"), ("edit", "Editiermodus")):
+        for key, caption in (("export", "Vorschau"), ("edit", "Editiermodus")):
             button = _choice_button(caption, key, self._select_mode)
             self._mode_group.addButton(button)
             self._mode_buttons[key] = button
