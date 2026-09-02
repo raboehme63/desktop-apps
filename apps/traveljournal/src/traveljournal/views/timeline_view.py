@@ -6,13 +6,26 @@ from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from PySide6.QtCore import QDate, QDateTime, QEvent, QObject, QPoint, QSize, Qt, QTime, QTimer, Signal
+from PySide6.QtCore import (
+    QDate,
+    QDateTime,
+    QEvent,
+    QObject,
+    QPoint,
+    QSize,
+    Qt,
+    QThreadPool,
+    QTime,
+    QTimer,
+    Signal,
+)
 from PySide6.QtGui import (
     QCursor,
     QDragEnterEvent,
     QDragLeaveEvent,
     QDragMoveEvent,
     QDropEvent,
+    QMouseEvent,
     QPixmap,
     QResizeEvent,
     QShowEvent,
@@ -26,10 +39,12 @@ from PySide6.QtWidgets import (
     QDateTimeEdit,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
     QFrame,
     QGridLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMenu,
@@ -45,6 +60,8 @@ from PySide6.QtWidgets import (
 )
 
 from travelcore.exceptions import ProjectError
+from travelcore.gps.maptracks import is_map_track_path, map_track_name_suggestion
+from travelcore.gps.track_badge import track_badge_for
 from travelcore.maps.groups import parse_group_key
 from travelcore.media.gallery import (
     SORT_FAVORITE,
@@ -65,6 +82,7 @@ from travelcore.timeline.links import (
     serialize_youtube_urls,
     youtube_thumbnail_url,
 )
+from travelcore.timeline.outbound import LinkDefaults, compact_inherited_links
 from travelcore.timeline.sections import (
     KIND_DAY,
     KIND_MOVEMENT,
@@ -73,13 +91,17 @@ from travelcore.timeline.sections import (
     format_card_dates,
     format_scroll_date,
     format_section_span,
-    insert_dates_between,
+    join_insert_spans,
     parse_modes,
     serialize_modes,
     span_for_manual_dates,
 )
 from travelcore.timeline.symbols import TRANSPORT_SYMBOLS
-from travelcore.timeline.transfer_links import LINK_GEOMETRY_ARC, LINK_GEOMETRY_LINE, links_from_modes
+from travelcore.timeline.transfer_links import (
+    LINK_GEOMETRY_ARC,
+    LINK_GEOMETRY_LINE,
+    links_from_modes,
+)
 from travelcore.timeline.types import (
     PendingSectionSpec,
     TimelineEntry,
@@ -88,6 +110,7 @@ from travelcore.timeline.types import (
     TimelineSection,
     TimelineSnapshot,
 )
+from traveljournal.services.workers import MapsTrackRunnable
 from traveljournal.services.workspace import Workspace
 from traveljournal.widgets.click_combo import ClickCombo
 from traveljournal.widgets.entry_links import (
@@ -98,7 +121,7 @@ from traveljournal.widgets.entry_links import (
     links_html,
     start_remote_pixmap,
 )
-from traveljournal.widgets.gallery import GalleryView, source_ids_from_mime
+from traveljournal.widgets.gallery import GalleryView, MapTrackChip, source_ids_from_mime
 from traveljournal.widgets.join_plus import TimelineSpine as TimelineJoin
 from traveljournal.widgets.media_inspector import (
     MediaInspectorWindow,
@@ -124,7 +147,7 @@ from traveljournal.widgets.thumb_zoom import (
     clamp_thumb_zoom,
     gallery_icon_size,
 )
-from traveljournal.widgets.transfer_links import OutboundLinkRow, TransferLinkStrip
+from traveljournal.widgets.transfer_links import OutboundLinkRow, TransferLinkRow, TransferLinkStrip
 from traveljournal.widgets.transport_icons import COMBO_ICON_PX, transport_badge_icon
 
 _REVEAL_TOP_PAD = 0
@@ -327,7 +350,9 @@ class TimelineView(QWidget):
             "oder ohne Auswahl einen leeren Abschnitt mit Datum erzeugen "
             "(Tag: am, Aufenthalt/Transfer: von–bis). "
             "**Menü** löscht einen Abschnitt; die Medien landen im Pool. "
-            "Pfeil rechts außen klappt den Medienpool ein und aus; die Breite bleibt erhalten."
+            "Pfeil rechts außen klappt den Medienpool ein und aus; die Breite bleibt erhalten. "
+            "Medien- und Track-Galerien klappen an der Kopfzeile ein; "
+            "**Alles ein-/ausklappen** gilt für alle Karten."
         )
         self._subtitle.setObjectName("pageSubtitle")
         self._subtitle.setWordWrap(True)
@@ -347,6 +372,9 @@ class TimelineView(QWidget):
         self._reset_button = QPushButton("Originalzeit")
         self._reset_button.setToolTip("Journal-Zeit auf die Aufnahmezeit zurücksetzen")
         self._reset_button.clicked.connect(self._reset_journal_time)
+        self._fold_button = QPushButton("Alles einklappen")
+        self._fold_button.setToolTip("Medien- und Track-Galerien aller Karten einklappen")
+        self._fold_button.clicked.connect(self._toggle_all_galleries)
         self._save_button = QPushButton("Speichern")
         self._save_button.setObjectName("primary")
         self._save_button.setToolTip("Nichts zu speichern")
@@ -375,6 +403,7 @@ class TimelineView(QWidget):
         toolbar.addWidget(self._show_rejected)
         toolbar.addSpacing(12)
         toolbar.addWidget(self._thumb_zoom)
+        toolbar.addWidget(self._fold_button)
         toolbar.addStretch(1)
         toolbar.addWidget(self._save_button)
         root.addLayout(toolbar)
@@ -446,6 +475,7 @@ class TimelineView(QWidget):
         self._pool_toggle = self._pool_collapse.toggle
         self._sync_show_rejected()
         self._save_button.setEnabled(False)
+        self._fold_button.setEnabled(False)
         self._create_button.setEnabled(False)
         self._park_button.setEnabled(False)
         self._journal_button.setEnabled(False)
@@ -588,20 +618,10 @@ class TimelineView(QWidget):
             has_sections = bool(self._snapshot.sections) if self._snapshot is not None else False
             insert_at = max(self._host_layout.count() - 1, 0)
             join_color = self._join_color()
+            join_spans = join_insert_spans([_entry_span_dates(entry) for entry in entries])
             for index, entry in enumerate(entries):
-                if index:
-                    previous = entries[index - 1]
-                    start, end = insert_dates_between(
-                        _entry_span_dates(previous)[1],
-                        _entry_span_dates(entry)[0],
-                    )
-                    join = TimelineJoin(join_color, self._host)
-                    join.add_requested.connect(
-                        lambda start=start, end=end: self._create_section_at_join(start, end)
-                    )
-                    self._joins.append(join)
-                    self._host_layout.insertWidget(insert_at, join)
-                    insert_at += 1
+                start, end = join_spans[index]
+                insert_at = self._insert_join(insert_at, start, end, join_color)
                 override = None
                 if entry.section is not None:
                     override = self._pending_youtube.get(("section", entry.section.id))
@@ -616,6 +636,7 @@ class TimelineView(QWidget):
                     show_outbound=_shows_outbound(entry, following),
                     media_tab=self._media_tabs.currentIndex(),
                     thumb_zoom=self.workspace.timeline_thumb_zoom(),
+                    galleries_collapsed=self.workspace.timeline_galleries_collapsed(),
                     parent=self._host,
                 )
                 block.selection_changed.connect(self._on_block_selection_changed)
@@ -629,8 +650,11 @@ class TimelineView(QWidget):
                 block.open_on_map.connect(self.open_on_map.emit)
                 block.open_media_on_map.connect(self.open_media_on_map.emit)
                 block.content_changed.connect(self._update_save_button)
-                block.hidden_changed.connect(lambda hidden, widget=block: self._set_entry_hidden(widget, hidden))
+                block.hidden_changed.connect(
+                    lambda hidden, widget=block: self._set_entry_hidden(widget, hidden)
+                )
                 block.pool_dropped.connect(lambda ids, widget=block: self._drop_pool_on_entry(widget, ids))
+                block.fold_changed.connect(self._sync_fold_button)
                 block.gallery.item_activated.connect(self._open_inspector)
                 block.track_gallery.item_activated.connect(self._open_inspector)
                 block.gallery.stack_requested.connect(self._open_stack)
@@ -644,6 +668,9 @@ class TimelineView(QWidget):
                 self._blocks.append(block)
                 self._host_layout.insertWidget(insert_at, block)
                 insert_at += 1
+            if join_spans:
+                start, end = join_spans[-1]
+                self._insert_join(insert_at, start, end, join_color)
             self._update_create_button()
             self._propagate_media_tab(self._media_tabs.currentIndex(), persist=False)
         finally:
@@ -652,6 +679,7 @@ class TimelineView(QWidget):
             self._excluded_ids.clear()
             self._displayed_selection = set(self._selected_source_ids())
             self._sync_reveal_tail()
+            self._sync_fold_button()
             if self._preserve_scroll:
                 self._scroll.verticalScrollBar().setValue(scroll)
             self._preserve_scroll = True
@@ -690,6 +718,28 @@ class TimelineView(QWidget):
 
     def _set_pool_visible(self, visible: bool) -> None:
         self._pool_collapse.set_visible(visible)
+
+    def _toggle_all_galleries(self) -> None:
+        collapse = not self._all_galleries_collapsed()
+        self.workspace.set_timeline_galleries_collapsed(collapse)
+        for block in self._blocks:
+            block.set_galleries_collapsed(collapse)
+        self._sync_fold_button()
+
+    def _all_galleries_collapsed(self) -> bool:
+        foldable = [block for block in self._blocks if block.has_foldable_galleries()]
+        return bool(foldable) and all(block.galleries_are_collapsed() for block in foldable)
+
+    def _sync_fold_button(self) -> None:
+        foldable = any(block.has_foldable_galleries() for block in self._blocks)
+        collapsed = self._all_galleries_collapsed()
+        self._fold_button.setEnabled(foldable)
+        self._fold_button.setText("Alles ausklappen" if collapsed else "Alles einklappen")
+        self._fold_button.setToolTip(
+            "Medien- und Track-Galerien aller Karten ausklappen"
+            if collapsed
+            else "Medien- und Track-Galerien aller Karten einklappen"
+        )
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
         super().resizeEvent(event)
@@ -921,6 +971,15 @@ class TimelineView(QWidget):
             return False
         self._append_pending_section(dialog.values(), ())
         return True
+
+    def _insert_join(self, insert_at: int, start: date, end: date, color: str) -> int:
+        join = TimelineJoin(color, self._host)
+        join.add_requested.connect(
+            lambda start=start, end=end: self._create_section_at_join(start, end)
+        )
+        self._joins.append(join)
+        self._host_layout.insertWidget(insert_at, join)
+        return insert_at + 1
 
     def _create_section_at_join(self, start: date, end: date) -> None:
         self.create_section_between(start, end)
@@ -1875,6 +1934,70 @@ class TimelineView(QWidget):
         self._save_unsaved_work()
 
 
+class GalleryFoldHeader(QWidget):
+    """Clickable Medien/Tracks caption that hides the gallery while keeping the header."""
+
+    toggled = Signal(bool)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("galleryFoldHeader")
+        self._collapsed = False
+        self._foldable = False
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        self._chevron = QLabel("▾", self)
+        self._chevron.setObjectName("galleryFoldChevron")
+        self._caption = QLabel(self)
+        self._caption.setObjectName("fieldCaption")
+        self._badge = MapTrackChip(self)
+        self._badge.hide()
+        row.addWidget(self._chevron, 0, Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(self._caption, 0, Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(self._badge, 0, Qt.AlignmentFlag.AlignVCenter)
+        row.addStretch(1)
+        self.set_foldable(False)
+
+    def set_caption(self, text: str) -> None:
+        self._caption.setText(text)
+
+    def set_badge_visible(self, visible: bool) -> None:
+        self._badge.setVisible(visible)
+
+    def set_foldable(self, foldable: bool) -> None:
+        self._foldable = bool(foldable)
+        self._chevron.setVisible(self._foldable)
+        if not self._foldable:
+            self._collapsed = False
+        self._chevron.setText("▸" if self._collapsed else "▾")
+        self.setCursor(Qt.CursorShape.PointingHandCursor if self._foldable else Qt.CursorShape.ArrowCursor)
+        if self._foldable:
+            self.setToolTip("Galerie ausklappen" if self._collapsed else "Galerie einklappen")
+        else:
+            self.setToolTip("")
+
+    def is_collapsed(self) -> bool:
+        return self._collapsed
+
+    def set_collapsed(self, collapsed: bool, *, emit: bool = True) -> None:
+        flag = bool(collapsed) if self._foldable else False
+        changed = flag != self._collapsed
+        self._collapsed = flag
+        self._chevron.setText("▸" if flag else "▾")
+        if self._foldable:
+            self.setToolTip("Galerie ausklappen" if flag else "Galerie einklappen")
+        if emit and changed:
+            self.toggled.emit(flag)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if self._foldable and event.button() == Qt.MouseButton.LeftButton:
+            self.set_collapsed(not self._collapsed)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
 class EntryWidget(QFrame):
     selection_changed = Signal()
     dissolve_requested = Signal(int)
@@ -1889,6 +2012,7 @@ class EntryWidget(QFrame):
     content_changed = Signal()
     hidden_changed = Signal(bool)
     pool_dropped = Signal(list)
+    fold_changed = Signal()
 
     def __init__(
         self,
@@ -1900,6 +2024,7 @@ class EntryWidget(QFrame):
         show_outbound: bool = False,
         media_tab: int = 0,
         thumb_zoom: int | None = None,
+        galleries_collapsed: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -1963,10 +2088,19 @@ class EntryWidget(QFrame):
         self._loaded_notes = notes
         self._link_strip: TransferLinkStrip | None = None
         self._outbound_row: OutboundLinkRow | None = None
-        self._loaded_links: tuple[TimelineLink, ...] = (
-            section.links if section is not None and section.kind == KIND_MOVEMENT else ()
-        )
-        self._loaded_outbound = section.outbound if section is not None else None
+        self._maps_gen = 0
+        self._maps_target: OutboundLinkRow | TransferLinkRow | None = None
+        self._link_defaults = workspace.link_defaults() if workspace is not None else LinkDefaults()
+        stored_links = section.links if section is not None and section.kind == KIND_MOVEMENT else ()
+        self._loaded_links = tuple(compact_inherited_links(stored_links, self._link_defaults))
+        stored_outbound = section.outbound if section is not None else None
+        if (
+            stored_outbound is not None
+            and stored_outbound.geometry != "none"
+            and self._link_defaults.matches(stored_outbound)
+        ):
+            stored_outbound = None
+        self._loaded_outbound = stored_outbound
         self._entry_kind = entry.card_kind
         self._hidden = bool(section.hidden) if section is not None else False
         self._hidden_check: SwitchToggle | None = None
@@ -2071,14 +2205,24 @@ class EntryWidget(QFrame):
         meta.addWidget(self._extra_label)
         if section is not None and section.kind == KIND_MOVEMENT:
             self._link_strip = TransferLinkStrip(self)
+            self._link_strip.set_defaults(self._link_defaults)
             self._link_strip.set_tracks(_gpx_track_choices(items))
+            if self.workspace is not None:
+                self._link_strip.set_map_tracks(self.workspace.list_map_tracks())
             self._link_strip.set_links(section.links)
             self._link_strip.links_changed.connect(self.content_changed.emit)
+            self._link_strip.choose_map_file.connect(self._choose_transfer_map_file)
+            self._link_strip.choose_map_url.connect(self._choose_transfer_map_url)
             meta.addWidget(self._link_strip)
         elif show_outbound and section is not None and section.kind != KIND_MOVEMENT:
             self._outbound_row = OutboundLinkRow(self)
+            self._outbound_row.set_defaults(self._link_defaults)
+            if self.workspace is not None:
+                self._outbound_row.set_tracks(self.workspace.list_map_tracks())
             self._outbound_row.set_link(section.outbound)
             self._outbound_row.changed.connect(self.content_changed.emit)
+            self._outbound_row.choose_file.connect(self._choose_outbound_track_file)
+            self._outbound_row.choose_maps_url.connect(self._choose_outbound_maps_url)
             meta.addWidget(self._outbound_row)
         meta.addStretch(1)
         heading_row.addLayout(meta, 1)
@@ -2103,14 +2247,10 @@ class EntryWidget(QFrame):
         media_items, track_items = split_media_and_tracks(items)
         media_count = len(media_items)
         track_count = len(track_items)
-        media_label = QLabel(
-            "Keine Medien" if media_count == 0 and track_count == 0 else f"Medien ({media_count})",
-            self,
-        )
-        media_label.setObjectName("fieldCaption")
-        media_label.setVisible(media_count > 0 or track_count == 0)
         self._all_gallery = [_gallery_item(photo, cover_id=self._cover_id) for photo in media_items]
         self._all_tracks = [_gallery_item(photo, cover_id=self._cover_id) for photo in track_items]
+        self._media_header = GalleryFoldHeader(self)
+        self._media_label = self._media_header
         self._media_tabs = ClickTabBar(self)
         self._media_tabs.setObjectName("mediaSortTabs")
         self._media_tabs.setExpanding(False)
@@ -2130,9 +2270,8 @@ class EntryWidget(QFrame):
         model = self.gallery.selectionModel()
         if model is not None:
             model.selectionChanged.connect(lambda *_args: self.selection_changed.emit())
-        track_label = QLabel(f"Tracks ({track_count})", self)
-        track_label.setObjectName("fieldCaption")
-        track_label.setVisible(track_count > 0)
+        self._track_header = GalleryFoldHeader(self)
+        self._track_label = self._track_header
         self._track_tabs = ClickTabBar(self)
         self._track_tabs.setObjectName("mediaSortTabs")
         self._track_tabs.setExpanding(False)
@@ -2160,14 +2299,17 @@ class EntryWidget(QFrame):
         layout.addWidget(self.notes_edit)
         layout.addWidget(self.youtube_thumbs)
         layout.addWidget(self.links_label)
-        layout.addWidget(media_label)
-        if media_count:
-            layout.addWidget(self._media_tabs)
-            layout.addWidget(self.gallery)
-        if track_count:
-            layout.addWidget(track_label)
-            layout.addWidget(self._track_tabs)
-            layout.addWidget(self.track_gallery)
+        layout.addWidget(self._media_header)
+        layout.addWidget(self._media_tabs)
+        layout.addWidget(self.gallery)
+        layout.addWidget(self._track_header)
+        layout.addWidget(self._track_tabs)
+        layout.addWidget(self.track_gallery)
+        self._refresh_fold_headers()
+        if galleries_collapsed:
+            self.set_galleries_collapsed(True)
+        self._media_header.toggled.connect(self._on_fold_toggled)
+        self._track_header.toggled.connect(self._on_fold_toggled)
         if media_count or track_count:
             self.set_media_tab(media_tab)
         self._media_tabs.currentChanged.connect(self._on_local_media_tab)
@@ -2314,6 +2456,51 @@ class EntryWidget(QFrame):
     def inspectable_tracks(self) -> list[GalleryItem]:
         return list(self._all_tracks)
 
+    def has_foldable_galleries(self) -> bool:
+        return bool(self._all_gallery or self._all_tracks)
+
+    def galleries_are_collapsed(self) -> bool:
+        media_ok = not self._all_gallery or self._media_header.is_collapsed()
+        tracks_ok = not self._all_tracks or self._track_header.is_collapsed()
+        return media_ok and tracks_ok
+
+    def set_galleries_collapsed(self, collapsed: bool) -> None:
+        self._media_header.set_collapsed(collapsed, emit=False)
+        self._track_header.set_collapsed(collapsed, emit=False)
+        self._apply_gallery_fold()
+
+    def _on_fold_toggled(self) -> None:
+        self._apply_gallery_fold()
+        self.fold_changed.emit()
+
+    def _has_map_track(self) -> bool:
+        return any(item.is_map_track for item in self._all_tracks)
+
+    def _refresh_fold_headers(self) -> None:
+        media_count = len(self._all_gallery)
+        track_count = len(self._all_tracks)
+        if media_count == 0 and track_count == 0:
+            self._media_header.set_caption("Keine Medien")
+            self._media_header.set_foldable(False)
+            self._media_header.setVisible(True)
+        else:
+            self._media_header.set_caption(f"Medien ({media_count})")
+            self._media_header.set_foldable(media_count > 0)
+            self._media_header.setVisible(media_count > 0)
+        self._track_header.set_caption(f"Tracks ({track_count})")
+        self._track_header.set_foldable(track_count > 0)
+        self._track_header.set_badge_visible(self._has_map_track())
+        self._track_header.setVisible(track_count > 0)
+        self._apply_gallery_fold()
+
+    def _apply_gallery_fold(self) -> None:
+        media_open = bool(self._all_gallery) and not self._media_header.is_collapsed()
+        tracks_open = bool(self._all_tracks) and not self._track_header.is_collapsed()
+        self._media_tabs.setVisible(media_open)
+        self.gallery.setVisible(media_open)
+        self._track_tabs.setVisible(tracks_open)
+        self.track_gallery.setVisible(tracks_open)
+
     def select_ids(self, wanted: set[int]) -> None:
         self.gallery.select_by_source_ids(wanted)
         self.track_gallery.select_by_source_ids(wanted)
@@ -2368,12 +2555,132 @@ class EntryWidget(QFrame):
     def transfer_links(self) -> list[TimelineLink]:
         if self._link_strip is None:
             return []
-        return _compact_links(self._link_strip.links())
+        return compact_inherited_links(self._link_strip.links(), self._link_defaults)
 
     def outbound_link(self) -> TimelineLink | None:
         if self._outbound_row is None:
             return self._loaded_outbound
         return self._outbound_row.to_link()
+
+    def _choose_outbound_track_file(self) -> None:
+        if self._outbound_row is None:
+            return
+        self._choose_map_track_file(self._outbound_row)
+
+    def _choose_outbound_maps_url(self) -> None:
+        if self._outbound_row is None:
+            return
+        self._choose_map_track_url(self._outbound_row)
+
+    def _choose_transfer_map_file(self, row: object) -> None:
+        if not isinstance(row, TransferLinkRow):
+            return
+        self._choose_map_track_file(row)
+
+    def _choose_transfer_map_url(self, row: object) -> None:
+        if not isinstance(row, TransferLinkRow):
+            return
+        self._choose_map_track_url(row)
+
+    def _choose_map_track_file(self, row: OutboundLinkRow | TransferLinkRow) -> None:
+        if self.workspace is None:
+            return
+        chosen, _filter = QFileDialog.getOpenFileName(
+            self,
+            "Map-Track einfügen",
+            "",
+            "GPX (*.gpx)",
+        )
+        if not chosen:
+            return
+        try:
+            source_id, _name = self.workspace.import_map_track_file(Path(chosen))
+        except ProjectError as exc:
+            QMessageBox.warning(self, "Map-Track", str(exc))
+            return
+        self._assign_map_track(row, source_id)
+
+    def _choose_map_track_url(self, row: OutboundLinkRow | TransferLinkRow) -> None:
+        if self.workspace is None:
+            return
+        url, ok = QInputDialog.getText(self, "Google-Maps-Link", "Routenlink (auch maps.app.goo.gl):")
+        if not ok:
+            return
+        text = url.strip()
+        if not text:
+            return
+        self._maps_gen += 1
+        token = self._maps_gen
+        self._maps_target = row
+        row.set_maps_busy(True)
+        worker = MapsTrackRunnable(text, host=self)
+        worker.signals.finished.connect(
+            lambda xml, stem, gen=token: self._on_maps_track_ready(gen, xml, stem)
+        )
+        worker.signals.failed.connect(lambda message, gen=token: self._on_maps_track_failed(gen, message))
+        QThreadPool.globalInstance().start(worker)
+
+    def _assign_map_track(self, row: OutboundLinkRow | TransferLinkRow, source_id: int) -> None:
+        if self.workspace is None:
+            return
+        names = self.workspace.list_map_tracks()
+        if isinstance(row, OutboundLinkRow):
+            row.set_tracks(names)
+            row.select_track(source_id)
+        else:
+            if self._link_strip is not None:
+                self._link_strip.set_map_tracks(names)
+            row.select_map_track(source_id)
+        self._show_map_track(source_id)
+        self.content_changed.emit()
+
+    def _show_map_track(self, source_id: int) -> None:
+        if self.workspace is None:
+            return
+        if any(item.source_file_id == source_id for item in self._all_tracks):
+            return
+        item = self.workspace.map_track_gallery_item(source_id)
+        if item is None:
+            return
+        keep_collapsed = self.galleries_are_collapsed()
+        self._all_tracks.append(item)
+        self._refresh_fold_headers()
+        if keep_collapsed:
+            self.set_galleries_collapsed(True)
+        if not self._all_gallery:
+            self._media_header.setVisible(False)
+        self._apply_media_tab()
+        self._apply_gallery_fold()
+
+    def _on_maps_track_ready(self, token: int, xml: str, stem: str) -> None:
+        row = self._maps_target
+        if token != self._maps_gen or row is None or self.workspace is None:
+            return
+        row.set_maps_busy(False)
+        suggested = map_track_name_suggestion(stem)
+        name, ok = QInputDialog.getText(
+            self,
+            "Map-Track",
+            "Name des Tracks:",
+            QLineEdit.EchoMode.Normal,
+            suggested,
+        )
+        if not ok:
+            return
+        chosen = name.strip() or suggested
+        try:
+            source_id, _name = self.workspace.import_map_track_gpx(xml, stem=chosen)
+        except ProjectError as exc:
+            QMessageBox.warning(self, "Map-Track", str(exc))
+            return
+        self._assign_map_track(row, source_id)
+
+    def _on_maps_track_failed(self, token: int, message: str) -> None:
+        row = self._maps_target
+        if token != self._maps_gen or row is None:
+            return
+        row.set_maps_busy(False)
+        QMessageBox.warning(self, "Map-Track", message)
 
     def youtube_key(self) -> tuple[str, int]:
         return self._kind, self._entity_id
@@ -2992,6 +3299,8 @@ def _gallery_item(photo: TimelinePhoto, *, cover_id: int | None = None) -> Galle
         group_status=photo.group_status,
         quality_light=photo.quality_light,
         quality_tooltip=photo.quality_tooltip,
+        is_map_track=is_map_track_path(photo.path),
+        track_badge=track_badge_for(photo.path, photo.filename),
     )
 
 
@@ -3006,22 +3315,10 @@ def _gpx_track_choices(items: tuple[TimelinePhoto, ...] | list[TimelinePhoto]) -
     for item in items:
         if item.file_kind != FileKind.GPS.value or is_igc_filename(item.filename):
             continue
+        if is_map_track_path(item.path):
+            continue
         found.append((item.source_file_id, item.filename))
     return found
-
-
-def _compact_links(links: list[TimelineLink]) -> list[TimelineLink]:
-    if len(links) != 1:
-        return list(links)
-    link = links[0]
-    if (
-        link.geometry == LINK_GEOMETRY_LINE
-        and not link.symbol
-        and link.track_source_file_id is None
-        and link.end_latitude is None
-    ):
-        return []
-    return list(links)
 
 
 def _links_from_payload(payload: dict[str, object]) -> tuple[TimelineLink, ...]:

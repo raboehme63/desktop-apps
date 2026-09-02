@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session
 
 from travelcore.config import DEFAULT_THUMBNAIL_SIZE
 from travelcore.database.models import Photo, PhotoAnalysis, SourceFile
+from travelcore.gps.maptracks import is_map_track_path
+from travelcore.gps.track_badge import TRACK_BADGE_MAP, track_badge_for
 from travelcore.image_analysis.quality import quality_light, quality_tooltip
 from travelcore.media.orientation import normalize_rotation_degrees
 from travelcore.media.thumbnails import cached_thumbnail_path
@@ -62,6 +64,8 @@ class GalleryItem:
     group_status: str | None = None
     quality_light: str | None = None
     quality_tooltip: str | None = None
+    is_map_track: bool = False
+    track_badge: str | None = None
 
 
 def list_gallery_items(
@@ -93,10 +97,13 @@ def list_gallery_items(
     overlay = load_cluster_overlay(session, project_id)
     items: list[GalleryItem] = []
     for source, photo, analysis in rows:
+        if is_map_track_path(source.path):
+            continue
         if hide_cluster_hidden and overlay.is_hidden(source.id):
             continue
         rotation = normalize_rotation_degrees(source.rotation_degrees)
         marks = overlay.for_source(source.id)
+        badge = track_badge_for(source.path, source.filename)
         items.append(
             GalleryItem(
                 source_file_id=source.id,
@@ -144,6 +151,8 @@ def list_gallery_items(
                     width=source.width,
                     height=source.height,
                 ),
+                is_map_track=badge == TRACK_BADGE_MAP,
+                track_badge=badge,
             )
         )
     return items

@@ -12,9 +12,14 @@ from sqlalchemy.orm import Session
 
 from travelcore.maps.backend import OSM_LATIN_TILES, FoliumMapBackend
 from travelcore.maps.scene import MapScene, build_map_scene
-from travelcore.project_settings import DEFAULT_STAY_LINK_COLOR, normalize_stay_link_color
+from travelcore.project_settings import (
+    DEFAULT_MAP_TRACK_COLOR,
+    DEFAULT_STAY_LINK_COLOR,
+    normalize_map_track_color,
+    normalize_stay_link_color,
+)
 
-MAP_CACHE_VERSION = 92
+MAP_CACHE_VERSION = 96
 MAP_HTML_NAME = "map.html"
 MAP_STAMP_NAME = "map.stamp.json"
 
@@ -62,8 +67,12 @@ def map_cache_identity(
     map_provider: str,
     thumbnail_size: int,
     map_link_color: str = DEFAULT_STAY_LINK_COLOR,
+    map_track_color: str = DEFAULT_MAP_TRACK_COLOR,
+    project_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Fingerprint of inputs that change the rendered HTML."""
+
+    from travelcore.timeline.outbound import link_defaults_from_project_dir
 
     files: list[dict[str, int | str]] = []
     for path in (db_path, Path(f"{db_path}-wal"), Path(f"{db_path}-shm")):
@@ -72,12 +81,17 @@ def map_cache_identity(
             files.append({"name": path.name, "mtime_ns": stat.st_mtime_ns, "size": stat.st_size})
         else:
             files.append({"name": path.name, "mtime_ns": 0, "size": 0})
+    defaults = link_defaults_from_project_dir(project_dir if project_dir is not None else db_path.parent)
     return {
         "version": MAP_CACHE_VERSION,
         "files": files,
         "map_provider": map_provider.strip().lower(),
         "map_link_color": normalize_stay_link_color(map_link_color),
+        "map_track_color": normalize_map_track_color(map_track_color),
         "thumbnail_size": int(thumbnail_size),
+        "default_link_geometry": defaults.geometry,
+        "default_link_dash": defaults.dash,
+        "default_link_symbol": defaults.symbol or "",
     }
 
 
@@ -113,6 +127,7 @@ def ensure_map_cache(
     size: int,
     map_provider: str,
     map_link_color: str = DEFAULT_STAY_LINK_COLOR,
+    map_track_color: str = DEFAULT_MAP_TRACK_COLOR,
     force: bool = False,
 ) -> MapRenderResult:
     """Reuse ``cache/map.html`` when the stamp still matches, otherwise rebuild.
@@ -122,11 +137,14 @@ def ensure_map_cache(
     """
 
     color = normalize_stay_link_color(map_link_color)
+    track_color = normalize_map_track_color(map_track_color)
     identity = map_cache_identity(
         db_path=db_path,
         map_provider=map_provider,
         thumbnail_size=size,
         map_link_color=color,
+        map_track_color=track_color,
+        project_dir=project_dir,
     )
     if not force:
         cached = read_cached_map(project_dir, identity)
@@ -144,7 +162,9 @@ def ensure_map_cache(
                 html_path.unlink()
             rendered = MapRenderResult(html_path=None, empty=True, from_cache=False, render_seq=seq, **counts)
         else:
-            FoliumMapBackend(tiles=tiles, link_color=color).render(scene, html_path)
+            FoliumMapBackend(tiles=tiles, link_color=color, map_track_color=track_color).render(
+                scene, html_path
+            )
             rendered = MapRenderResult(
                 html_path=html_path,
                 empty=False,
@@ -157,6 +177,8 @@ def ensure_map_cache(
         map_provider=map_provider,
         thumbnail_size=size,
         map_link_color=color,
+        map_track_color=track_color,
+        project_dir=project_dir,
     )
     _write_stamp(
         project_dir,
@@ -195,7 +217,11 @@ def _identity_matches(stamp: dict[str, Any], identity: dict[str, Any]) -> bool:
         and stamp.get("files") == identity.get("files")
         and stamp.get("map_provider") == identity.get("map_provider")
         and stamp.get("map_link_color") == identity.get("map_link_color")
+        and stamp.get("map_track_color") == identity.get("map_track_color")
         and stamp.get("thumbnail_size") == identity.get("thumbnail_size")
+        and stamp.get("default_link_geometry") == identity.get("default_link_geometry")
+        and stamp.get("default_link_dash") == identity.get("default_link_dash")
+        and stamp.get("default_link_symbol") == identity.get("default_link_symbol")
     )
 
 

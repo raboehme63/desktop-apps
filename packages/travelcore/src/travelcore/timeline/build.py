@@ -25,6 +25,11 @@ from travelcore.database.models import (
 from travelcore.exceptions import ProjectError
 from travelcore.geolocation.stays import cluster_stays
 from travelcore.gps.ingest import track_urls_by_source
+from travelcore.gps.maptracks import (
+    is_map_track_path,
+    map_track_display_name,
+    referenced_map_track_ids,
+)
 from travelcore.image_analysis.quality import quality_light, quality_tooltip
 from travelcore.media.gallery import SORT_FAVORITE, SORT_STATUSES, effective_sort_status
 from travelcore.media.orientation import normalize_rotation_degrees
@@ -194,6 +199,7 @@ def load_timeline(
             )
         )
     sections = _section_views(session, trip.id, thumbs_dir, size, track_urls, overlay)
+    map_track_items = _map_track_views(session, project.id, thumbs_dir, size, track_urls, overlay)
     entries = _build_entries(sections)
     ordered_sections = tuple(entry.section for entry in entries if entry.section is not None)
     span = resolve_trip_dates(session, trip)
@@ -207,6 +213,7 @@ def load_timeline(
         days=tuple(snapshot_days),
         sections=ordered_sections,
         entries=tuple(entries),
+        map_track_items=map_track_items,
     )
 
 
@@ -728,7 +735,7 @@ def _photo_view(
     )
     return TimelinePhoto(
         source_file_id=row.id,
-        filename=row.filename,
+        filename=map_track_display_name(row.filename) if is_map_track_path(row.path) else row.filename,
         path=row.path,
         thumbnail_path=thumb,
         captured_at=row.captured_at,
@@ -821,6 +828,18 @@ def _section_views(
                     marks=marks,
                 )
             )
+        outbound = outbound_from_section(section)
+        links = links_by_section.get(section.id, ())
+        items = _merge_map_track_items(
+            session,
+            items,
+            outbound,
+            links,
+            thumbs_dir,
+            size,
+            track_urls,
+            overlay,
+        )
         views.append(
             TimelineSection(
                 id=section.id,
@@ -841,8 +860,8 @@ def _section_views(
                 pin_longitude=section.pin_longitude,
                 hidden=bool(section.hidden),
                 items=tuple(items),
-                links=links_by_section.get(section.id, ()),
-                outbound=outbound_from_section(section),
+                links=links,
+                outbound=outbound,
             )
         )
     return views
@@ -908,7 +927,7 @@ def apply_pending_sections(
                 leonardo_urls=spec.leonardo_urls,
                 cover_source_file_id=spec.cover_source_file_id,
                 hidden=spec.hidden,
-                items=items,
+                items=_pending_items_with_map_tracks(items, spec, snapshot),
                 links=spec.links,
                 outbound=spec.outbound,
             )
@@ -917,6 +936,83 @@ def apply_pending_sections(
     entries = _build_entries(list(sections))
     ordered_sections = tuple(entry.section for entry in entries if entry.section is not None)
     return replace(snapshot, sections=ordered_sections, entries=tuple(entries))
+
+
+def _pending_items_with_map_tracks(
+    items: tuple[TimelinePhoto, ...],
+    spec: PendingSectionSpec,
+    snapshot: TimelineSnapshot,
+) -> tuple[TimelinePhoto, ...]:
+    wanted = referenced_map_track_ids(spec.outbound, spec.links)
+    if not wanted:
+        return items
+    present = {item.source_file_id for item in items}
+    by_id = {item.source_file_id: item for item in snapshot.map_track_items}
+    extra = tuple(by_id[item_id] for item_id in wanted if item_id in by_id and item_id not in present)
+    return items + extra
+
+
+def _map_track_views(
+    session: Session,
+    project_id: int,
+    thumbs_dir: Path | None,
+    size: int,
+    track_urls: dict[int, str],
+    overlay: ClusterOverlay | None,
+) -> tuple[TimelinePhoto, ...]:
+    rows = list(
+        session.execute(
+            select(SourceFile, Photo)
+            .outerjoin(Photo, Photo.source_file_id == SourceFile.id)
+            .where(SourceFile.project_id == project_id, SourceFile.file_kind == FileKind.GPS.value)
+            .order_by(SourceFile.filename.asc(), SourceFile.id.asc())
+        )
+    )
+    items: list[TimelinePhoto] = []
+    for row, photo in rows:
+        if not is_map_track_path(row.path):
+            continue
+        marks = None if overlay is None else overlay.for_source(row.id)
+        items.append(_photo_view(row, photo, thumbs_dir, size, track_urls.get(row.id), marks=marks))
+    return tuple(items)
+
+
+def _merge_map_track_items(
+    session: Session,
+    items: list[TimelinePhoto],
+    outbound,
+    links: tuple,
+    thumbs_dir: Path | None,
+    size: int,
+    track_urls: dict[int, str],
+    overlay: ClusterOverlay | None,
+) -> list[TimelinePhoto]:
+    wanted = referenced_map_track_ids(outbound, links)
+    if not wanted:
+        return items
+    present = {item.source_file_id for item in items}
+    missing = [item_id for item_id in wanted if item_id not in present]
+    if not missing:
+        return items
+    rows = list(
+        session.execute(
+            select(SourceFile, Photo)
+            .outerjoin(Photo, Photo.source_file_id == SourceFile.id)
+            .where(SourceFile.id.in_(tuple(missing)))
+        )
+    )
+    by_id = {row.id: (row, photo) for row, photo in rows}
+    merged = list(items)
+    for item_id in missing:
+        pair = by_id.get(item_id)
+        if pair is None:
+            continue
+        row, photo = pair
+        if not is_map_track_path(row.path):
+            continue
+        marks = None if overlay is None else overlay.for_source(row.id)
+        merged.append(_photo_view(row, photo, thumbs_dir, size, track_urls.get(row.id), marks=marks))
+    return merged
 
 
 def _build_entries(sections: list[TimelineSection]) -> list[TimelineEntry]:

@@ -23,7 +23,21 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from travelcore.project_settings import EXPORT_FORMATS, ProjectSettings, normalize_stay_link_color
+from travelcore.project_settings import (
+    EXPORT_FORMATS,
+    ProjectSettings,
+    normalize_map_track_color,
+    normalize_stay_link_color,
+)
+from travelcore.timeline.symbols import TRANSPORT_SYMBOLS
+from travelcore.timeline.transfer_links import (
+    LINK_DASH_DASHED,
+    LINK_DASH_SOLID,
+    LINK_GEOMETRY_ARC,
+    LINK_GEOMETRY_LINE,
+)
+from traveljournal.widgets.click_combo import ClickCombo
+from traveljournal.widgets.transport_icons import fill_transport_combo, transport_badge_icon
 
 _FORMAT_LABELS = {
     "html": "HTML (Reisebericht)",
@@ -34,7 +48,11 @@ _FORMAT_LABELS = {
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, settings: ProjectSettings, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        settings: ProjectSettings,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Projekteinstellungen")
         self.setMinimumSize(480, 360)
@@ -99,6 +117,42 @@ class SettingsDialog(QDialog):
         matching_form.addRow("Standard-Zeitzone", self.timezone_edit)
         form.addWidget(matching)
 
+        links = QGroupBox("Standard-Verbindung")
+        links_form = QFormLayout(links)
+        self.link_geometry_combo = ClickCombo()
+        self.link_geometry_combo.addItem("Gerade", LINK_GEOMETRY_LINE)
+        self.link_geometry_combo.addItem("Bogenlinie", LINK_GEOMETRY_ARC)
+        self.link_geometry_combo.setCurrentIndex(
+            max(0, self.link_geometry_combo.findData(self._settings.placeholders.default_link_geometry))
+        )
+        links_form.addRow("Linientyp", self.link_geometry_combo)
+        self.link_dash_combo = ClickCombo()
+        self.link_dash_combo.addItem("durchgezogen", LINK_DASH_SOLID)
+        self.link_dash_combo.addItem("gestrichelt", LINK_DASH_DASHED)
+        self.link_dash_combo.setCurrentIndex(
+            max(0, self.link_dash_combo.findData(self._settings.placeholders.default_link_dash))
+        )
+        links_form.addRow("Strich", self.link_dash_combo)
+        self.link_symbol_combo = ClickCombo()
+        self.link_symbol_combo.addItem(transport_badge_icon("other"), "Pfeil", "")
+        fill_transport_combo(
+            self.link_symbol_combo,
+            tuple((item.key, item.label) for item in TRANSPORT_SYMBOLS),
+        )
+        self.link_symbol_combo.setCurrentIndex(
+            max(0, self.link_symbol_combo.findData(self._settings.placeholders.default_link_symbol))
+        )
+        links_form.addRow("Symbol", self.link_symbol_combo)
+        links_hint = QLabel(
+            "Gilt für die ganze Reise, solange ein Abschnitt nichts anderes setzt. "
+            "Tag, Aufenthalt und Transfer können Linientyp, Strich und Symbol überschreiben. "
+            "Map-Track und Keine Linie bleiben Einstellungen am Abschnitt."
+        )
+        links_hint.setObjectName("pageSubtitle")
+        links_hint.setWordWrap(True)
+        links_form.addRow("", links_hint)
+        form.addWidget(links)
+
         extra = QGroupBox("Karte und Weitere")
         extra_form = QFormLayout(extra)
         self.map_combo = QComboBox()
@@ -120,6 +174,20 @@ class SettingsDialog(QDialog):
         color_row.addStretch(1)
         extra_form.addRow("Verbindungslinien", color_row)
         self._sync_link_color_button()
+        track_row = QHBoxLayout()
+        self.track_color_edit = QLineEdit(self._settings.placeholders.map_track_color)
+        self.track_color_edit.setPlaceholderText("#5b8def")
+        self.track_color_edit.setMaximumWidth(110)
+        self.track_color_edit.textChanged.connect(self._sync_track_color_button)
+        self.track_color_btn = QPushButton()
+        self.track_color_btn.setFixedSize(28, 24)
+        self.track_color_btn.setToolTip("Farbe wählen")
+        self.track_color_btn.clicked.connect(self._pick_track_color)
+        track_row.addWidget(self.track_color_edit)
+        track_row.addWidget(self.track_color_btn)
+        track_row.addStretch(1)
+        extra_form.addRow("Map-Tracks", track_row)
+        self._sync_track_color_button()
         self.language_edit = QLineEdit(self._settings.placeholders.journal_language)
         extra_form.addRow("Tagebuchsprache", self.language_edit)
         note = QLabel(
@@ -130,6 +198,8 @@ class SettingsDialog(QDialog):
             "Zahnrad-Menü unter den Zoom-Buttons und werden in settings.toml mit dem Projekt gespeichert. "
             "offline: nur Track und Marker, ohne Umschalter. "
             "Verbindungslinien zwischen Tag- und Aufenthaltskreisen (Standard weiß). "
+            "Map-Tracks (GPX unter .MapTracks/ im Import-Ordner) haben eine eigene Farbe (Standard blau). "
+            "Linientyp und Verkehrssymbol der Reise stehen unter Standard-Verbindung. "
             "Tagebuchsprache folgt in einer späteren Phase."
         )
         note.setObjectName("pageSubtitle")
@@ -183,9 +253,19 @@ class SettingsDialog(QDialog):
         if picked.isValid():
             self.link_color_edit.setText(picked.name())
 
+    def _pick_track_color(self) -> None:
+        current = QColor(normalize_map_track_color(self.track_color_edit.text()))
+        picked = QColorDialog.getColor(current, self, "Map-Track-Farbe")
+        if picked.isValid():
+            self.track_color_edit.setText(picked.name())
+
     def _sync_link_color_button(self) -> None:
         color = normalize_stay_link_color(self.link_color_edit.text())
         self.link_color_btn.setStyleSheet(f"background: {color}; border: 1px solid #444;")
+
+    def _sync_track_color_button(self) -> None:
+        color = normalize_map_track_color(self.track_color_edit.text())
+        self.track_color_btn.setStyleSheet(f"background: {color}; border: 1px solid #444;")
 
     def result_settings(self) -> ProjectSettings:
         settings = self._settings.model_copy(deep=True)
@@ -199,6 +279,15 @@ class SettingsDialog(QDialog):
         settings.matching.default_timezone = zone or None
         settings.placeholders.map_provider = self.map_combo.currentText().strip() or "leaflet"
         settings.placeholders.map_link_color = normalize_stay_link_color(self.link_color_edit.text())
+        settings.placeholders.map_track_color = normalize_map_track_color(self.track_color_edit.text())
+        geometry = self.link_geometry_combo.currentData()
+        settings.placeholders.default_link_geometry = (
+            "arc" if geometry == LINK_GEOMETRY_ARC else "line"
+        )
+        dash = self.link_dash_combo.currentData()
+        settings.placeholders.default_link_dash = "dashed" if dash == LINK_DASH_DASHED else "solid"
+        symbol = self.link_symbol_combo.currentData()
+        settings.placeholders.default_link_symbol = symbol if isinstance(symbol, str) else ""
         language = self.language_edit.text().strip() or "de"
         settings.placeholders.journal_language = language
         settings.performance.worker_count = int(self.workers_spin.value())

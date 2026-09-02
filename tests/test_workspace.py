@@ -85,18 +85,45 @@ def test_map_display_flags_persist_in_project(tmp_path: Path) -> None:
     assert workspace.map_show_reserve() is False
     assert workspace.map_show_sat_labels() is False
     assert workspace.map_show_sat_streets() is False
+    assert workspace.map_show_flights() is True
+    assert workspace.map_show_activities() is True
     workspace.set_map_display_flags(
-        photo_cones=True, show_reserve=True, sat_labels=True, sat_streets=True
+        photo_cones=True,
+        show_reserve=True,
+        sat_labels=True,
+        sat_streets=True,
+        show_flights=False,
+        show_activities=False,
     )
     assert workspace.map_show_photo_cones() is True
     assert workspace.map_show_reserve() is True
     assert workspace.map_show_sat_labels() is True
     assert workspace.map_show_sat_streets() is True
+    assert workspace.map_show_flights() is False
+    assert workspace.map_show_activities() is False
     loaded = load_project_settings(opened.directory)
     assert loaded.placeholders.map_show_photo_cones is True
     assert loaded.placeholders.map_show_reserve is True
     assert loaded.placeholders.map_show_sat_labels is True
     assert loaded.placeholders.map_show_sat_streets is True
+    assert loaded.placeholders.map_show_flights is False
+    assert loaded.placeholders.map_show_activities is False
+
+
+def test_store_db_paths_persist(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    from traveljournal.services import workspace as workspace_mod
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    workspace = Workspace()
+    assert workspace.fitness_db_path() == ""
+    assert workspace.igc_db_path() == ""
+    workspace.set_fitness_db_path(str(tmp_path / "Fitness"))
+    workspace.set_igc_db_path(str(tmp_path / "IGC"))
+    again = Workspace()
+    assert again.fitness_db_path() == str(tmp_path / "Fitness")
+    assert again.igc_db_path() == str(tmp_path / "IGC")
+    again.set_fitness_db_path("  ")
+    assert again.fitness_db_path() == ""
 
 
 def test_sidebar_collapsed_persists(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
@@ -121,6 +148,18 @@ def test_timeline_pool_visible_persists(tmp_path: Path, monkeypatch) -> None:  #
     assert workspace.timeline_pool_visible() is True
     workspace.set_timeline_pool_visible(False)
     assert workspace.timeline_pool_visible() is False
+
+
+def test_timeline_galleries_collapsed_persists(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    from traveljournal.services import workspace as workspace_mod
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    workspace = Workspace()
+    assert workspace.timeline_galleries_collapsed() is False
+    workspace.set_timeline_galleries_collapsed(True)
+    assert workspace.timeline_galleries_collapsed() is True
+    workspace.set_timeline_galleries_collapsed(False)
+    assert workspace.timeline_galleries_collapsed() is False
 
 
 def test_pool_width_persists(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001

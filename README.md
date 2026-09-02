@@ -8,15 +8,16 @@ PySide6-Oberfläche `traveljournal` orchestriert nur Import, Bearbeitung und
 Export. Dieselbe Bibliothek ist für eine spätere Anwendung `PhotoInspector`
 vorgesehen (Dublettensuche, Qualitätsbewertung).
 
-Aktueller Stand: **Phase 7** plus Medien-Pipeline, Software **R3.1.0**
-(`Reisetagebuch R3.1.0` in der Titelleiste). Abschnitte lassen sich in der
+Aktueller Stand: **Phase 7** plus Medien-Pipeline, Software **R3.2.0**
+(`Reisetagebuch R3.2.0` in der Titelleiste). Abschnitte lassen sich in der
 Timeline für Karte und Export ausblenden; **Speichern** ist sonst grau.
 Auf der Projektseite wählt man bereiste Länder aus dem Katalog und setzt
 Reise von–bis (vorbefüllt aus den Daten, danach editierbar).
 
 Die Anwendung importiert Medien, liest Metadaten und GPS-Tracks, erzeugt
 Vorschaubilder, zeigt eine Karte (Titelbild-Kreise, Verbindungslinien mit
-Verkehrssymbolen, Leiste, Cover-Zoom, Foto-Popup, Detail) und baut eine
+Verkehrssymbolen, Leiste, Cover-Zoom, Foto-Popup, Detail mit **Flüge anzeigen**
+und **Aktivitäten anzeigen**) und baut eine
 bearbeitbare Timeline aus Tagen, Transfers und Aufenthalten (alle als
 Abschnitte mit Mitgliedern). Nicht zugeordnete Medien liegen im Medienpool.
 Auf der Medienseite stapeln echte Dubletten (SHA-256), gruppieren ähnliche
@@ -38,7 +39,7 @@ Travelbook-PDF und CEWE-Projekt (`.mcf`, zum Feinschliff im Creator) sind da; HT
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\pip install -e packages/travelcore -e apps/traveljournal
+.\.venv\Scripts\pip install -e packages/travelcore -e packages/fitnesscore -e apps/traveljournal
 .\.venv\Scripts\pip install pytest ruff
 ```
 
@@ -47,6 +48,141 @@ py -3.12 -m venv .venv
 ```powershell
 .\.venv\Scripts\python.exe -m traveljournal
 ```
+
+## Fitness-Datenbank (CLI)
+
+Eigenständige SQLite-Datenbank für Polar-JSON, FIT und IGC, **unabhängig** vom
+Reisetagebuch (`packages/fitnesscore`). Der Import legt alle erkannten Dateien
+ab (Training, Tagesaktivität, 24/7-Puls, Tests, geplante Routen, Konto, FIT,
+IGC-Flüge, …),
+komprimiert als Payload. Originale werden nur gelesen. Abfragen: GPX (Polar/FIT)
+und Original-IGC, jeweils nach optionaler Sportart und Datumsbereich
+(UTC-Kalendertage).
+Im Reisetagebuch: Seite **Import** → Fitness-DB bzw. IGC-DB wählen → Zeitraum
+(von Reise von–bis vorbefüllt, überschreibbar) → **Fitnessdaten Importieren**
+bzw. **IGC-Daten Importieren** (jeweils mit Fortschrittsanzeige). Schreibt nach
+`{Import}/.FitnessTracks/` bzw. `{Import}/.IGCTracks/`.
+Scan und Synchronisieren nehmen beide Ordner mit
+(normale GPS-Dateien; `.MapTracks/` bleibt ausgeblendet).
+Parameter und Aufruf auch in [packages/fitnesscore/README.md](packages/fitnesscore/README.md).
+
+Zwei gleichwertige Aufrufe (nach `pip install -e packages/fitnesscore`):
+
+```powershell
+.\.venv\Scripts\python.exe -m fitnesscore -h
+.\.venv\Scripts\fitnessdb.exe -h
+```
+
+`--db` steht **vor** dem Unterbefehl und gilt für alle Kommandos außer `init`,
+das den Ordner auch als Positionsargument nimmt.
+
+```powershell
+.\.venv\Scripts\python.exe -m fitnesscore -h
+.\.venv\Scripts\python.exe -m fitnesscore --db D:\Fitness init
+.\.venv\Scripts\python.exe -m fitnesscore --db D:\Fitness import -h
+.\.venv\Scripts\python.exe -m fitnesscore --db D:\Fitness import -d D:\tracks
+.\.venv\Scripts\python.exe -m fitnesscore --db D:\Fitness import -d D:\tracks -r
+.\.venv\Scripts\python.exe -m fitnesscore --db D:\Fitness import -d D:\tracks --r
+.\.venv\Scripts\python.exe -m fitnesscore --db D:\Fitness import -d D:\tracks --recursive
+.\.venv\Scripts\python.exe -m fitnesscore --db D:\Fitness import -f D:\tracks\fahrt.FIT
+.\.venv\Scripts\python.exe -m fitnesscore --db D:\Fitness import -d D:\flights
+.\.venv\Scripts\python.exe -m fitnesscore --db D:\Fitness export-igc --sports paragliding --from 2025-05-01 --to 2025-05-31 --out D:\out
+.\.venv\Scripts\python.exe -m fitnesscore --db D:\Fitness sports
+.\.venv\Scripts\python.exe -m fitnesscore --db D:\Fitness export-gpx --from 2026-08-01 --to 2026-09-02 --out D:\out
+.\.venv\Scripts\python.exe -m fitnesscore --db D:\Fitness export-gpx --sports kitesurfing e-biking --from 2026-08-01 --to 2026-09-02 --out D:\out
+```
+
+Kurzhilfe (`-h`):
+
+```
+usage: fitnessdb [-h] [--db ORDNER] {init,import,export-gpx,export-igc,sports} ...
+
+Lokale Fitness-Datenbank: importiert Polar-JSON, FIT und IGC vollständig.
+GPX-Abfrage für Polar/FIT, IGC-Abfrage liefert die Originaldatei.
+
+  init         Store-Ordner und leere Datenbank anlegen
+  import       JSON-, FIT- und IGC-Dateien importieren (alles, nicht nur Routen)
+  export-gpx   GPX (Polar/FIT) nach optionaler Sportart und Datumsbereich
+  export-igc   Original-IGC nach optionaler Sportart und Datumsbereich
+  sports       Sportarten auflisten, für die eine Route vorliegt
+
+  --db ORDNER  Store-Ordner oder fitness.sqlite (Standard: ./fitness)
+```
+
+`init`:
+
+```
+usage: fitnessdb init [-h] [target]
+
+  target  Ordner (Standard: --db oder ./fitness)
+```
+
+`import` — genau eine Quelle: `-f` **oder** `-d`. Rekursiv nur mit `-d`:
+**`-r`**, **`--r`** oder **`--recursive`**.
+
+Es gibt kein eigenes `update`. Derselbe `import` über denselben Ordner ist das
+Update: neue oder inhaltlich geänderte Dateien (neuer SHA-256) kommen dazu,
+bereits bekannte Hashes werden übersprungen. Gelöschte Dateien im Quellordner
+bleiben in der Datenbank.
+
+```
+usage: fitnessdb import [-h] (-f DATEI | -d VERZEICHNIS) [-r]
+
+  -f DATEI        einzelne .json-, .fit- oder .igc-Datei
+  -d VERZEICHNIS  Ordner
+  -r, --recursive mit -d auch Unterverzeichnisse einbeziehen
+```
+
+`export-gpx` und `export-igc` — `--from`, `--to` und `--out` sind Pflicht.
+`--sports` ist optional. IGC-Auswahl schreibt die **Originaldatei**, keine GPX.
+
+```
+usage: fitnessdb export-gpx [-h] [--sports SPORT [SPORT ...]] --from DATUM
+                            --to DATUM --out ORDNER
+usage: fitnessdb export-igc [-h] [--sports SPORT [SPORT ...]] --from DATUM
+                            --to DATUM --out ORDNER
+
+  --sports SPORT [SPORT ...], --sport SPORT [SPORT ...]
+                  optional: eine oder mehrere Sportarten; ohne Angabe alle
+                  Treffer im Zeitraum. Mehrere Tokens oder Kommata.
+  --from DATUM    von (YYYY-MM-DD, UTC, einschließlich)
+  --to DATUM      bis (YYYY-MM-DD, UTC, einschließlich)
+  --out ORDNER    Zielordner (wird angelegt)
+```
+
+`sports` hat keine weiteren Parameter; es braucht `--db` wie die anderen
+Kommandos.
+
+| Parameter | Pflicht | Bedeutung |
+| --- | --- | --- |
+| `--db ORDNER` | nein | Store-Ordner (`fitness.sqlite` darin) oder Pfad zu einer `.sqlite`-Datei. Standard: `./fitness` im aktuellen Verzeichnis. |
+| `init [target]` | nein | Legt den Ordner und eine leere Datenbank an. Bricht ab, wenn die Datei schon existiert. Ohne `target` gilt `--db`. |
+| `import -f DATEI` | eine von beiden | Eine Polar-JSON-, FIT- oder IGC-Datei. |
+| `import -d VERZEICHNIS` | eine von beiden | Ordner; nur `.json`, `.fit` und `.igc`. Andere Endungen (z. B. `.gpx`) werden ignoriert. |
+| `import -r` / `--r` / `--recursive` | nein | Mit `-d`: Unterverzeichnisse. Ohne `-d` Fehler. |
+| `export-gpx --from` / `--to` | ja | UTC-Kalendertage, beide einschließlich. Nur Polar/FIT-Sessions, keine IGC. |
+| `export-gpx --out` | ja | Zielordner. Dateiname `{UTC-Start}_{sport}_{id}.gpx`. |
+| `export-igc --from` / `--to` | ja | Dieselben UTC-Tage. Nur IGC-Flüge. |
+| `export-igc --out` | ja | Zielordner. Originalbytes, Dateiname `{UTC-Start}_{Originalname}_{id}.igc`. |
+| `export-gpx` / `export-igc --sports` | nein | Slugs oder Aliasse. Mehrere: `--sports a b` oder `--sports a,b`. `--sport` ist Alias. Ohne Flag: alle Treffer im Zeitraum. |
+| `sports` | — | Liste `Anzahl  slug` nur für Sessions, die eine Route haben. |
+
+`import` schreibt einen Punkt pro Datei und am Ende
+`Dateien n, importiert i, übersprungen s, Fehler e, Dokumente d, Tracks t`
+plus eine Aufschlüsselung nach Dateiart. Beim erneuten Lauf (Update) sind `i`
+die Neuankömmlinge und `s` die schon bekannten SHA-256. `export-gpx` schreibt
+jeden GPX-Pfad und `GPX n`, oder `keine GPX`.
+`export-igc` schreibt jeden IGC-Pfad und `IGC n`, oder `keine IGC`. Ein
+Polar-Gesamtexport kann mehrere Gigabyte groß sein; der erste Bulk-Import
+dauert entsprechend.
+
+Dieselbe Einheit als JSON-Export und FIT-Download wird über Startzeit (Minute,
+UTC) und Sport zusammengeführt. Eine FIT-Datei mit mehreren Sessions liefert
+mehrere GPX. IGC-Flüge bekommen Sport aus dem Gleitschirmtyp (`paragliding`,
+`hang-gliding`, `gliding`; Standard Gleitschirm); die Abfrage gibt die
+importierte IGC-Datei zurück, keine umgewandelte GPX. Geplante Polar-Routen
+liegen in der Datenbank, erscheinen in `export-gpx` aber nicht (kein
+Session-Datum).
 
 ## JSON nach GPX (Hilfsprogramm)
 
@@ -83,6 +219,50 @@ options:
 pro JSON-Datei und am Ende `JSON n, GPX m`.
 
 Die erzeugte GPX kann anschließend wie jede andere Trackdatei importiert werden.
+
+## Google-Maps-Link nach GPX (Hilfsprogramm)
+
+Auf der Timeline-Karte von Tag oder Aufenthalt: **Verbindung zum nächsten Abschnitt**
+→ **Map-Track** → **Datei…** oder **Maps-Link…**. Am Transfer gibt es denselben Typ
+zusätzlich zu **Track** (GPX-Mitglieder des Abschnitts). Die GPX liegt im Import-Ordner unter
+`.MapTracks/`. Ein Datei-Import heißt **Map-Track**. Ein Maps-Link schlägt den
+Namen aus Start und Ziel vor (Dialog, überschreibbar; fehlt der Name, Nominatim
+oder `Stop-n`). Die Straßenführung kommt von
+OpenStreetMap über OSRM, nicht von Google.
+
+Dasselbe kann das CLI `scripts/maps_url_to_gpx.py` ohne GUI. Kurzlinks
+`maps.app.goo.gl` werden aufgelöst. `--waypoints-only` verbindet nur die Stopps,
+ohne Router. Skript und Timeline sprechen dazu Google (Redirect) und OSRM an;
+übrige App-Funktionen bleiben lokal.
+
+```powershell
+.\.venv\Scripts\python.exe scripts\maps_url_to_gpx.py -h
+.\.venv\Scripts\python.exe scripts\maps_url_to_gpx.py "https://maps.app.goo.gl/…"
+.\.venv\Scripts\python.exe scripts\maps_url_to_gpx.py -o D:\tracks\route.gpx "https://maps.app.goo.gl/…"
+.\.venv\Scripts\python.exe scripts\maps_url_to_gpx.py --waypoints-only -o D:\tracks\stops.gpx "https://maps.app.goo.gl/…"
+```
+
+Kurzhilfe (`-h`):
+
+```
+usage: maps_url_to_gpx.py [-h] [-o DATEI] [--waypoints-only] [--router URL]
+                          URL
+
+Erzeugt eine GPX-Datei aus einem Google-Maps-Link der Routenplanung. Stopps
+kommen aus dem Link, die Strecke folgt OpenStreetMap-Straßen (OSRM).
+
+positional arguments:
+  URL               Google-Maps-Routenlink (auch maps.app.goo.gl)
+
+options:
+  -h, --help        show this help message and exit
+  -o DATEI          Zieldatei oder Ordner
+  --waypoints-only  keine Straßenführung, nur Stopps als Track verbinden
+  --router URL      OSRM-Basis-URL (Standard: https://router.project-osrm.org)
+```
+
+Ohne `-o` entsteht `{Start}-to-{Ziel}.gpx` im aktuellen Verzeichnis. Die
+erzeugte GPX kann anschließend wie jede andere Trackdatei importiert werden.
 
 ## Länderkatalog
 
@@ -135,10 +315,14 @@ Linting:
 - [Testdokumentation](docs/testdokumentation.md) — Strategie, Automatisierung, manuelle Fälle
 - [Abhängigkeiten](docs/dependencies.md) — Bibliotheken, Versionen, Lizenzen
 - [Windows-Paketierung](packaging/README.md) — Installer, Zip, PyInstaller, Inno Setup
+- [Fitness-Datenbank](packages/fitnesscore/README.md) — CLI `fitnessdb` / `python -m fitnesscore`
 
 ## Datenschutz
 
 Alle Analysen laufen standardmäßig lokal. Fotos, GPS-Tracks und Reisedaten
-werden nicht automatisch an externe Dienste übertragen.
+werden nicht automatisch an externe Dienste übertragen. Ausnahme: **Maps-Link…**
+auf der Timeline-Ausgangslinie und das CLI `scripts/maps_url_to_gpx.py` lösen
+Google-Maps-Links auf, holen fehlende Ortsnamen von Nominatim (OpenStreetMap)
+und die Straßenführung von OSRM.
 
 Originaldateien werden niemals verändert.

@@ -22,20 +22,56 @@ SETTINGS_FILENAME = "settings.toml"
 ExportFormat = Literal["html", "pdf", "latex", "cewe"]
 EXPORT_FORMATS: tuple[ExportFormat, ...] = ("html", "pdf", "latex", "cewe")
 DEFAULT_STAY_LINK_COLOR = "#ffffff"
+DEFAULT_MAP_TRACK_COLOR = "#5b8def"
 _HEX_COLOR = re.compile(r"^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 
 
 def normalize_stay_link_color(value: object) -> str:
     """CSS hex color for stay-link lines; unknown values become white."""
 
+    return _normalize_hex_color(value, DEFAULT_STAY_LINK_COLOR, aliases={"white": DEFAULT_STAY_LINK_COLOR})
+
+
+def normalize_map_track_color(value: object) -> str:
+    """CSS hex color for Map-Track polylines; unknown values become blue."""
+
+    return _normalize_hex_color(value, DEFAULT_MAP_TRACK_COLOR)
+
+
+def _normalize_hex_color(
+    value: object,
+    default: str,
+    *,
+    aliases: dict[str, str] | None = None,
+) -> str:
     text = str(value or "").strip()
-    if text.lower() == "white":
-        return DEFAULT_STAY_LINK_COLOR
+    if aliases:
+        mapped = aliases.get(text.lower())
+        if mapped is not None:
+            return mapped
     if not _HEX_COLOR.fullmatch(text):
-        return DEFAULT_STAY_LINK_COLOR
+        return default
     if len(text) == 4:
         return "#" + "".join(char * 2 for char in text[1:]).lower()
     return text.lower()
+
+
+def parse_default_link_geometry(value: object) -> str:
+    """Trip default is Gerade or Bogenlinie. Map-Track stays a per-section choice."""
+
+    return "arc" if str(value or "").strip() == "arc" else "line"
+
+
+def parse_default_link_dash(value: object) -> str:
+    return "dashed" if str(value or "").strip() == "dashed" else "solid"
+
+
+def parse_default_link_symbol(value: object) -> str:
+    from travelcore.timeline.symbols import TRANSPORT_SYMBOLS
+
+    text = str(value or "").strip()
+    allowed = {item.key for item in TRANSPORT_SYMBOLS}
+    return text if text in allowed else ""
 
 
 _HEADER = """# Reisetagebuch – Projekteinstellungen
@@ -102,10 +138,16 @@ class PlaceholderSettings(BaseModel):
 
     map_provider: str = "leaflet"
     map_link_color: str = "#ffffff"
+    map_track_color: str = "#5b8def"
     map_show_photo_cones: bool = False
     map_show_reserve: bool = False
     map_show_sat_labels: bool = False
     map_show_sat_streets: bool = False
+    map_show_flights: bool = True
+    map_show_activities: bool = True
+    default_link_geometry: str = "line"
+    default_link_dash: str = "solid"
+    default_link_symbol: str = ""
     journal_language: str = "de"
 
     @field_validator("map_link_color", mode="before")
@@ -113,11 +155,33 @@ class PlaceholderSettings(BaseModel):
     def _link_color(cls, value: object) -> str:
         return normalize_stay_link_color(value)
 
+    @field_validator("map_track_color", mode="before")
+    @classmethod
+    def _track_color(cls, value: object) -> str:
+        return normalize_map_track_color(value)
+
+    @field_validator("default_link_geometry", mode="before")
+    @classmethod
+    def _default_geometry(cls, value: object) -> str:
+        return parse_default_link_geometry(value)
+
+    @field_validator("default_link_dash", mode="before")
+    @classmethod
+    def _default_dash(cls, value: object) -> str:
+        return parse_default_link_dash(value)
+
+    @field_validator("default_link_symbol", mode="before")
+    @classmethod
+    def _default_symbol(cls, value: object) -> str:
+        return parse_default_link_symbol(value)
+
     @field_validator(
         "map_show_photo_cones",
         "map_show_reserve",
         "map_show_sat_labels",
         "map_show_sat_streets",
+        "map_show_flights",
+        "map_show_activities",
         mode="before",
     )
     @classmethod

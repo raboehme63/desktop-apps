@@ -12,6 +12,7 @@ from sqlalchemy import delete, insert, select
 from sqlalchemy.orm import Session
 
 from travelcore.database.models import FileError, GpsPoint, GpsTrack, Project, SourceFile
+from travelcore.exceptions import GpsError, ProjectError
 from travelcore.gps.match import (
     DERIVED_SOURCES,
     PROTECTED_SOURCES,
@@ -159,6 +160,19 @@ def ingest_gps_tracks(
     if progress is not None:
         progress(media_total, media_total, "", "done")
     return result
+
+
+def ingest_gps_source(session: Session, project: Project, source: SourceFile) -> tuple[int, int]:
+    """Parse one indexed GPX/IGC file into ``gps_tracks`` / ``gps_points``."""
+
+    parser = parser_for_path(Path(source.path))
+    if parser is None:
+        raise ProjectError("Kein GPS-Parser für diese Datei.")
+    try:
+        parsed = parser.parse(Path(source.path))
+    except GpsError as exc:
+        raise ProjectError(str(exc)) from exc
+    return _replace_tracks(session, project, source, parsed)
 
 
 def _parse_pending_tracks(

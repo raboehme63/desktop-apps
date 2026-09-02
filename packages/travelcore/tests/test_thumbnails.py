@@ -10,6 +10,8 @@ from PIL import Image
 from travelcore.config import DEFAULT_THUMBNAIL_SIZE, AppSettings
 from travelcore.media.heif_items import extract_heif_jpeg_item
 from travelcore.media.thumbnails import (
+    _should_refresh_gps_thumbnail,
+    _track_thumbnail_lacks_map,
     cached_thumbnail_path,
     ensure_thumbnail,
     extract_largest_embedded_jpeg,
@@ -214,6 +216,24 @@ def test_geojson_thumbnail_is_red_track_on_map(tmp_path: Path) -> None:
     written = ensure_thumbnail(source, dest, size=64)
     assert written == dest
     _assert_red_on_map(dest, size=64)
+
+
+def test_blank_fitness_thumb_is_marked_for_leaflet_refresh(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    dest_dir = tmp_path / ".FitnessTracks"
+    dest_dir.mkdir()
+    source = write_gpx(
+        dest_dir / "ride.gpx",
+        [(46.0, 11.0, None, None), (46.2, 11.3, None, None)],
+    )
+    dest = tmp_path / "spur.jpg"
+    written = ensure_thumbnail(source, dest, size=64, use_map_tiles=False)
+    assert written == dest
+    assert _track_thumbnail_lacks_map(dest)
+    row = SimpleNamespace(file_kind="gps", path=str(source))
+    assert _should_refresh_gps_thumbnail(row, dest, use_map_tiles=True)
+    assert not _should_refresh_gps_thumbnail(row, dest, use_map_tiles=False)
 
 
 def test_gpx_thumbnail_falls_back_to_black_without_map_tiles(tmp_path: Path) -> None:

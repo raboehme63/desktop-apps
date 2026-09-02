@@ -21,8 +21,10 @@ from travelcore.database.models import (
     TripDay,
     TripSection,
 )
+from travelcore.gps.maptracks import referenced_map_track_ids
 from travelcore.maps.links import build_stay_segments, style_for_geometry
 from travelcore.maps.scene import (
+    MAX_TRACK_DISPLAY_POINTS,
     STAY_LINK_ROLE_USER,
     STAY_LINK_STYLE_STRAIGHT,
     MapMarker,
@@ -42,7 +44,12 @@ from travelcore.media.types import FileKind
 from travelcore.timeline.build import load_timeline
 from travelcore.timeline.journal import aware, display_positions_for_ids
 from travelcore.timeline.links import is_igc_filename, parse_youtube_urls, youtube_thumbnail_url
-from travelcore.timeline.outbound import outbound_is_hidden
+from travelcore.timeline.outbound import (
+    LinkDefaults,
+    link_defaults_from_project_dir,
+    outbound_from_section,
+    outbound_is_hidden,
+)
 from travelcore.timeline.sections import (
     KIND_DAY,
     KIND_MOVEMENT,
@@ -51,7 +58,7 @@ from travelcore.timeline.sections import (
     day_section_for_date,
     format_section_span,
 )
-from travelcore.timeline.transfer_links import OVERVIEW_TRACK_POINTS
+from travelcore.timeline.transfer_links import load_transfer_links
 from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelineLink, TimelinePhoto, TimelineSection
 
 
@@ -118,15 +125,26 @@ def build_map_overview(
         entries = list(snapshot.published_entries())
         covers = _covers_from_entries(entries, list(snapshot.days))
         links = stay_links_from_entries(
-            entries, list(snapshot.days), session=session, project_id=project_id
+            entries,
+            list(snapshot.days),
+            session=session,
+            project_id=project_id,
+            defaults=link_defaults_from_project_dir(thumbs_dir.parent),
+        )
+        track_ids = _track_ids_from_entries(entries)
+        lines = tuple(
+            line
+            for line in track_polylines(session, project_id, source_file_ids=track_ids)
+            if line.kind == "track"
         )
     else:
         covers = _covers_from_source_files(session, project_id, thumbs_dir, size=size)
         links = []
-    center = _center(covers, ())
+        lines = ()
+    center = _center(covers, lines)
     if center is None and (snapshot is not None and snapshot.entries):
         center = (50.0, 10.0)
-    return MapScene(markers=tuple(covers), polylines=(), stay_links=tuple(links), center=center)
+    return MapScene(markers=tuple(covers), polylines=lines, stay_links=tuple(links), center=center)
 
 
 def build_map_timeline(
@@ -212,6 +230,11 @@ def _resolve_section_group(session: Session, project_id: int, section_id: int) -
             )
         )
     )
+    outbound = outbound_from_section(section)
+    links = load_transfer_links(session, section.id)
+    for source_id in referenced_map_track_ids(outbound, links):
+        if source_id not in ids:
+            ids.append(source_id)
     day_id = None
     if section.kind == KIND_DAY:
         key = calendar_key(section.started_at)
@@ -476,9 +499,11 @@ def stay_links_from_entries(
     *,
     session: Session | None = None,
     project_id: int | None = None,
+    defaults: LinkDefaults | None = None,
 ) -> list[StayLink]:
     """Links between Tag and Aufenthalt covers. The first Transfer supplies segments."""
 
+    defaults = defaults or LinkDefaults()
     entries = [entry for entry in entries if entry.is_published]
     stops: list[tuple[int, MapMarker]] = []
     for index, entry in enumerate(entries):
@@ -496,11 +521,13 @@ def stay_links_from_entries(
         transfer = next((item for item in between if item.card_kind == KIND_MOVEMENT), None)
         via_transfer = transfer is not None
         transfer_links = transfer.section.links if transfer is not None and transfer.section else ()
-        outbound = _outbound_for_gap(entries[left], via_transfer=via_transfer)
+        outbound = _outbound_for_gap(entries[left], via_transfer=via_transfer, defaults=defaults)
         left_outbound = entries[left].section.outbound if entries[left].section else None
         if not via_transfer and outbound_is_hidden(left_outbound):
             continue
         owned = transfer_links if via_transfer else outbound
+        if not owned:
+            owned = (defaults.as_link(),)
         transfer_key = (
             f"section:{transfer.section.id}" if transfer is not None and transfer.section else ""
         )
@@ -531,11 +558,18 @@ def stay_links_from_entries(
     return links
 
 
-def _outbound_for_gap(entry: TimelineEntry, *, via_transfer: bool) -> tuple[TimelineLink, ...]:
+def _outbound_for_gap(
+    entry: TimelineEntry,
+    *,
+    via_transfer: bool,
+    defaults: LinkDefaults | None = None,
+) -> tuple[TimelineLink, ...]:
     if via_transfer or entry.section is None or entry.section.kind == KIND_MOVEMENT:
         return ()
     link = entry.section.outbound
     if link is None:
+        return (defaults.as_link(),) if defaults is not None else ()
+    if outbound_is_hidden(link):
         return ()
     return (link,)
 
@@ -577,6 +611,9 @@ def _track_ids_from_entries(entries: list[TimelineEntry]) -> set[int]:
         for link in section.links:
             if link.track_source_file_id is not None:
                 wanted.add(link.track_source_file_id)
+        outbound = section.outbound
+        if outbound is not None and outbound.track_source_file_id is not None:
+            wanted.add(outbound.track_source_file_id)
     return wanted
 
 
@@ -593,7 +630,7 @@ def _overview_tracks(
             continue
         found.setdefault(line.source_file_id, []).extend(line.points)
     return {
-        key: tuple(downsample_points(points, max_points=OVERVIEW_TRACK_POINTS))
+        key: tuple(downsample_points(points, max_points=MAX_TRACK_DISPLAY_POINTS))
         for key, points in found.items()
         if len(points) >= 2
     }

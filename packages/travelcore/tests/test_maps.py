@@ -32,7 +32,6 @@ from travelcore.maps import (
     stay_links_from_entries,
 )
 from travelcore.maps.cache import map_html_path, map_stamp_path
-from travelcore.maps.interaction import stay_link_line_options
 from travelcore.maps.groups import (
     MapTimelineCard,
     count_card_media,
@@ -42,6 +41,7 @@ from travelcore.maps.groups import (
     pick_cover_youtube,
     position_for_cover,
 )
+from travelcore.maps.interaction import stay_link_line_options
 from travelcore.media.gallery import SORT_REJECTED, SORT_RESERVE
 from travelcore.media.indexer import FileIndexer
 from travelcore.timeline import (
@@ -330,6 +330,13 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
     assert "Reserve-Elemente anzeigen" in text
     assert "Ortsnamen auf Satellit" in text
     assert "Straßen auf Satellit" in text
+    assert "Flüge anzeigen" in text
+    assert "Aktivitäten anzeigen" in text
+    assert "tj-detail-filters" in text
+    assert "traveljournal-show-flights" in text
+    assert "traveljournal-show-activities" in text
+    assert "traveljournalShowFlights" in text
+    assert "traveljournalShowActivities" in text
     assert "voyager_only_labels" in text
     assert "World_Transportation" in text
     assert "traveljournal-photo-cones" in text
@@ -360,6 +367,58 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
     assert "leaflet-tooltip-bottom.tj-photo-date" in text
     assert "Karteneinstellungen" in text
     assert 'r=\\"11\\"' in text
+
+
+def test_overview_does_not_paint_map_track_twice(tmp_path: Path) -> None:
+    from travelcore.maps.scene import StayLinkSegment
+
+    scene = MapScene(
+        markers=(
+            MapMarker(
+                latitude=46.0,
+                longitude=11.0,
+                label="Start",
+                kind="cover",
+                group_key="section:1",
+            ),
+            MapMarker(
+                latitude=47.5,
+                longitude=12.2,
+                label="Ziel",
+                kind="cover",
+                group_key="section:2",
+            ),
+        ),
+        polylines=(
+            MapPolyline(
+                name="Map-Track",
+                points=((46.0, 11.0), (46.2, 11.4), (47.5, 12.2)),
+                color="#5b8def",
+                map_track=True,
+                source_file_id=9,
+            ),
+        ),
+        stay_links=(
+            StayLink(
+                start=(46.0, 11.0),
+                end=(47.5, 12.2),
+                start_key="section:1",
+                end_key="section:2",
+                segments=(
+                    StayLinkSegment(
+                        style="track",
+                        points=((46.0, 11.0), (46.2, 11.4), (47.5, 12.2)),
+                        map_track=True,
+                    ),
+                ),
+            ),
+        ),
+        center=(46.75, 11.6),
+    )
+    text = FoliumMapBackend().render(scene, tmp_path / "overview.html").read_text(encoding="utf-8")
+    assert "Map-Tracks" not in text
+    assert "tj-stay-link" in text
+    assert "46.2" in text
 
 
 def test_overview_offline_omits_satellite(tmp_path: Path) -> None:
@@ -478,6 +537,8 @@ def test_leaflet_payload_includes_source_file_id(tmp_path: Path) -> None:
     line_payload = leaflet_payload(line_scene, html_path)["polylines"][0]
     assert line_payload["source_file_id"] == 4
     assert line_payload["sort_status"] == "reserve"
+    assert line_payload["map_track"] is False
+    assert payload["markers"][0]["map_track"] is False
     assert 'data-source-id="4"' in line_payload["popup_html"]
     assert "tj-rate" in line_payload["popup_html"]
     assert "tj-rate-on" in line_payload["popup_html"]
@@ -515,6 +576,7 @@ def test_interaction_config_is_declarative_payload(tmp_path: Path) -> None:
     assert config["stay_links"][0]["hubs"] == []
     assert "detail" in config
     assert config["link_color"] == "#ffffff"
+    assert config["map_track_color"] == "#5b8def"
 
 
 def test_detail_stacks_nearby_photos_until_zoom_17(tmp_path: Path) -> None:
@@ -776,6 +838,37 @@ def test_map_cache_rebuilds_when_link_color_changes(
     assert calls["n"] == 2
     html = map_html_path(open_project.directory).read_text(encoding="utf-8")
     assert "#ff0000" in html
+
+
+def test_map_cache_rebuilds_when_map_track_color_changes(
+    open_project: OpenProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _index_gpx_track(open_project, tmp_path)
+    thumbs = open_project.directory / "thumbnails"
+    calls = {"n": 0}
+    original = FoliumMapBackend.render
+
+    def wrapped(self: FoliumMapBackend, scene: MapScene, output_html: Path) -> Path:
+        calls["n"] += 1
+        return original(self, scene, output_html)
+
+    monkeypatch.setattr("travelcore.maps.cache.FoliumMapBackend.render", wrapped)
+    kwargs = {
+        "session_factory": open_project.session_factory,
+        "project_id": open_project.project_id,
+        "project_dir": open_project.directory,
+        "thumbs_dir": thumbs,
+        "db_path": open_project.db_path,
+        "size": 256,
+        "map_provider": "leaflet",
+    }
+    ensure_map_cache(**kwargs, map_track_color="#5b8def")
+    ensure_map_cache(**kwargs, map_track_color="#5b8def")
+    assert calls["n"] == 1
+    ensure_map_cache(**kwargs, map_track_color="#c45c6a")
+    assert calls["n"] == 2
+    html = map_html_path(open_project.directory).read_text(encoding="utf-8")
+    assert "#c45c6a" in html
 
 
 def test_map_cache_empty_project_stamps_without_html(open_project: OpenProject) -> None:
@@ -1370,6 +1463,46 @@ def test_stay_links_use_left_outbound_when_next_is_not_transfer() -> None:
     ignored = stay_links_from_entries([left, _movement_entry(9), _stay_entry(2, 47.0, 12.0)])
     assert ignored[0].via_transfer is True
     assert all(item.symbol != "car" for item in ignored[0].segments)
+
+
+def test_stay_links_inherit_trip_defaults_when_outbound_is_empty() -> None:
+    from travelcore.timeline.outbound import LinkDefaults
+
+    defaults = LinkDefaults(geometry="arc", dash="dashed", symbol="train")
+    links = stay_links_from_entries(
+        [_stay_entry(1, 46.0, 11.0), _stay_entry(2, 47.0, 12.0)],
+        defaults=defaults,
+    )
+    assert len(links) == 1
+    users = [item for item in links[0].segments if item.role == "user"]
+    assert users[0].style == "curve"
+    assert users[0].dash == "dashed"
+    assert users[0].symbol == "train"
+    via_transfer = stay_links_from_entries(
+        [_stay_entry(1, 46.0, 11.0), _movement_entry(9), _stay_entry(2, 47.0, 12.0)],
+        defaults=defaults,
+    )
+    users = [item for item in via_transfer[0].segments if item.role == "user"]
+    assert users[0].symbol == "train"
+    assert users[0].style == "curve"
+
+
+def test_stay_links_follow_outbound_track_geometry() -> None:
+    from travelcore.maps.links import build_stay_segments
+
+    link = TimelineLink(id=0, sort_index=0, geometry="track", dash="dashed", track_source_file_id=7)
+    segments = build_stay_segments(
+        (46.0, 11.0),
+        (47.0, 12.0),
+        [link],
+        tracks={7: ((46.1, 11.1), (46.5, 11.5), (46.9, 11.9))},
+    )
+    users = [item for item in segments if item.role == "user"]
+    assert len(users) == 1
+    assert users[0].style == "track"
+    assert users[0].dash == "dashed"
+    assert users[0].points[0] == (46.1, 11.1)
+    assert users[0].points[-1] == (46.9, 11.9)
 
 
 def test_stay_links_omit_when_left_outbound_is_hidden() -> None:

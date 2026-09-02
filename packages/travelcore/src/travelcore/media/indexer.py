@@ -18,7 +18,14 @@ from travelcore.config import AppSettings
 from travelcore.database.models import FileError, Project, SourceFile
 from travelcore.exceptions import MetadataError, ProjectError
 from travelcore.gps.ingest import ingest_gps_tracks
+from travelcore.gps.maptracks import is_map_track_path
 from travelcore.gps.match import DERIVED_SOURCES
+from travelcore.gps.track_badge import (
+    TRACK_BADGE_ACT,
+    TRACK_BADGE_IGC,
+    TRACK_BADGE_MAP,
+    track_badge_for,
+)
 from travelcore.media.extract import ExtractRequest, FileFacts, extract_many, init_extract_worker
 from travelcore.media.hashing import sha256_file
 from travelcore.media.purge import purge_source_files
@@ -350,9 +357,9 @@ class FileIndexer:
         scanned: ScannedFile,
         existing: SourceFile | None,
         facts: FileFacts | None,
-    ) -> tuple[str, bool, SourceFile]:
+    ) -> tuple[str, bool, SourceFile | None]:
         if facts is not None and facts.io_error:
-            raise OSError(facts.io_error)
+            return "io_error", True, existing
 
         if existing is not None and _unchanged(existing, scanned):
             facts_hash = facts.sha256 if facts is not None else None
@@ -500,7 +507,11 @@ class ScanStage:
         _drop_skipped_source_files(ctx.session, ctx.existing, thumbs_dir=thumbs_dir)
         if ctx.remove_missing:
             scanned_paths = {str(item.path) for item in ctx.scanned_files}
-            missing = [row for path, row in list(ctx.existing.items()) if path not in scanned_paths]
+            missing = [
+                row
+                for path, row in list(ctx.existing.items())
+                if path not in scanned_paths and not is_map_track_path(path)
+            ]
             ctx.result.removed = purge_source_files(
                 ctx.session,
                 missing,
@@ -570,6 +581,20 @@ class PersistStage:
                     existing.get(path_str),
                     facts_by_path.get(path_str),
                 )
+                if action == "io_error":
+                    result.errors += 1
+                    facts = facts_by_path.get(path_str)
+                    message = facts.io_error if facts is not None and facts.io_error else "Datei nicht lesbar"
+                    logger.warning("Datei nicht lesbar, übersprungen: %s (%s)", path_str, message)
+                    session.add(
+                        FileError(
+                            project_id=project.id,
+                            path=path_str,
+                            stage="index",
+                            message=message,
+                        )
+                    )
+                    continue
                 if action == "indexed":
                     result.indexed += 1
                     if scanned.kind != FileKind.TEXT:
@@ -594,7 +619,7 @@ class PersistStage:
                 counts[scanned.kind.value] += 1
             except OSError as exc:
                 result.errors += 1
-                logger.exception("Failed to index %s", path_str)
+                logger.warning("Datei nicht lesbar, übersprungen: %s (%s)", path_str, exc)
                 session.add(
                     FileError(
                         project_id=project.id,
@@ -683,7 +708,11 @@ def _drop_skipped_source_files(
 ) -> int:
     """Remove previously indexed JPEG caches (thumbnails/) from the file index."""
 
-    stale = [row for path, row in existing.items() if is_skipped_source_path(Path(path))]
+    stale = [
+        row
+        for path, row in existing.items()
+        if is_skipped_source_path(Path(path)) and not is_map_track_path(path)
+    ]
     return purge_source_files(session, stale, existing=existing, thumbs_dir=thumbs_dir)
 
 
@@ -707,9 +736,17 @@ def count_by_kind(session: Session, project_id: int) -> dict[str, int]:
                 counts["unlocated"] += 1
             elif row.position_source in DERIVED_SOURCES:
                 counts["matched"] += 1
+        badge = track_badge_for(row.path, row.filename)
+        if badge == TRACK_BADGE_MAP:
+            counts["map"] += 1
+        elif badge == TRACK_BADGE_ACT:
+            counts["act"] += 1
+        elif badge == TRACK_BADGE_IGC:
+            counts["flights"] += 1
+        elif row.file_kind == FileKind.GPS.value:
+            counts["other"] += 1
     for kind in FileKind:
         counts.setdefault(kind.value, 0)
-    counts.setdefault("located", 0)
-    counts.setdefault("matched", 0)
-    counts.setdefault("unlocated", 0)
+    for key in ("located", "matched", "unlocated", "map", "act", "flights", "other"):
+        counts.setdefault(key, 0)
     return dict(counts)

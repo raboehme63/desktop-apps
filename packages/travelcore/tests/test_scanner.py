@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from travelcore.media.scanner import scan_source_directory
+from travelcore.media.scanner import is_skipped_source_path, scan_source_directory
 from travelcore.media.types import FileKind
 
 MIN_JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xff\xd9"
@@ -46,3 +46,36 @@ def test_scan_skips_thumbnail_jpegs(tmp_path: Path) -> None:
     (nested / "preview.jpg").write_bytes(MIN_JPEG)
     found = list(scan_source_directory(tmp_path))
     assert {item.filename for item in found} == {"foto.jpg"}
+
+
+def test_scan_skips_dot_map_tracks(tmp_path: Path) -> None:
+    (tmp_path / "foto.jpg").write_bytes(MIN_JPEG)
+    hidden = tmp_path / ".MapTracks"
+    hidden.mkdir()
+    (hidden / "Map-Track.gpx").write_text("<gpx></gpx>", encoding="utf-8")
+    found = list(scan_source_directory(tmp_path))
+    assert {item.filename for item in found} == {"foto.jpg"}
+    assert is_skipped_source_path(hidden / "Map-Track.gpx", root=tmp_path)
+
+
+def test_scan_includes_fitness_tracks(tmp_path: Path) -> None:
+    (tmp_path / "foto.jpg").write_bytes(MIN_JPEG)
+    maps = tmp_path / ".MapTracks"
+    maps.mkdir()
+    (maps / "Map-Track.gpx").write_text("<gpx></gpx>", encoding="utf-8")
+    fitness = tmp_path / ".FitnessTracks"
+    fitness.mkdir()
+    (fitness / "ride.gpx").write_text("<gpx></gpx>", encoding="utf-8")
+    found = list(scan_source_directory(tmp_path))
+    assert {item.filename for item in found} == {"foto.jpg", "ride.gpx"}
+    assert not is_skipped_source_path(fitness / "ride.gpx", root=tmp_path)
+
+
+def test_scan_includes_igc_tracks(tmp_path: Path) -> None:
+    (tmp_path / "foto.jpg").write_bytes(MIN_JPEG)
+    hidden = tmp_path / ".IGCTracks"
+    hidden.mkdir()
+    (hidden / "flug.igc").write_text("AXXX\n", encoding="utf-8")
+    found = list(scan_source_directory(tmp_path))
+    assert {item.filename for item in found} == {"foto.jpg", "flug.igc"}
+    assert not is_skipped_source_path(hidden / "flug.igc", root=tmp_path)

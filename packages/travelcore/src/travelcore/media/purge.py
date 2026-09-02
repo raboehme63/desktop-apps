@@ -24,6 +24,7 @@ from travelcore.database.models import (
     TripSection,
     Video,
 )
+from travelcore.gps.maptracks import is_map_track_path
 from travelcore.media.scanner import is_skipped_source_path, scan_source_directory
 
 logger = logging.getLogger(__name__)
@@ -52,7 +53,7 @@ def plan_source_sync(session: Session, project_id: int, source_root: Path) -> So
     existing = [
         row
         for row in session.scalars(select(SourceFile).where(SourceFile.project_id == project_id))
-        if not is_skipped_source_path(Path(row.path))
+        if not is_skipped_source_path(Path(row.path)) and not is_map_track_path(row.path)
     ]
     existing_paths = {row.path for row in existing}
     missing = [row for row in existing if row.path not in scanned_paths]
@@ -92,6 +93,11 @@ def purge_source_files(
             update(TripSection)
             .where(TripSection.cover_source_file_id.in_(chunk))
             .values(cover_source_file_id=None)
+        )
+        session.execute(
+            update(TripSection)
+            .where(TripSection.outbound_track_source_file_id.in_(chunk))
+            .values(outbound_track_source_file_id=None)
         )
         session.execute(
             update(TripDay).where(TripDay.cover_source_file_id.in_(chunk)).values(cover_source_file_id=None)

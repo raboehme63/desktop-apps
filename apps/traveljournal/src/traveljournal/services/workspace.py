@@ -32,6 +32,7 @@ from travelcore.media.purge import SourceSyncPlan, plan_source_sync
 from travelcore.media.thumbnails import cached_thumbnail_path, ensure_thumbnail, generate_project_thumbnails
 from travelcore.media.types import GPS_EXTENSIONS
 from travelcore.project_settings import (
+    DEFAULT_MAP_TRACK_COLOR,
     DEFAULT_STAY_LINK_COLOR,
     ProjectSettings,
     load_project_settings,
@@ -122,6 +123,16 @@ class Workspace:
         if self.current is None:
             raise ProjectError("Kein Projekt geöffnet.")
         return load_project_settings(self.current.directory)
+
+    def link_defaults(self):
+        from travelcore.timeline.outbound import LinkDefaults, link_defaults_from_settings
+
+        if self.current is None:
+            return LinkDefaults()
+        try:
+            return link_defaults_from_settings(load_project_settings(self.current.directory))
+        except ProjectError:
+            return LinkDefaults()
 
     def apply_project_settings(self, settings: ProjectSettings) -> int:
         """Write settings.toml and rebase indexed paths when the source root changes."""
@@ -224,6 +235,13 @@ class Workspace:
         except ProjectError:
             return DEFAULT_STAY_LINK_COLOR
 
+    def map_track_color(self) -> str:
+        opened = self._require_open()
+        try:
+            return load_project_settings(opened.directory).placeholders.map_track_color
+        except ProjectError:
+            return DEFAULT_MAP_TRACK_COLOR
+
     def map_show_photo_cones(self) -> bool:
         if self.current is None:
             return False
@@ -256,6 +274,22 @@ class Workspace:
         except ProjectError:
             return False
 
+    def map_show_flights(self) -> bool:
+        if self.current is None:
+            return True
+        try:
+            return load_project_settings(self.current.directory).placeholders.map_show_flights
+        except ProjectError:
+            return True
+
+    def map_show_activities(self) -> bool:
+        if self.current is None:
+            return True
+        try:
+            return load_project_settings(self.current.directory).placeholders.map_show_activities
+        except ProjectError:
+            return True
+
     def set_map_display_flags(
         self,
         *,
@@ -263,8 +297,10 @@ class Workspace:
         show_reserve: bool,
         sat_labels: bool = False,
         sat_streets: bool = False,
+        show_flights: bool = True,
+        show_activities: bool = True,
     ) -> None:
-        """Persist Zahnrad options in ``settings.toml`` for the open project."""
+        """Persist map display options in ``settings.toml`` for the open project."""
 
         if self.current is None:
             return
@@ -276,17 +312,23 @@ class Workspace:
         reserve = bool(show_reserve)
         labels = bool(sat_labels)
         streets = bool(sat_streets)
+        flights = bool(show_flights)
+        activities = bool(show_activities)
         if (
             settings.placeholders.map_show_photo_cones == cones
             and settings.placeholders.map_show_reserve == reserve
             and settings.placeholders.map_show_sat_labels == labels
             and settings.placeholders.map_show_sat_streets == streets
+            and settings.placeholders.map_show_flights == flights
+            and settings.placeholders.map_show_activities == activities
         ):
             return
         settings.placeholders.map_show_photo_cones = cones
         settings.placeholders.map_show_reserve = reserve
         settings.placeholders.map_show_sat_labels = labels
         settings.placeholders.map_show_sat_streets = streets
+        settings.placeholders.map_show_flights = flights
+        settings.placeholders.map_show_activities = activities
         save_project_settings(self.current.directory, settings)
 
     def map_cache_identity(self) -> dict[str, object]:
@@ -297,6 +339,8 @@ class Workspace:
             map_provider=self.map_provider(),
             thumbnail_size=size,
             map_link_color=self.map_link_color(),
+            map_track_color=self.map_track_color(),
+            project_dir=opened.directory,
         )
 
     def load_cached_map(self) -> MapRenderResult | None:
@@ -319,6 +363,7 @@ class Workspace:
             size=size,
             map_provider=provider,
             map_link_color=self.map_link_color(),
+            map_track_color=self.map_track_color(),
             force=force,
         )
 
@@ -341,6 +386,9 @@ class Workspace:
                 size=size,
                 resolved=resolved,
             )
+        from travelcore.maps.scene import apply_map_track_color
+
+        scene = apply_map_track_color(scene, self.map_track_color())
         payload = leaflet_payload(scene, html_path)
         payload["youtube_urls"] = list(resolved.youtube_urls) if resolved is not None else []
         return payload
@@ -559,14 +607,244 @@ class Workspace:
         self._mutate(_write)
 
     def save_transfer_links(self, section_id: int, links: list) -> None:
+        from travelcore.timeline.outbound import compact_inherited_links
         from travelcore.timeline.transfer_links import save_transfer_links
 
-        self._mutate(lambda session: save_transfer_links(session, section_id, links))
+        compacted = compact_inherited_links(links, self.link_defaults())
+        self._mutate(lambda session: save_transfer_links(session, section_id, compacted))
 
     def save_outbound_link(self, section_id: int, link) -> None:
         from travelcore.timeline.outbound import save_outbound_link
 
-        self._mutate(lambda session: save_outbound_link(session, section_id, link))
+        defaults = self.link_defaults()
+        self._mutate(lambda session: save_outbound_link(session, section_id, link, defaults))
+
+    def import_fitness_tracks(
+        self,
+        store_path: Path,
+        *,
+        source_root: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        progress: Callable[[int, int, str], None] | None = None,
+    ) -> int:
+        """Export GPX from a fitness store for a date range into ``{import}/.FitnessTracks``."""
+
+        from fitnesscore.exceptions import QueryError, StoreError
+        from fitnesscore.query_gpx import export_gpx
+        from fitnesscore.store import open_store, resolve_db_path
+        from travelcore.gps.fitnesstracks import fitness_tracks_dir, index_fitness_gpx_file
+        from travelcore.gps.maptracks import resolve_source_root
+
+        opened = self._require_open()
+        trip_start, trip_end = self.load_trip_span()
+        start = date_from or trip_start
+        end = date_to or trip_end
+        if start is None or end is None:
+            raise ProjectError("Bitte einen Zeitraum von–bis setzen.")
+        if end < start:
+            raise ProjectError("Das Endedatum liegt vor dem Startdatum.")
+        db_path = resolve_db_path(Path(store_path))
+        if not db_path.is_file():
+            raise ProjectError(f"Keine Fitness-Datenbank: {db_path}")
+        root = resolve_source_root(source_root) if source_root else self._import_root()
+        dest = fitness_tracks_dir(root)
+        if progress is not None:
+            progress(0, 1, "Suche GPX…")
+        try:
+            hits = export_gpx(
+                open_store(db_path),
+                date_from=start,
+                date_to=end,
+                dest=dest,
+                progress=lambda current, total, name: progress(
+                    current, total * 2 if total else 1, f"Schreibe {name}"
+                )
+                if progress is not None
+                else None,
+            )
+        except (StoreError, QueryError) as exc:
+            raise ProjectError(str(exc)) from exc
+        with opened.session_factory() as session:
+            project = session.get(Project, opened.project_id)
+            if project is None:
+                raise ProjectError("Projektzeile fehlt.")
+            total = len(hits)
+            for index, hit in enumerate(hits, start=1):
+                index_fitness_gpx_file(session, project, hit.path, project_dir=opened.directory)
+                if progress is not None:
+                    progress(total + index, total * 2 if total else 1, f"Indexiere {hit.path.name}")
+            session.commit()
+        if hits:
+            if progress is not None:
+                progress(1, 1, "Timeline wird aktualisiert…")
+            self.sync_timeline()
+        elif progress is not None:
+            progress(1, 1, "Keine GPX")
+        return len(hits)
+
+    def import_igc_tracks(
+        self,
+        store_path: Path,
+        *,
+        source_root: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        progress: Callable[[int, int, str], None] | None = None,
+    ) -> int:
+        """Export IGC flights from a fitness store for the trip span into ``{import}/.IGCTracks``."""
+
+        from fitnesscore.exceptions import QueryError, StoreError
+        from fitnesscore.query_igc import export_igc
+        from fitnesscore.store import open_store, resolve_db_path
+        from travelcore.gps.igctracks import igc_tracks_dir, index_igc_file
+        from travelcore.gps.maptracks import resolve_source_root
+
+        opened = self._require_open()
+        trip_start, trip_end = self.load_trip_span()
+        start = date_from or trip_start
+        end = date_to or trip_end
+        if start is None or end is None:
+            raise ProjectError("Bitte einen Zeitraum von–bis setzen.")
+        if end < start:
+            raise ProjectError("Das Endedatum liegt vor dem Startdatum.")
+        db_path = resolve_db_path(Path(store_path))
+        if not db_path.is_file():
+            raise ProjectError(f"Keine IGC-Datenbank: {db_path}")
+        root = resolve_source_root(source_root) if source_root else self._import_root()
+        dest = igc_tracks_dir(root)
+        if progress is not None:
+            progress(0, 1, "Suche IGC…")
+        try:
+            hits = export_igc(
+                open_store(db_path),
+                date_from=start,
+                date_to=end,
+                dest=dest,
+                progress=lambda current, total, name: progress(
+                    current, total * 2 if total else 1, f"Schreibe {name}"
+                )
+                if progress is not None
+                else None,
+            )
+        except (StoreError, QueryError) as exc:
+            raise ProjectError(str(exc)) from exc
+        with opened.session_factory() as session:
+            project = session.get(Project, opened.project_id)
+            if project is None:
+                raise ProjectError("Projektzeile fehlt.")
+            total = len(hits)
+            for index, hit in enumerate(hits, start=1):
+                index_igc_file(session, project, hit.path, project_dir=opened.directory)
+                if progress is not None:
+                    progress(total + index, total * 2 if total else 1, f"Indexiere {hit.path.name}")
+            session.commit()
+        if hits:
+            if progress is not None:
+                progress(1, 1, "Timeline wird aktualisiert…")
+            self.sync_timeline()
+        elif progress is not None:
+            progress(1, 1, "Keine IGC")
+        return len(hits)
+
+    def _import_root(self, project: Project | None = None) -> Path:
+        from travelcore.gps.maptracks import resolve_source_root
+
+        opened = self._require_open()
+        root = None
+        try:
+            root = load_project_settings(opened.directory).paths.source_root
+        except ProjectError:
+            root = None
+        if not root and project is not None:
+            root = project.source_root
+        elif not root:
+            with opened.session_factory() as session:
+                row = session.get(Project, opened.project_id)
+                root = row.source_root if row is not None else None
+        return resolve_source_root(root)
+
+    def list_map_tracks(self) -> list[tuple[int, str]]:
+        from travelcore.gps.maptracks import list_map_tracks
+
+        opened = self._require_open()
+        with opened.session_factory() as session:
+            return list_map_tracks(session, opened.project_id)
+
+    def import_map_track_file(self, source: Path) -> tuple[int, str]:
+        from travelcore.gps.maptracks import import_map_track_file
+
+        opened = self._require_open()
+        with opened.session_factory() as session:
+            project = session.get(Project, opened.project_id)
+            if project is None:
+                raise ProjectError("Projektzeile fehlt.")
+            row = import_map_track_file(
+                session,
+                project,
+                source,
+                source_root=self._import_root(project),
+                project_dir=opened.directory,
+            )
+            session.commit()
+            return int(row.id), row.filename
+
+    def import_map_track_gpx(self, xml: str, *, stem: str | None = None) -> tuple[int, str]:
+        from travelcore.gps.maptracks import import_map_track_gpx
+
+        opened = self._require_open()
+        with opened.session_factory() as session:
+            project = session.get(Project, opened.project_id)
+            if project is None:
+                raise ProjectError("Projektzeile fehlt.")
+            row = import_map_track_gpx(
+                session,
+                project,
+                xml,
+                source_root=self._import_root(project),
+                project_dir=opened.directory,
+                stem=stem,
+            )
+            session.commit()
+            return int(row.id), row.filename
+
+    def map_track_gallery_item(self, source_id: int) -> GalleryItem | None:
+        from travelcore.config import DEFAULT_THUMBNAIL_SIZE
+        from travelcore.gps.maptracks import is_map_track_path, map_track_display_name
+        from travelcore.gps.track_badge import TRACK_BADGE_MAP
+        from travelcore.media.thumbnails import cached_thumbnail_path
+
+        opened = self._require_open()
+        thumbs, size = self._thumbs_and_size()
+        with opened.session_factory() as session:
+            row = session.get(SourceFile, source_id)
+            if row is None or not is_map_track_path(row.path):
+                return None
+            return GalleryItem(
+                source_file_id=row.id,
+                path=row.path,
+                filename=map_track_display_name(row.filename),
+                extension=row.extension,
+                captured_at=row.captured_at,
+                timezone_unknown=bool(row.timezone_unknown),
+                gps_latitude=row.gps_latitude,
+                gps_longitude=row.gps_longitude,
+                camera=row.camera,
+                is_favorite=False,
+                used_in_journal=False,
+                thumbnail_path=cached_thumbnail_path(
+                    thumbs,
+                    source_file_id=row.id,
+                    sha256=row.sha256,
+                    size=size or DEFAULT_THUMBNAIL_SIZE,
+                    prefer_existing=True,
+                ),
+                parked=bool(row.parked),
+                display_latitude=row.gps_latitude,
+                display_longitude=row.gps_longitude,
+                is_map_track=True,
+                track_badge=TRACK_BADGE_MAP,
+            )
 
     def save_section_text(self, section_id: int, *, title: str, notes: str) -> None:
         self._save_entry_text("section", section_id, title=title, notes=notes)
@@ -888,6 +1166,17 @@ class Workspace:
         data["timeline_pool_visible"] = flag
         self._save_ui_config(data)
 
+    def timeline_galleries_collapsed(self) -> bool:
+        return self._load_ui_config().get("timeline_galleries_collapsed") is True
+
+    def set_timeline_galleries_collapsed(self, collapsed: bool) -> None:
+        flag = bool(collapsed)
+        data = self._load_ui_config()
+        if bool(data.get("timeline_galleries_collapsed")) == flag:
+            return
+        data["timeline_galleries_collapsed"] = flag
+        self._save_ui_config(data)
+
     def pool_width(self) -> int:
         from traveljournal.widgets.pool_pane import clamp_pool_width
 
@@ -957,6 +1246,31 @@ class Workspace:
         if data.get("map_thumb_zoom") == zoom:
             return
         data["map_thumb_zoom"] = zoom
+        self._save_ui_config(data)
+
+    def fitness_db_path(self) -> str:
+        stored = self._load_ui_config().get("fitness_db_path")
+        return stored.strip() if isinstance(stored, str) else ""
+
+    def set_fitness_db_path(self, path: str) -> None:
+        self._set_stored_path("fitness_db_path", path)
+
+    def igc_db_path(self) -> str:
+        stored = self._load_ui_config().get("igc_db_path")
+        return stored.strip() if isinstance(stored, str) else ""
+
+    def set_igc_db_path(self, path: str) -> None:
+        self._set_stored_path("igc_db_path", path)
+
+    def _set_stored_path(self, key: str, path: str) -> None:
+        text = path.strip()
+        data = self._load_ui_config()
+        if data.get(key) == text:
+            return
+        if text:
+            data[key] = text
+        else:
+            data.pop(key, None)
         self._save_ui_config(data)
 
     def import_thumb_zoom(self) -> int:

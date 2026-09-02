@@ -242,6 +242,10 @@ def test_indexer_matches_photo_without_gps_to_gpx(open_project: OpenProject, tmp
         assert counts["located"] == 2
         assert counts["matched"] == 1
         assert counts["unlocated"] == 0
+        assert counts["other"] == 1
+        assert counts["act"] == 0
+        assert counts["map"] == 0
+        assert counts["flights"] == 0
         photo = session.scalar(select(SourceFile).where(SourceFile.file_kind == FileKind.PHOTO.value))
         assert photo is not None
         assert photo.position_source == "gpx_interpolated"
@@ -295,6 +299,44 @@ def test_indexer_does_not_overwrite_exif_gps_with_gpx(open_project: OpenProject,
         assert photo.position_source == "exif"
         assert photo.gps_latitude is not None
         assert abs(photo.gps_latitude - 46.5) < 1e-6
+
+
+def test_missing_gpx_after_scan_does_not_abort_import(
+    open_project: OpenProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "media"
+    source.mkdir()
+    write_plain_jpeg(source / "ok.jpg")
+    gone = write_gpx(
+        source / "gone.gpx",
+        [(46.0, 11.0, None, None), (46.1, 11.1, None, None)],
+    )
+
+    from travelcore.media import indexer as indexer_mod
+
+    real_scan = indexer_mod.scan_source_directory
+
+    def scan_then_unlink(root: Path):  # noqa: ANN202
+        found = list(real_scan(root))
+        gone.unlink()
+        return found
+
+    monkeypatch.setattr(indexer_mod, "scan_source_directory", scan_then_unlink)
+
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        result = FileIndexer().index(session, project, source, generate_thumbnails=False)
+        session.commit()
+
+    assert result.indexed >= 1
+    assert result.errors >= 1
+    with open_project.session_factory() as session:
+        names = {row.filename for row in session.scalars(select(SourceFile))}
+        assert "ok.jpg" in names
+        assert "gone.gpx" not in names
+        errors = list(session.scalars(select(FileError)))
+        assert any("gone.gpx" in row.path for row in errors)
 
 
 def test_corrupt_gpx_does_not_abort_import(open_project: OpenProject, tmp_path: Path) -> None:

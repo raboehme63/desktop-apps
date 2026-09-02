@@ -14,11 +14,13 @@ from travelcore.timeline.types import TimelineLink
 
 LINK_GEOMETRY_LINE = "line"
 LINK_GEOMETRY_TRACK = "track"
+LINK_GEOMETRY_MAP_TRACK = "map_track"
 LINK_GEOMETRY_ARC = "arc"
 LINK_GEOMETRY_ROUTE = "route"
 LINK_GEOMETRIES = (
     LINK_GEOMETRY_LINE,
     LINK_GEOMETRY_TRACK,
+    LINK_GEOMETRY_MAP_TRACK,
     LINK_GEOMETRY_ARC,
     LINK_GEOMETRY_ROUTE,
 )
@@ -27,7 +29,6 @@ LINK_DASH_DASHED = "dashed"
 LINK_DASHES = (LINK_DASH_SOLID, LINK_DASH_DASHED)
 SEGMENT_ROLE_USER = "user"
 SEGMENT_ROLE_GAP = "gap"
-OVERVIEW_TRACK_POINTS = 200
 GAP_MIN_METERS = 25.0
 ARC_SAMPLES = 32
 ARC_BULGE = 0.22
@@ -48,6 +49,16 @@ def parse_geometry(raw: str | None) -> str:
     if value in LINK_GEOMETRIES:
         return value
     return LINK_GEOMETRY_LINE
+
+
+def uses_track_points(geometry: str | None) -> bool:
+    """True when the line follows a GPX (recorded Track or Map-Track)."""
+
+    return (geometry or "").strip() in {LINK_GEOMETRY_TRACK, LINK_GEOMETRY_MAP_TRACK}
+
+
+def is_map_track_geometry(geometry: str | None) -> bool:
+    return (geometry or "").strip() == LINK_GEOMETRY_MAP_TRACK
 
 
 def parse_dash(raw: str | None) -> str:
@@ -176,7 +187,7 @@ def clear_transfer_track_refs(session: Session, source_file_ids: list[int]) -> N
 
 def _normalize_spec(item: TransferLinkSpec | TimelineLink) -> TransferLinkSpec:
     geometry = parse_geometry(item.geometry)
-    track_id = item.track_source_file_id if geometry == LINK_GEOMETRY_TRACK else None
+    track_id = item.track_source_file_id if uses_track_points(geometry) else None
     end_lat = item.end_latitude
     end_lon = item.end_longitude
     if end_lat is None or end_lon is None:

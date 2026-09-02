@@ -2,7 +2,7 @@
 
 Produktanforderungen: [pflichtenheft.md](pflichtenheft.md). Leitkonzept: [konzept.md](konzept.md). Tests: [testdokumentation.md](testdokumentation.md). Windows-Paket: [packaging/README.md](../packaging/README.md).
 
-Stand: **Phase 7** plus Medien-Pipeline, Software **R3.1.0** (31. August 2026). Journal-Modell nach Design-Review; Verbindungslinien; Sichtbarkeits-Schalter (`trip_sections.hidden`); **Speichern** grau außer Dirty-Stand mit Undo/Redo und Verlassen-Dialog; Karten-Popup, Cover-Zoom, Track-Bewertung; **Zur Karte** ohne Neuaufbau der geladenen Karte; Sichtbarkeitswechsel setzt `_live_stale` und übernimmt `_pending_result` statt Live-Reuse; SHA-256-Stapel, Szenen- und manuelle Gruppen, Statistikleiste Medien; Qualitätsampel mit Hover-Begründung; **Filtern** auf Medien; Thumbnail-Schieber inkl. Import.
+Stand: **Phase 7** plus Medien-Pipeline, Software **R3.2.0** (2. September 2026). Journal-Modell nach Design-Review; Verbindungslinien; Sichtbarkeits-Schalter (`trip_sections.hidden`); **Speichern** grau außer Dirty-Stand mit Undo/Redo und Verlassen-Dialog; Karten-Popup, Cover-Zoom, Track-Bewertung; Detail-Checkboxen Flüge/Aktivitäten; **Zur Karte** ohne Neuaufbau der geladenen Karte; Sichtbarkeitswechsel setzt `_live_stale` und übernimmt `_pending_result` statt Live-Reuse; SHA-256-Stapel, Szenen- und manuelle Gruppen, Statistikleiste Medien; Qualitätsampel mit Hover-Begründung; **Filtern** auf Medien; Thumbnail-Schieber inkl. Import; Fitness-/IGC-Import mit gemerkter DB; Track-Chips **Map** / **Act** / **igc**.
 
 ## Prinzip
 
@@ -14,13 +14,35 @@ nutzen.
 ```
 apps/traveljournal  ──uses──►  packages/travelcore
 apps/photoinspector ─uses──►  packages/travelcore   (geplant)
+CLI fitnessdb       ──uses──►  packages/fitnesscore   (eigene SQLite, kein travelcore)
 ```
 
-Polar-Trainings-JSON mit `routes` ingestiert die App nicht. Das Hilfsskript
-`scripts/json_routes_to_gpx.py` schreibt eine Sibling-GPX (`route.wayPoints`,
-nicht `transitionRoute`). Aufruf und Kurzhilfe: [README.md](../README.md).
-Tests: `tests/test_json_routes_to_gpx.py`. Das Skript gehört nicht zur GUI
-und ändert die JSON-Datei nicht.
+Polar-Trainings-JSON, FIT und IGC ingestiert das Reisetagebuch nicht direkt. Dafür ist die
+eigenständige Fitness-Datenbank `packages/fitnesscore` (CLI `python -m fitnesscore`
+bzw. `fitnessdb`). Import aller Polar-JSON-Typen, FIT und IGC in `fitness.sqlite`;
+Abfrage: GPX (Polar/FIT) nach optionaler Sportart und Datumsbereich; IGC-Abfrage
+liefert die Originaldatei (nicht GPX). Aufruf und
+Parameter: [README.md](../README.md) (Abschnitt *Fitness-Datenbank*),
+[packages/fitnesscore/README.md](../packages/fitnesscore/README.md). Tests:
+`packages/fitnesscore/tests/`. Das Reisetagebuch holt GPX für **Reise von–bis**
+aus diesem Store (Seite **Import** → Fitness-DB bzw. IGC-DB,
+**Fitnessdaten Importieren** / **IGC-Daten Importieren**, Zeitraum vorbefüllt,
+überschreibbar, jeweils mit Fortschritt) nach
+`{Quellwurzel}/.FitnessTracks/` bzw. `{Quellwurzel}/.IGCTracks/`.
+Scan und Synchronisieren nehmen beide Ordner mit (normale GPS-Dateien, nicht Map-Tracks).
+Tests: `packages/travelcore/tests/test_fitnesstracks.py`,
+`packages/travelcore/tests/test_igctracks.py`,
+`tests/test_fitness_tracks.py`, `tests/test_igc_tracks.py`.
+
+Das Hilfsskript `scripts/json_routes_to_gpx.py` schreibt weiterhin eine Sibling-GPX
+(`route.wayPoints`, nicht `transitionRoute`). Aufruf und Kurzhilfe:
+[README.md](../README.md). Tests: `tests/test_json_routes_to_gpx.py`. Das Skript
+gehört nicht zur GUI und ändert die JSON-Datei nicht.
+
+Google-Maps-Routenlinks auf der Timeline-Ausgangslinie: Datei oder Link, GPX in
+`.MapTracks/` im Import-Ordner (`travelcore.gps.maptracks`, Konvertierung `travelcore.gps.maps_url`).
+Das CLI `scripts/maps_url_to_gpx.py` bleibt. Tests: `tests/test_maps_url_to_gpx.py`,
+`packages/travelcore/tests/test_maptracks.py`.
 
 Der Länderkatalog (`travelcore.geo`) wird mit `scripts/build_country_catalog.py`
 erzeugt (Flaggen, Umrisse, CLDR-Namen) und liegt versioniert unter
@@ -37,13 +59,13 @@ in `trips.countries`. Aufruf und Quellen: [README.md](../README.md).
 | Use Cases | `travelcore.media`, `gps`, `timeline`, `geolocation`, `maps`, `similarity`, `export` | Import, Zuordnung, Timeline, Karte, Cluster, Export |
 | Persistenz | `travelcore.database` | SQLAlchemy-Modelle, Alembic, Projektordner |
 
-## Module in travelcore (Phase 7 plus Medien-Pipeline, R3.0.0 plus R3.1.0 Journal-Redaktion)
+## Module in travelcore (Phase 7 plus Medien-Pipeline, R3.0.0–R3.2.0)
 
 | Paket | Inhalt |
 | --- | --- |
 | `media` | Scan, SHA-256, Indexer, Thumbnails, Galerie, Anzeigedrehung (`orientation`) |
 | `metadata` | Pillow, HEIC-Container, optional ExifTool, Merge |
-| `gps` | GPX/IGC-Parse und Ingest, KML/GeoJSON nur für Vorschauen, zeitliche Interpolation |
+| `gps` | GPX/IGC-Parse und Ingest, KML/GeoJSON nur für Vorschauen, zeitliche Interpolation; `track_badge` (**Map** / **Act** / **igc**); Fitness- und IGC-Exportordner `.FitnessTracks/` / `.IGCTracks/` |
 | `geolocation` | Aufenthaltscluster (Haversine, Radius 150 m) |
 | `timeline` | Tage, Transfers und Aufenthalte als Abschnitte, Mitglieder, Journal-Zeit, Pool (`parked`), Links, Cover, Sichtbarkeit (`hidden`), manuelle Edits, Snapshots zum Wiederherstellen (`history`) |
 | `maps` | `MapScene` + Folium/Leaflet; statische OSM-Ausschnitte für Track-Thumbs |
@@ -80,24 +102,37 @@ meine_reise/
     logs/
 ```
 
+Map-Tracks liegen nicht im Projektordner, sondern unter `{Quellwurzel}/.MapTracks/`
+im Import-Ordner. Der Scan überspringt diesen Ordner.
+
+Fitness-Tracks aus der Fitness-Datenbank liegen unter `{Quellwurzel}/.FitnessTracks/`.
+IGC-Tracks aus derselben Datenbank liegen unter `{Quellwurzel}/.IGCTracks/`.
+Der Scan nimmt beide mit (Ausnahme bei versteckten Punkt-Ordnern).
+
 Die Datenbank speichert nur Referenzen auf Originaldateien. Originale werden
 nicht kopiert, sofern der Benutzer das nicht ausdrücklich wünscht.
 
 `settings.toml` hält Projekteinstellungen: Quellwurzel, Standard-Exportformat,
 GPS-Zeitfenster, Standardzeitzone, Kartenanbieter (`leaflet` / `offline`),
 Farbe der Verbindungslinien auf der Karte (`map_link_color`, Standard `#ffffff`),
-Kartenzahnrad (`map_show_photo_cones`, `map_show_reserve`, `map_show_sat_labels`, `map_show_sat_streets`).
+Farbe der Map-Tracks (`map_track_color`, Standard `#5b8def`; aufgezeichnete GPS-Spuren bleiben türkis),
+Kartenzahnrad (`map_show_photo_cones`, `map_show_reserve`, `map_show_sat_labels`, `map_show_sat_streets`),
+Detailansicht (`map_show_flights`, `map_show_activities`, Standard ein),
+Standard-Verbindung der Reise (`default_link_geometry` Gerade/`arc`, `default_link_dash`, `default_link_symbol`; leer = Richtungspfeil).
+Abschnitte ohne eigene Linie erben diese Werte und können sie überschreiben.
 Ändert sich die Quellwurzel, werden Index-Pfade umgeschrieben, die
 Originaldateien nicht.
 
 Zuletzt geöffnete Projekte stehen unter
 `%LOCALAPPDATA%\TravelJournal\recent.json` (max. 10). Die Oberfläche listet
-sie in R3.1.0 noch nicht. Der Fenstertitel lautet `Reisetagebuch R{Version}`
+sie in R3.2.0 noch nicht. Der Fenstertitel lautet `Reisetagebuch R{Version}`
 bzw. `Reisetagebuch R{Version} - {Projekttitel}`. Das Medienregister
 (Timeline und Medienseite) steht in `%LOCALAPPDATA%\TravelJournal\config.json` (`timeline_media_tab`),
+die gemerkten Fitness- und IGC-Datenbankordner (`fitness_db_path`, `igc_db_path`),
 ebenso die Thumbnail-Schieber (`timeline_thumb_zoom`, `map_thumb_zoom`, `media_thumb_zoom`, `import_thumb_zoom`), die
 eingeklappte linke Navigation (`sidebar_collapsed`), der Medienpool
-(`timeline_pool_visible`, `pool_width`, `inspector_width` / `inspector_height` / `inspector_maximized`, `inspector_show_rejected`).
+(`timeline_pool_visible`, `pool_width`, `inspector_width` / `inspector_height` / `inspector_maximized`, `inspector_show_rejected`),
+die eingeklappten Timeline-Galerien (`timeline_galleries_collapsed`).
 Cluster-Sichtbarkeit kommt aus `load_cluster_overlay`: vorgeschlagene Gruppen
 exponieren keine Schlüssel; akzeptierte Gruppen und Stapel zeigen nur Schlüssel.
 `Workspace.media_stats()` liefert die Statistikleiste.
@@ -117,14 +152,14 @@ Die Timeline-UI zeigt **Tage**, **Transfers** und **Aufenthalte** als
 `trip_sections` mit `section_members`. Der Kartenkopf ist kompakt: Titelbild
 in Thumbnail-Größe (`168` px), rechts zuerst der Titel, darunter Typ und Datum
 in einer Zeile (`format_card_dates`: `12.12.2026` bzw. `11.11.2026 - 21.11.2026`),
-**Zur Karte** und **Menü**, danach Verbindungslinien (Transfer) bzw. Ausgangslinie (Tag/Aufenthalt), darunter der Tagebucheintrag. Oben rechts auf Höhe von **Titel** sitzt der Sichtbarkeits-Schalter
+**Zur Karte** und **Menü**, danach Verbindungslinien (Transfer) bzw. Ausgangslinie (Tag/Aufenthalt), darunter der Tagebucheintrag. Medien- und Track-Galerien klappen an der Kopfzeile ein (`GalleryFoldHeader`; Chip **Map** / **Act** / **igc** auf dem Thumbnail, Kopfzeile **Map** bei Map-Track); **Alles ein-/ausklappen** setzt `timeline_galleries_collapsed`. Oben rechts auf Höhe von **Titel** sitzt der Sichtbarkeits-Schalter
 (Pille ohne Text; eingeschaltet = sichtbar auf Karte und Export). Ausgeschaltet setzt `trip_sections.hidden`; die Karte bleibt in der Timeline, `TimelineSnapshot.published_entries` liefert die Reise ohne diese Abschnitte für Karte und Export. Feldtitel sitzen auf der Kartenfarbe;
 dunkle Flächen sind die editierbaren Felder. Beim Verschieben des vertikalen
 Schiebers erscheint links am Griff das Datum des Abschnitts in der
 Bildmitte (`format_scroll_date`). Am Schieber des Medienpools erscheint dasselbe Chip
-mit dem Aufnahmedatum des Mediums in der Bildmitte. Zwischen den Karten liegt ein
+mit dem Aufnahmedatum des Mediums in der Bildmitte. Zwischen den Karten, vor der ersten und nach der letzten liegt ein
 `TimelineJoin` (schlanke Linie mit **+** als Ring, `map_link_color`). Klick auf **+** öffnet denselben Dialog wie **Neuen Reiseabschnitt
-erstellen** und füllt das Datum der Lücke (`insert_dates_between`). Zwischen den
+erstellen** und füllt das Datum (`insert_dates_between`, `insert_dates_before`, `insert_dates_after`). Vor, zwischen und nach den
 Leistenkarten auf der Karte sitzt dasselbe **+**. Beim Index-Abgleich werden unzugeordnete,
 nicht geparkte Medien dem Auto-Tag ihres Aufnahmedatums zugeordnet. Geparkte
 Medien liegen im Medienpool: in der Timeline und auf der Medienseite eine
@@ -256,12 +291,18 @@ ebenfalls nicht: Cover, Leiste, Stay-Links und ``Zur Karte`` behandeln sie, als
 gäbe es sie nicht; die Nachbarn rücken zusammen. Zwischen **Tag- und Aufenthaltskreisen**
 in Timeline-Reihenfolge liegen `StayLink`-Polylinien. Transfer-Kreise sind keine
 Endpunkte. Der erste Transfer in der Lücke besitzt eine geordnete Liste
-`transfer_links` (Linie, Track, Bogenlinie, Route als Platzhalter; solid/gestrichelt;
-Symbol; optional GPX-Member). Fehlt der Transfer, gilt die eine Ausgangslinie des linken
-Tag- oder Aufenthalts (`outbound_*` an `trip_sections`: gerade/Bogen, solid/gestrichelt,
-Symbol, oder `none`). Alle `NULL` = Gerade mit Richtungspfeil. `none` = keine Linie.
-Track und Route gibt es dort nicht.
-Ohne Zeilen bleibt die bisherige Gerade mit Pfeil. Mehrere
+`transfer_links` (Linie, Track aus GPX-Mitgliedern, Map-Track, Bogenlinie, Route als Platzhalter; solid/gestrichelt;
+Symbol; optional GPX-Member oder Map-Track). Fehlt der Transfer, gilt die eine Ausgangslinie des linken
+Tag- oder Aufenthalts (`outbound_*` an `trip_sections`: gerade, Map-Track, Bogen, solid/gestrichelt,
+Symbol, oder `none`). Alle `NULL` = Reise-Standard aus `settings.toml` (`default_link_geometry`,
+`default_link_dash`, `default_link_symbol`; werkseitig Gerade mit Richtungspfeil). `none` = keine Linie.
+**Map-Track:** GPX-Datei oder Google-Maps-Routenlink, Kopie bzw. erzeugte Datei
+in `.MapTracks/` im Import-Ordner (Datei-Import `Map-Track.gpx`, Maps-Link mit
+überschreibbarem Namensvorschlag aus Anfangs- und Endpunkt), indexed als `source_files` (`parked`, nicht im Pool),
+im Tracks-Bereich der Karte mit Chip **Map** (Fitness **Act**, IGC **igc**), auf der Karte als Spur und Verbindungslinie
+in `map_track_color` (nicht `map_link_color` und nicht GPS-Türkis),
+`outbound_track_source_file_id` bzw. `transfer_links.track_source_file_id`. Route bleibt Platzhalter.
+Ohne Zeilen gilt derselbe Reise-Standard. Mehrere
 Zeilen werden in Timeline-Reihenfolge gezeichnet; Lücken zwischen Linienenden
 oder Linie und Cover füllt eine gepunktete Gerade. Das Symbol ersetzt den
 Richtungsmarker der jeweiligen Nutzerkante. Ein Transfer-Kreis (kein Linienende)
@@ -395,10 +436,10 @@ Bereits in Phase 1 angelegt, schrittweise gefüllt:
 - `VideoMetadataProvider` – ffprobe-Adapter (noch nicht aktiv)
 - `Exporter` – HTML, PDF, LaTeX, CEWE. Ausgabetyp ist ein JSON-Template unter `travelcore/export/templates/products/`. **Travelbook** und **Jahrbuch** sind Blätterbücher (Karten als Bild). Travelbook hat einen Editiermodus (`travelbook.json` im Projekt): erste Doppelseite je Abschnitt, weitere Spreads mit Seiten-Layouts `photos_1`–`photos_8` und `journal`; Medienleiste des Abschnitts (Foto/Video/Track-Thumbs) per Drag-and-drop auf Media-Slots. **Travelbook (interaktiv)** ist die Read-only-Kartenwebsite (schwenken, zoomen), nur HTML. Katalog: `templates/catalog.json`. Erster Pfad: Travelbook × HTML. PDF: Raster-`PdfRenderer` (Pillow-Seiten, JPEG-PDF), kein PyMuPDF. CEWE: `export_travelbook_mcf` schreibt klassisches `.mcf` plus `Name_mcf-Dateien` (Fotos/Text nativ, Grafikinseln gerastert; Produkt ALB82, nur `a4-portrait`). `load_product` / `load_page_layout`; `supports(typ, format)` prüft die Matrix.
 - Länderkatalog in `travelcore.geo` – ISO-2, Namen DE/EN, Flaggen- und Umriss-SVG; Auswahl auf der Projektseite (`trips.countries`); Abschnittsseite ermittelt das Land aus Pin/GPS über den Silhouette-Umriss (`country_at`: Punkt im Polygon und Abstand zur Grenze; bei Grenzüberlappung das größere Land)
-- `MapBackend` – Folium/Leaflet, Übersicht als Titelbild-Kreise je Tag/Transfer/Aufenthalt, Layer-Menü Straßenkarte/Topo/Satellit, Fit-Reise, Zahnrad für Fotokegel, Reserve, Satelliten-Ortsnamen und Satelliten-Straßen (in `settings.toml`; Fotokegel am Stapel und nach der Auswahl, nicht im Fächer; überlappende Marker ab Zoom 17 per Klick zum Fächer, Klick in die Karte stellt den Stapel wieder her),
+- `MapBackend` – Folium/Leaflet, Übersicht als Titelbild-Kreise je Tag/Transfer/Aufenthalt, Layer-Menü Straßenkarte/Topo/Satellit, Fit-Reise, Zahnrad für Fotokegel, Reserve, Satelliten-Ortsnamen und Satelliten-Straßen (in `settings.toml`; Fotokegel am Stapel und nach der Auswahl, nicht im Fächer; überlappende Marker ab Zoom 17 per Klick zum Fächer, Klick in die Karte stellt den Stapel wieder her), Detail mit Checkboxen **Flüge anzeigen** und **Aktivitäten anzeigen** (Map-Tracks bleiben),
   Verbindungslinien zwischen Tag- und Aufenthaltskreisen (Richtungsmarker, Zoom-Überdeckung, Transfer-Kreis per dünner Linie am Symbol),
   Qt-Leiste unter der Karte (Tag mit Kalender, Transfer als liegendes Sechseck), Tagebucheintrag rechts, YouTube-Thumbs unten rechts auf der Karte, Detail mit GPX-Polylinien, IGC-Flugtracks ab Zoom 10
-  (Start/Landung immer sichtbar), Foto-Popup (Vorab-Zentrierung, Blättern, Schieber-Zoom, Bewertung) und Inspektor, Orte
+  (Start/Landung bei **Flüge anzeigen**), Foto-Popup (Vorab-Zentrierung, Blättern, Schieber-Zoom, Bewertung) und Inspektor, Orte
 - Timeline in `travelcore.timeline` – Tage, Transfers, Aufenthalte, Cover, Links;
   keine Ortsnamen an Foto-/Trackpositionen
 - KML/GeoJSON in `travelcore.gps` – Parser für Vorschauen, kein Ingest in `gps_tracks`
@@ -429,6 +470,8 @@ SQLAlchemy 2, Alembic, eine SQLite-Datei je Projekt. Migrationen:
 - `017_section_outbound` – Ausgangslinie an Tag/Aufenthalt
 - `018_media_clusters` – Stapel/Gruppe: `cluster_type`, `status`, `origin`, Mitglied `is_key`
 - `019_section_hidden` – Abschnitt aus Karte und Export ausblenden
+- `020_trip_countries` – bereiste Länder an `trips`
+- `021_outbound_track` – `outbound_track_source_file_id` an Tag/Aufenthalt
 
 ## Windows-Paketierung
 
@@ -484,4 +527,4 @@ macOS ist kein Ziel (WIC-Vorschauen, AppData-Pfade).
 10. Dublettenerkennung  ← R3.0.0 teilweise (SHA-256-Stapel, 30-s-Gruppen,
     manuelle Gruppen, Statistik; keine pHash/Embeddings)
 
-Aktueller Stand: Phase 7 erledigt plus Medien-Pipeline, Qualitätsampel, Filtern und Import-Zoom, Sichtbarkeit/Speichern/Verlassen, Software R3.1.0.
+Aktueller Stand: Phase 7 erledigt plus Medien-Pipeline, Qualitätsampel, Filtern und Import-Zoom, Sichtbarkeit/Speichern/Verlassen, Fitness-/IGC-Import, Kartendetail Flüge/Aktivitäten, Software R3.2.0.

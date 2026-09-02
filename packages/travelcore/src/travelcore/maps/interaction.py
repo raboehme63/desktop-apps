@@ -24,7 +24,12 @@ from travelcore.maps.scene import (
     MapScene,
     StayLink,
 )
-from travelcore.project_settings import DEFAULT_STAY_LINK_COLOR, normalize_stay_link_color
+from travelcore.project_settings import (
+    DEFAULT_MAP_TRACK_COLOR,
+    DEFAULT_STAY_LINK_COLOR,
+    normalize_map_track_color,
+    normalize_stay_link_color,
+)
 from travelcore.timeline.symbols import stay_symbol_svg_js
 
 OSM_LATIN_TILES = "https://tile.openstreetmap.de/{z}/{x}/{y}.png"
@@ -327,7 +332,8 @@ def _map_settings_js() -> str:
     fit_icon = json.dumps(_FIT_TRIP_ICON_SVG, ensure_ascii=True)
     return f"""
     window.traveljournalMapFlags = window.traveljournalMapFlags || {{
-      cones: false, reserve: false, satLabels: false, satStreets: false
+      cones: false, reserve: false, satLabels: false, satStreets: false,
+      flights: true, activities: true
     }};
     function readMapFlag(key) {{
       var flags = window.traveljournalMapFlags || {{}};
@@ -343,11 +349,18 @@ def _map_settings_js() -> str:
       if (key === 'traveljournal-sat-streets') {{
         return !!flags.satStreets;
       }}
+      if (key === 'traveljournal-show-flights') {{
+        return flags.flights !== false;
+      }}
+      if (key === 'traveljournal-show-activities') {{
+        return flags.activities !== false;
+      }}
       return false;
     }}
     function writeMapFlag(key, on) {{
       window.traveljournalMapFlags = window.traveljournalMapFlags || {{
-        cones: false, reserve: false, satLabels: false, satStreets: false
+        cones: false, reserve: false, satLabels: false, satStreets: false,
+        flights: true, activities: true
       }};
       if (key === 'traveljournal-photo-cones') {{
         window.traveljournalMapFlags.cones = !!on;
@@ -357,13 +370,18 @@ def _map_settings_js() -> str:
         window.traveljournalMapFlags.satLabels = !!on;
       }} else if (key === 'traveljournal-sat-streets') {{
         window.traveljournalMapFlags.satStreets = !!on;
+      }} else if (key === 'traveljournal-show-flights') {{
+        window.traveljournalMapFlags.flights = !!on;
+      }} else if (key === 'traveljournal-show-activities') {{
+        window.traveljournalMapFlags.activities = !!on;
       }}
     }}
     function persistMapFlags() {{
       var flags = window.traveljournalMapFlags || {{}};
       if (window.tjBridge && window.tjBridge.saveMapSettings) {{
         window.tjBridge.saveMapSettings(
-          !!flags.cones, !!flags.reserve, !!flags.satLabels, !!flags.satStreets
+          !!flags.cones, !!flags.reserve, !!flags.satLabels, !!flags.satStreets,
+          flags.flights !== false, flags.activities !== false
         );
       }}
     }}
@@ -373,14 +391,27 @@ def _map_settings_js() -> str:
     window.traveljournalShowReserve = function() {{
       return readMapFlag('traveljournal-show-reserve');
     }};
-    window.traveljournalApplyStoredMapFlags = function(cones, reserve, satLabels, satStreets) {{
+    window.traveljournalShowFlights = function() {{
+      return readMapFlag('traveljournal-show-flights');
+    }};
+    window.traveljournalShowActivities = function() {{
+      return readMapFlag('traveljournal-show-activities');
+    }};
+    window.traveljournalApplyStoredMapFlags = function(
+      cones, reserve, satLabels, satStreets, flights, activities
+    ) {{
+      var prev = window.traveljournalMapFlags || {{}};
       window.traveljournalMapFlags = {{
-        cones: !!cones, reserve: !!reserve, satLabels: !!satLabels, satStreets: !!satStreets
+        cones: !!cones, reserve: !!reserve, satLabels: !!satLabels, satStreets: !!satStreets,
+        flights: flights == null ? prev.flights !== false : !!flights,
+        activities: activities == null ? prev.activities !== false : !!activities
       }};
       var conesBox = document.getElementById('tj-opt-cones');
       var reserveBox = document.getElementById('tj-opt-reserve');
       var satBox = document.getElementById('tj-opt-sat-labels');
       var streetBox = document.getElementById('tj-opt-sat-streets');
+      var flightBox = document.getElementById('tj-opt-flights');
+      var activityBox = document.getElementById('tj-opt-activities');
       if (conesBox) {{
         conesBox.checked = !!cones;
       }}
@@ -392,6 +423,12 @@ def _map_settings_js() -> str:
       }}
       if (streetBox) {{
         streetBox.checked = !!satStreets;
+      }}
+      if (flightBox) {{
+        flightBox.checked = window.traveljournalMapFlags.flights !== false;
+      }}
+      if (activityBox) {{
+        activityBox.checked = window.traveljournalMapFlags.activities !== false;
       }}
       if (window.traveljournalApplySatOverlays) {{
         window.traveljournalApplySatOverlays();
@@ -523,6 +560,14 @@ def _photo_cone_js() -> str:
       }}
       if (item.sort_status === 'reserve' && window.traveljournalShowReserve
           && !window.traveljournalShowReserve()) {{
+        return false;
+      }}
+      if (item.kind === 'flight' && window.traveljournalShowFlights
+          && !window.traveljournalShowFlights()) {{
+        return false;
+      }}
+      if (item.kind === 'track' && !item.map_track && window.traveljournalShowActivities
+          && !window.traveljournalShowActivities()) {{
         return false;
       }}
       return true;
@@ -1304,6 +1349,7 @@ def leaflet_payload(scene: MapScene, html_path: Path) -> dict[str, Any]:
             "sort_status": marker.sort_status,
             "heading": marker.heading_degrees,
             "fov": marker.fov_degrees,
+            "map_track": bool(marker.map_track),
         }
         for marker in scene.markers
     ]
@@ -1318,6 +1364,7 @@ def leaflet_payload(scene: MapScene, html_path: Path) -> dict[str, Any]:
             "pilot": line.pilot or "",
             "sort_status": line.sort_status,
             "source_file_id": line.source_file_id,
+            "map_track": bool(line.map_track),
             "popup_html": _polyline_popup_html(line),
         }
         for line in scene.polylines
@@ -1462,11 +1509,31 @@ _BASEMAP_RULES = """
   margin-left: 8px;
   clear: none;
   z-index: 1000;
+  display: flex;
+  align-items: stretch;
 }
 .tj-close-section a {
   width: auto !important;
   padding: 0 8px !important;
   line-height: 26px !important;
+  white-space: nowrap;
+}
+.tj-detail-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px;
+  border-left: 1px solid #ccc;
+  background: #fff;
+}
+.tj-detail-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: #333;
+  font: 12px/26px "Segoe UI", sans-serif;
+  cursor: pointer;
   white-space: nowrap;
 }
 """
@@ -1775,6 +1842,7 @@ def _stay_links_payload(links: Sequence[StayLink]) -> list[dict[str, Any]]:
                     "style": segment.style,
                     "dash": segment.dash,
                     "symbol": segment.symbol,
+                    "map_track": bool(segment.map_track),
                     "points": [[point[0], point[1]] for point in segment.points],
                 }
                 for segment in link.segments
@@ -1793,6 +1861,7 @@ def _overview_script(
     extra: Any | None = None,
     *,
     color: str = DEFAULT_STAY_LINK_COLOR,
+    map_track_color: str = DEFAULT_MAP_TRACK_COLOR,
 ) -> str:
     map_name = fmap.get_name()
     cover_name = covers.get_name()
@@ -1801,6 +1870,7 @@ def _overview_script(
     sat_ref = extra.satellite.get_name() if extra is not None else "null"
     topo_ref = extra.topo.get_name() if extra is not None else "null"
     link_color = json.dumps(normalize_stay_link_color(color), ensure_ascii=True)
+    track_color = json.dumps(normalize_map_track_color(map_track_color), ensure_ascii=True)
     basemap_js = _basemap_toggle_js() if extra is not None else ""
     basemap_boot = "installBasemapToggle();" if extra is not None else ""
     settings_js = _map_settings_js()
@@ -1827,6 +1897,7 @@ def _overview_script(
     var COVER_PX = {COVER_ICON_PX};
     var INSET_PX = {COVER_LINE_INSET_PX};
     var LINK_COLOR = {link_color};
+    var MAP_TRACK_COLOR = {track_color};
     var stayLinkGroup = {link_ref};
     var satLayer = {sat_ref};
     var topoLayer = {topo_ref};
@@ -1839,11 +1910,20 @@ def _overview_script(
     function stayLinkVisible(pixelDist) {{
       return pixelDist > COVER_PX;
     }}
-    function lineOptsFor(dash, hide) {{
+    function pathPixelLength(latlngs) {{
+      var total = 0;
+      for (var i = 1; i < latlngs.length; i++) {{
+        var a = map.latLngToLayerPoint(latlngs[i - 1]);
+        var b = map.latLngToLayerPoint(latlngs[i]);
+        total += a.distanceTo(b);
+      }}
+      return total;
+    }}
+    function lineOptsFor(dash, hide, color) {{
       var dotted = dash === 'dotted';
       var dashed = dash === 'dashed';
       return {{
-        color: LINK_COLOR,
+        color: color || LINK_COLOR,
         weight: hide ? 0 : (dotted ? 5 : 3.5),
         opacity: hide ? 0 : 1,
         interactive: false,
@@ -2050,14 +2130,16 @@ def _overview_script(
             }}
             drawn.push({{
               role: segment.role || 'user',
+              style: segment.style || 'straight',
               dash: segment.dash || 'solid',
               symbol: segment.symbol || null,
+              map_track: !!segment.map_track,
               points: segment.points.map(function(pt) {{
                 return L.latLng(pt[0], pt[1]);
               }})
             }});
           }});
-          if (!drawn.length || hide) {{
+          if (!drawn.length) {{
             return;
           }}
           if (ready) {{
@@ -2066,6 +2148,12 @@ def _overview_script(
           }}
           drawn.forEach(function(segment) {{
             var pts = segment.points;
+            var hideSeg = hide;
+            if (ready && segment.style === 'track') {{
+              hideSeg = !stayLinkVisible(pathPixelLength(pts));
+            }} else if (hide) {{
+              return;
+            }}
             if (ready && segment.role === 'gap') {{
               var ga = map.latLngToLayerPoint(pts[0]);
               var gb = map.latLngToLayerPoint(pts[pts.length - 1]);
@@ -2073,8 +2161,12 @@ def _overview_script(
                 return;
               }}
             }}
-            addStayLine(pts, lineOptsFor(segment.dash, hide));
-            if (hide || !ready || segment.role === 'gap') {{
+            addStayLine(pts, lineOptsFor(
+              segment.dash,
+              hideSeg,
+              segment.map_track ? MAP_TRACK_COLOR : LINK_COLOR
+            ));
+            if (hideSeg || !ready || segment.role === 'gap') {{
               return;
             }}
             var placed = pointAlong(pts, segment.symbol ? 0.62 : 0.5);
@@ -2113,7 +2205,7 @@ def _overview_script(
     function setCloseVisible(show) {{
       var el = closeCtl && closeCtl.getContainer && closeCtl.getContainer();
       if (el) {{
-        el.style.display = show ? '' : 'none';
+        el.style.display = show ? 'flex' : 'none';
       }}
     }}
     function layerKey(layer) {{
@@ -3000,6 +3092,25 @@ def _overview_script(
       link.title = 'Reiseabschnitt schließen';
       link.setAttribute('aria-label', 'Reiseabschnitt schließen');
       link.innerHTML = 'Reiseabschnitt schließen';
+      var filters = L.DomUtil.create('div', 'tj-detail-filters', box);
+      function addDetailCheck(id, label, key) {{
+        var row = L.DomUtil.create('label', 'tj-detail-filter', filters);
+        var boxEl = L.DomUtil.create('input', '', row);
+        boxEl.type = 'checkbox';
+        boxEl.id = id;
+        boxEl.checked = readMapFlag(key);
+        row.appendChild(document.createTextNode(label));
+        L.DomEvent.on(boxEl, 'change', function(event) {{
+          L.DomEvent.stop(event);
+          writeMapFlag(key, boxEl.checked);
+          persistMapFlags();
+          if (window.traveljournalApplyMapSettings) {{
+            window.traveljournalApplyMapSettings();
+          }}
+        }});
+      }}
+      addDetailCheck('tj-opt-flights', 'Flüge anzeigen', 'traveljournal-show-flights');
+      addDetailCheck('tj-opt-activities', 'Aktivitäten anzeigen', 'traveljournal-show-activities');
       L.DomEvent.disableClickPropagation(box);
       L.DomEvent.on(link, 'click', function(event) {{
         L.DomEvent.stop(event);
@@ -3325,6 +3436,7 @@ def interaction_config(
     html_path: Path,
     *,
     link_color: str = DEFAULT_STAY_LINK_COLOR,
+    map_track_color: str = DEFAULT_MAP_TRACK_COLOR,
 ) -> dict[str, Any]:
     """Declarative Leaflet payload. Hosts inject this as ``window.traveljournalConfig``."""
 
@@ -3332,6 +3444,7 @@ def interaction_config(
         "cover_px": COVER_ICON_PX,
         "inset_px": COVER_LINE_INSET_PX,
         "link_color": normalize_stay_link_color(link_color),
+        "map_track_color": normalize_map_track_color(map_track_color),
         "stay_links": _stay_links_payload(scene.stay_links),
         "stack_disable_zoom": PHOTO_STACK_DISABLE_ZOOM,
         "cone_min_zoom": PHOTO_CONE_MIN_ZOOM,

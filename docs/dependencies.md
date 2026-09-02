@@ -1,6 +1,6 @@
 # Direkte Abhängigkeiten
 
-Stand: Phase 7 plus Medien-Pipeline, Software R3.1.0. Es werden **keine** Platzhalter-Bibliotheken installiert,
+Stand: Phase 7 plus Medien-Pipeline, Software R3.2.0. Es werden **keine** Platzhalter-Bibliotheken installiert,
 die der aktuelle Code nicht verwendet.
 
 Lizenzangaben stammen aus den veröffentlichten Projektdaten der jeweiligen
@@ -29,6 +29,13 @@ Transitiv durch die oben genannten Pakete: `greenlet`, `Mako`, `MarkupSafe`,
 Jinja2 kommt derzeit transitiv mit Folium. Phase 8 nutzt es direkt für den HTML-Export.
 Aufenthaltscluster (`travelcore.geolocation.stays`) rechnen Haversine in der
 Standardbibliothek; geographiclib ist nicht installiert.
+
+## Laufzeit – fitnesscore
+
+| Bibliothek | Version | Lizenz | Zweck |
+| --- | --- | --- | --- |
+| SQLAlchemy | 2.0.52 | MIT | Fitness-SQLite (`fitness.sqlite`) |
+| fitdecode | 0.11.0 | MIT | Garmin/Polar FIT-Aktivitäten |
 
 ## Laufzeit – traveljournal
 

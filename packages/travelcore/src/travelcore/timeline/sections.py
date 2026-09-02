@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 
@@ -100,6 +101,40 @@ def insert_dates_between(before: date | None, after: date | None) -> tuple[date,
     if start <= end:
         return start, end
     return before, before
+
+
+def insert_dates_before(after: date | None) -> tuple[date, date]:
+    """Prefill when inserting a section before the first card."""
+
+    if after is None:
+        today = date.today()
+        return today, today
+    day = after - timedelta(days=1)
+    return day, day
+
+
+def insert_dates_after(before: date | None) -> tuple[date, date]:
+    """Prefill when inserting a section after the last card."""
+
+    if before is None:
+        today = date.today()
+        return today, today
+    day = before + timedelta(days=1)
+    return day, day
+
+
+def join_insert_spans(
+    card_spans: Sequence[tuple[date | None, date | None]],
+) -> list[tuple[date, date]]:
+    """Prefill dates for + before the first card, between cards, and after the last."""
+
+    if not card_spans:
+        return []
+    spans = [insert_dates_before(card_spans[0][0])]
+    for index in range(1, len(card_spans)):
+        spans.append(insert_dates_between(card_spans[index - 1][1], card_spans[index][0]))
+    spans.append(insert_dates_after(card_spans[-1][1]))
+    return spans
 
 
 def span_for_manual_dates(kind: str, start: date, end: date | None = None) -> tuple[datetime, datetime]:

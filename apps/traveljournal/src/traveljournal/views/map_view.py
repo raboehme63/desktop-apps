@@ -619,7 +619,7 @@ class MapJsBridge(QObject):
     sort_status_requested = Signal(int, str)
     section_closed = Signal()
     reserve_changed = Signal(bool)
-    map_settings_changed = Signal(bool, bool, bool, bool)
+    map_settings_changed = Signal(bool, bool, bool, bool, bool, bool)
     place_requested = Signal(float, float)
     place_cancelled = Signal()
 
@@ -647,11 +647,23 @@ class MapJsBridge(QObject):
         self.reserve_changed.emit(bool(show))
 
     @Slot(bool, bool, bool, bool)
+    @Slot(bool, bool, bool, bool, bool, bool)
     def saveMapSettings(
-        self, photo_cones: bool, show_reserve: bool, sat_labels: bool, sat_streets: bool
+        self,
+        photo_cones: bool,
+        show_reserve: bool,
+        sat_labels: bool,
+        sat_streets: bool,
+        show_flights: bool = True,
+        show_activities: bool = True,
     ) -> None:
         self.map_settings_changed.emit(
-            bool(photo_cones), bool(show_reserve), bool(sat_labels), bool(sat_streets)
+            bool(photo_cones),
+            bool(show_reserve),
+            bool(sat_labels),
+            bool(sat_streets),
+            bool(show_flights),
+            bool(show_activities),
         )
 
     @Slot(float, float)
@@ -670,13 +682,17 @@ def _map_flags_bootstrap_js(workspace: Workspace) -> str:
     reserve = "true" if workspace.map_show_reserve() else "false"
     sat_labels = "true" if workspace.map_show_sat_labels() else "false"
     sat_streets = "true" if workspace.map_show_sat_streets() else "false"
+    flights = "true" if workspace.map_show_flights() else "false"
+    activities = "true" if workspace.map_show_activities() else "false"
     zoom = clamp_thumb_zoom(workspace.map_thumb_zoom())
     return (
         f"window.traveljournalMapFlags={{cones:{cones},reserve:{reserve},"
-        f"satLabels:{sat_labels},satStreets:{sat_streets}}};"
+        f"satLabels:{sat_labels},satStreets:{sat_streets},"
+        f"flights:{flights},activities:{activities}}};"
         f"window.traveljournalThumbZoom={zoom};"
         f"if(window.traveljournalApplyStoredMapFlags){{"
-        f"window.traveljournalApplyStoredMapFlags({cones},{reserve},{sat_labels},{sat_streets});}}"
+        f"window.traveljournalApplyStoredMapFlags("
+        f"{cones},{reserve},{sat_labels},{sat_streets},{flights},{activities});}}"
         f"if(window.traveljournalSetThumbZoom){{window.traveljournalSetThumbZoom({zoom});}}"
     )
 
@@ -1489,13 +1505,21 @@ class MapView(QWidget):
         return True
 
     def _on_map_settings_changed(
-        self, photo_cones: bool, show_reserve: bool, sat_labels: bool, sat_streets: bool
+        self,
+        photo_cones: bool,
+        show_reserve: bool,
+        sat_labels: bool,
+        sat_streets: bool,
+        show_flights: bool,
+        show_activities: bool,
     ) -> None:
         self.workspace.set_map_display_flags(
             photo_cones=photo_cones,
             show_reserve=show_reserve,
             sat_labels=sat_labels,
             sat_streets=sat_streets,
+            show_flights=show_flights,
+            show_activities=show_activities,
         )
         self._timeline.set_show_reserve(show_reserve)
 

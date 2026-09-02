@@ -54,6 +54,7 @@ class SectionSnapshot:
     outbound_geometry: str | None
     outbound_dash: str | None
     outbound_symbol: str | None
+    outbound_track_source_file_id: int | None
     sort_index: int
     origin: str
     hidden: bool = False
@@ -287,6 +288,7 @@ def _section_snapshot(section: TripSection) -> SectionSnapshot:
         outbound_geometry=section.outbound_geometry,
         outbound_dash=section.outbound_dash,
         outbound_symbol=section.outbound_symbol,
+        outbound_track_source_file_id=section.outbound_track_source_file_id,
         sort_index=section.sort_index,
         origin=section.origin,
         hidden=bool(section.hidden),
@@ -316,6 +318,7 @@ def _upsert_section(session: Session, snapshot: SectionSnapshot) -> TripSection:
     section.outbound_geometry = snapshot.outbound_geometry
     section.outbound_dash = snapshot.outbound_dash
     section.outbound_symbol = snapshot.outbound_symbol
+    section.outbound_track_source_file_id = snapshot.outbound_track_source_file_id
     section.sort_index = snapshot.sort_index
     section.origin = snapshot.origin
     section.hidden = bool(snapshot.hidden)

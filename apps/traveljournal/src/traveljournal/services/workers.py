@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -17,7 +18,11 @@ from travelcore.maps import ensure_map_cache
 from travelcore.media.indexer import FileIndexer, IndexProgress, IndexResult
 from travelcore.media.thumbnails import generate_project_thumbnails
 from travelcore.parallel import WorkerPool
-from travelcore.project_settings import DEFAULT_STAY_LINK_COLOR, load_project_settings
+from travelcore.project_settings import (
+    DEFAULT_MAP_TRACK_COLOR,
+    DEFAULT_STAY_LINK_COLOR,
+    load_project_settings,
+)
 from travelcore.timeline.sections import park_media
 
 if TYPE_CHECKING:
@@ -317,9 +322,11 @@ class MapRenderRunnable(QRunnable):
                 loaded = load_project_settings(self.open_project.directory)
                 provider = loaded.placeholders.map_provider
                 link_color = loaded.placeholders.map_link_color
+                track_color = loaded.placeholders.map_track_color
             except ProjectError:
                 provider = "leaflet"
                 link_color = DEFAULT_STAY_LINK_COLOR
+                track_color = DEFAULT_MAP_TRACK_COLOR
             thumbs = self.open_project.directory / "thumbnails"
             thumbs.mkdir(parents=True, exist_ok=True)
             result = ensure_map_cache(
@@ -331,8 +338,98 @@ class MapRenderRunnable(QRunnable):
                 size=settings.default_thumbnail_size,
                 map_provider=provider,
                 map_link_color=link_color,
+                map_track_color=track_color,
                 force=self.force,
             )
             self.signals.finished.emit(result)
         except Exception as exc:  # noqa: BLE001 - surface map build failures to the UI
+            self.signals.failed.emit(str(exc))
+
+
+class MapsTrackSignals(QObject):
+    finished = Signal(str, str)
+    failed = Signal(str)
+
+
+class MapsTrackRunnable(QRunnable):
+    """Resolve a Google Maps directions URL to GPX XML off the GUI thread."""
+
+    def __init__(self, url: str, host: QObject | None = None) -> None:
+        super().__init__()
+        self.url = url
+        self.signals = MapsTrackSignals(host)
+        self.setAutoDelete(True)
+
+    def run(self) -> None:
+        from travelcore.gps.maps_url import (
+            MapsGpxError,
+            directions_to_gpx,
+            resolve_directions,
+            route_filename_stem,
+            route_geometry,
+        )
+
+        try:
+            directions = resolve_directions(self.url)
+            track = route_geometry(directions)
+            xml = directions_to_gpx(directions, track)
+            self.signals.finished.emit(xml, route_filename_stem(directions))
+        except MapsGpxError as exc:
+            self.signals.failed.emit(str(exc))
+        except Exception as exc:  # noqa: BLE001 - surface conversion failures to the UI
+            self.signals.failed.emit(str(exc))
+
+
+class StoreImportSignals(QObject):
+    progress = Signal(int, int, str)
+    finished = Signal(int)
+    failed = Signal(str)
+
+
+class StoreImportRunnable(QRunnable):
+    def __init__(
+        self,
+        workspace: Workspace,
+        kind: str,
+        store_path: Path,
+        *,
+        source_root: str | None,
+        date_from: date,
+        date_to: date,
+    ) -> None:
+        super().__init__()
+        self.workspace = workspace
+        self.kind = kind
+        self.store_path = store_path
+        self.source_root = source_root
+        self.date_from = date_from
+        self.date_to = date_to
+        self.signals = StoreImportSignals()
+        self.setAutoDelete(True)
+
+    def run(self) -> None:
+        def on_progress(current: int, total: int, message: str) -> None:
+            self.signals.progress.emit(current, total, message)
+
+        try:
+            if self.kind == "igc":
+                count = self.workspace.import_igc_tracks(
+                    self.store_path,
+                    source_root=self.source_root,
+                    date_from=self.date_from,
+                    date_to=self.date_to,
+                    progress=on_progress,
+                )
+            else:
+                count = self.workspace.import_fitness_tracks(
+                    self.store_path,
+                    source_root=self.source_root,
+                    date_from=self.date_from,
+                    date_to=self.date_to,
+                    progress=on_progress,
+                )
+            self.signals.finished.emit(count)
+        except ProjectError as exc:
+            self.signals.failed.emit(str(exc))
+        except Exception as exc:  # noqa: BLE001 - surface store-import failures to the UI
             self.signals.failed.emit(str(exc))

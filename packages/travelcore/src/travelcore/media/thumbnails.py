@@ -159,6 +159,34 @@ def ensure_thumbnail(
     return destination if destination.is_file() else None
 
 
+def write_project_gps_thumbnail(
+    project_dir: Path,
+    row: SourceFile,
+    *,
+    size: int = DEFAULT_THUMBNAIL_SIZE,
+    overwrite: bool = False,
+) -> Path | None:
+    """Write a GPS thumbnail using the project's Leaflet/OSM tile cache."""
+
+    thumbs = Path(project_dir) / "thumbnails"
+    dest = cached_thumbnail_path(
+        thumbs,
+        source_file_id=row.id,
+        sha256=row.sha256,
+        size=size,
+    )
+    tile_cache, use_map_tiles = _track_tile_cache(thumbs)
+    if overwrite and dest.is_file():
+        dest.unlink(missing_ok=True)
+    return ensure_thumbnail(
+        Path(row.path),
+        dest,
+        size=size,
+        tile_cache=Path(tile_cache) if tile_cache else None,
+        use_map_tiles=use_map_tiles,
+    )
+
+
 def _write_track_thumbnail(
     source: Path,
     destination: Path,
@@ -298,8 +326,13 @@ def generate_project_thumbnails(
         )
         dest_key = str(dest)
         if dest.is_file() and dest.stat().st_size > 0:
-            result.skipped += 1
-            continue
+            if not _should_refresh_gps_thumbnail(row, dest, use_map_tiles=use_map_tiles):
+                result.skipped += 1
+                continue
+            dest.unlink(missing_ok=True)
+            if dest.is_file():
+                result.skipped += 1
+                continue
         if dest_key in queued_dests:
             result.skipped += 1
             continue
@@ -398,6 +431,47 @@ def _render_thumbnail_jobs(
         if com_executor is not None:
             com_executor.shutdown(wait=True)
     return outcomes
+
+
+def _should_refresh_gps_thumbnail(
+    row: SourceFile, dest: Path, *, use_map_tiles: bool
+) -> bool:
+    """Rewrite import-folder GPS thumbs that were saved without OSM tiles."""
+
+    if not use_map_tiles or row.file_kind != FileKind.GPS.value:
+        return False
+    from travelcore.gps.fitnesstracks import is_fitness_track_path
+    from travelcore.gps.igctracks import is_igc_track_path
+    from travelcore.gps.maptracks import is_map_track_path
+
+    if not (
+        is_fitness_track_path(row.path)
+        or is_igc_track_path(row.path)
+        or is_map_track_path(row.path)
+    ):
+        return False
+    return _track_thumbnail_lacks_map(dest)
+
+
+def _track_thumbnail_lacks_map(path: Path) -> bool:
+    """True when the JPEG looks like the no-tiles fallback (black + red line)."""
+
+    try:
+        with Image.open(path) as image:
+            rgb = image.convert("RGB")
+            pixels = rgb.load()
+            width, height = rgb.size
+            if pixels is None or width * height == 0:
+                return False
+            black = 0
+            for row in range(height):
+                for column in range(width):
+                    red, green, blue = pixels[column, row][:3]
+                    if red < 40 and green < 40 and blue < 40:
+                        black += 1
+    except OSError:
+        return False
+    return black > width * height * 0.45
 
 
 def _track_tile_cache(thumbs_dir: Path) -> tuple[str, bool]:

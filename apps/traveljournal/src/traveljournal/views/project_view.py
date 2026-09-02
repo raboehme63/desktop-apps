@@ -222,7 +222,11 @@ class ProjectView(QWidget):
         if configured:
             self.source_label.setText(configured)
         counts = self.workspace.file_counts()
-        parts = [f"{kind}: {count}" for kind, count in sorted(counts.items()) if count]
+        parts = [
+            f"{kind}: {count}"
+            for kind, count in sorted(counts.items())
+            if count and kind not in {"map", "act", "flights", "other"}
+        ]
         self.counts_label.setText(", ".join(parts) if parts else "keine Dateien")
 
     def set_load_progress(self, current: int, total: int, message: str) -> None:

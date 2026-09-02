@@ -26,7 +26,10 @@ from travelcore.timeline import (
     format_section_duration,
     format_section_span,
     format_section_when,
+    insert_dates_after,
+    insert_dates_before,
     insert_dates_between,
+    join_insert_spans,
     load_timeline,
     move_members,
     park_media,
@@ -67,12 +70,22 @@ def test_parse_and_serialize_transfer_modes() -> None:
     assert serialize_modes(["bus", "unknown"]) == "bus"
 
 
-def test_normalize_outbound_treats_straight_solid_as_empty() -> None:
-    from travelcore.timeline.outbound import normalize_outbound, outbound_from_columns
+def test_normalize_outbound_null_means_inherit() -> None:
+    from travelcore.timeline.outbound import (
+        LinkDefaults,
+        compact_inherited_links,
+        normalize_outbound,
+        outbound_from_columns,
+    )
 
-    assert normalize_outbound("line", "solid", None) == (None, None, None)
+    assert normalize_outbound(None, None, None) == (None, None, None)
+    assert normalize_outbound("line", "solid", None) == ("line", "solid", None)
     assert normalize_outbound("none", "dashed", "car") == ("none", None, None)
     assert outbound_from_columns(None, None, None) is None
+    inherited = outbound_from_columns(None, None, None, defaults=LinkDefaults(symbol="train"))
+    assert inherited is not None
+    assert inherited.geometry == "line"
+    assert inherited.symbol == "train"
     hidden = outbound_from_columns("none", None, None)
     assert hidden is not None
     assert hidden.geometry == "none"
@@ -81,6 +94,19 @@ def test_normalize_outbound_treats_straight_solid_as_empty() -> None:
     assert link.geometry == "arc"
     assert link.dash == "dashed"
     assert link.symbol == "car"
+    track = outbound_from_columns("track", "solid", None, 42)
+    assert track is not None
+    assert track.geometry == "map_track"
+    assert track.track_source_file_id == 42
+    assert normalize_outbound("track", "solid", None) == ("map_track", "solid", None)
+    assert normalize_outbound("map_track", "dashed", "car") == ("map_track", "dashed", "car")
+    defaults = LinkDefaults(geometry="arc", dash="dashed", symbol="train")
+    matching = defaults.as_link()
+    assert defaults.matches(matching)
+    assert compact_inherited_links([matching], defaults) == []
+    override = outbound_from_columns("line", "solid", None)
+    assert override is not None
+    assert not defaults.matches(override)
 
 
 def test_format_section_span_uses_object_dates() -> None:
@@ -125,6 +151,33 @@ def test_insert_dates_between_uses_open_gap() -> None:
     )
     assert insert_dates_between(date(2025, 8, 10), None) == (date(2025, 8, 10), date(2025, 8, 10))
     assert insert_dates_between(None, date(2025, 8, 1)) == (date(2025, 8, 1), date(2025, 8, 1))
+
+
+def test_insert_dates_before_and_after_trip_ends() -> None:
+    assert insert_dates_before(date(2025, 5, 15)) == (date(2025, 5, 14), date(2025, 5, 14))
+    assert insert_dates_after(date(2025, 8, 10)) == (date(2025, 8, 11), date(2025, 8, 11))
+    start, end = insert_dates_before(None)
+    assert start == end
+    start, end = insert_dates_after(None)
+    assert start == end
+
+
+def test_join_insert_spans_includes_ends() -> None:
+    assert join_insert_spans([]) == []
+    assert join_insert_spans([(date(2025, 5, 1), date(2025, 5, 3))]) == [
+        (date(2025, 4, 30), date(2025, 4, 30)),
+        (date(2025, 5, 4), date(2025, 5, 4)),
+    ]
+    assert join_insert_spans(
+        [
+            (date(2025, 5, 1), date(2025, 5, 1)),
+            (date(2025, 5, 10), date(2025, 5, 10)),
+        ]
+    ) == [
+        (date(2025, 4, 30), date(2025, 4, 30)),
+        (date(2025, 5, 2), date(2025, 5, 9)),
+        (date(2025, 5, 11), date(2025, 5, 11)),
+    ]
 
 
 def test_format_section_duration_and_when() -> None:

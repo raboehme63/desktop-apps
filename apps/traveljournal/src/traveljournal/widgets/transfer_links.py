@@ -15,16 +15,19 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from travelcore.timeline.outbound import LINK_GEOMETRY_NONE, normalize_outbound
+from travelcore.timeline.outbound import LINK_GEOMETRY_NONE, LinkDefaults, parse_outbound_geometry
 from travelcore.timeline.symbols import TRANSPORT_SYMBOLS
 from travelcore.timeline.transfer_links import (
     LINK_DASH_DASHED,
     LINK_DASH_SOLID,
     LINK_GEOMETRY_ARC,
     LINK_GEOMETRY_LINE,
+    LINK_GEOMETRY_MAP_TRACK,
     LINK_GEOMETRY_ROUTE,
     LINK_GEOMETRY_TRACK,
+    is_map_track_geometry,
     parse_dash,
+    uses_track_points,
 )
 from travelcore.timeline.types import TimelineLink
 from traveljournal.widgets.click_combo import ClickCombo, ClickListWidget
@@ -33,6 +36,7 @@ from traveljournal.widgets.transport_icons import fill_transport_combo, transpor
 _GEOMETRY_LABELS = (
     (LINK_GEOMETRY_LINE, "Linie"),
     (LINK_GEOMETRY_TRACK, "Track"),
+    (LINK_GEOMETRY_MAP_TRACK, "Map-Track"),
     (LINK_GEOMETRY_ARC, "Bogenlinie"),
     (LINK_GEOMETRY_ROUTE, "Route"),
 )
@@ -43,11 +47,15 @@ class TransferLinkStrip(QWidget):
     """List of connection lines. Drag reorders. Track combo uses section GPX only."""
 
     links_changed = Signal()
+    choose_map_file = Signal(object)
+    choose_map_url = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("transferLinkStrip")
         self._tracks: list[tuple[int, str]] = []
+        self._map_tracks: list[tuple[int, str]] = []
+        self._defaults = LinkDefaults()
         self._loading = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -77,15 +85,21 @@ class TransferLinkStrip(QWidget):
         for row in self._rows():
             row.set_tracks(self._tracks, self._claimed_tracks(except_row=row))
 
+    def set_map_tracks(self, tracks: list[tuple[int, str]]) -> None:
+        self._map_tracks = list(tracks)
+        for row in self._rows():
+            row.set_map_tracks(self._map_tracks, self._claimed_map_tracks(except_row=row))
+
+    def set_defaults(self, defaults: LinkDefaults) -> None:
+        self._defaults = defaults
+
     def set_links(self, links: tuple[TimelineLink, ...] | list[TimelineLink]) -> None:
         self._loading = True
         self._list.clear()
         for link in links:
             self._insert_row(link)
         if self._list.count() == 0:
-            self._insert_row(
-                TimelineLink(id=0, sort_index=0, geometry=LINK_GEOMETRY_LINE, dash=LINK_DASH_SOLID)
-            )
+            self._insert_row(self._defaults.as_link())
         self._loading = False
         self._refresh_joints()
         self._fit_list()
@@ -104,23 +118,18 @@ class TransferLinkStrip(QWidget):
 
     def _insert_row(self, link: TimelineLink) -> TransferLinkRow:
         item = QListWidgetItem(self._list)
-        row = TransferLinkRow(link, self._tracks, self)
+        row = TransferLinkRow(link, self._tracks, self._map_tracks, self._defaults, self)
         row.changed.connect(self._on_row_changed)
         row.remove_requested.connect(lambda widget=row: self._remove_row(widget))
+        row.choose_file.connect(lambda widget=row: self.choose_map_file.emit(widget))
+        row.choose_maps_url.connect(lambda widget=row: self.choose_map_url.emit(widget))
         item.setSizeHint(row.sizeHint())
         self._list.addItem(item)
         self._list.setItemWidget(item, row)
         return row
 
     def _add_row(self) -> None:
-        self._insert_row(
-            TimelineLink(
-                id=0,
-                sort_index=self._list.count(),
-                geometry=LINK_GEOMETRY_LINE,
-                dash=LINK_DASH_SOLID,
-            )
-        )
+        self._insert_row(self._defaults.as_link(sort_index=self._list.count()))
         self._refresh_joints()
         self._fit_list()
         self._emit_changed()
@@ -146,6 +155,7 @@ class TransferLinkStrip(QWidget):
     def _on_row_changed(self) -> None:
         for row in self._rows():
             row.set_tracks(self._tracks, self._claimed_tracks(except_row=row))
+            row.set_map_tracks(self._map_tracks, self._claimed_map_tracks(except_row=row))
         self._refresh_joints()
         self._emit_changed()
 
@@ -153,6 +163,20 @@ class TransferLinkStrip(QWidget):
         claimed: set[int] = set()
         for row in self._rows():
             if row is except_row:
+                continue
+            if is_map_track_geometry(str(row.geometry.currentData() or "")):
+                continue
+            track_id = row.track_id()
+            if track_id is not None:
+                claimed.add(track_id)
+        return claimed
+
+    def _claimed_map_tracks(self, *, except_row: TransferLinkRow | None) -> set[int]:
+        claimed: set[int] = set()
+        for row in self._rows():
+            if row is except_row:
+                continue
+            if not is_map_track_geometry(str(row.geometry.currentData() or "")):
                 continue
             track_id = row.track_id()
             if track_id is not None:
@@ -183,16 +207,21 @@ class TransferLinkStrip(QWidget):
 class TransferLinkRow(QWidget):
     changed = Signal()
     remove_requested = Signal()
+    choose_file = Signal()
+    choose_maps_url = Signal()
 
     def __init__(
         self,
         link: TimelineLink,
         tracks: list[tuple[int, str]],
+        map_tracks: list[tuple[int, str]],
+        defaults: LinkDefaults,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._loading = True
         self._link_id = link.id
+        self._defaults = defaults
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 2, 0, 2)
         layout.setSpacing(2)
@@ -222,6 +251,23 @@ class TransferLinkRow(QWidget):
         top.addWidget(self.symbol, 0)
         top.addWidget(self.track, 1)
         top.addWidget(remove, 0)
+        map_row = QHBoxLayout()
+        map_row.setContentsMargins(24, 0, 0, 0)
+        map_row.setSpacing(6)
+        self.map_track = ClickCombo(self)
+        self.map_track.setMinimumWidth(140)
+        self.map_track.setToolTip("Map-Track unter .MapTracks im Import-Ordner")
+        self._file_button = QPushButton("Datei…", self)
+        self._file_button.setToolTip("GPX-Datei kopieren nach .MapTracks im Import-Ordner")
+        self._file_button.clicked.connect(self.choose_file.emit)
+        self._maps_button = QPushButton("Maps-Link…", self)
+        self._maps_button.setToolTip("Google-Maps-Routenlink in einen Map-Track umwandeln")
+        self._maps_button.clicked.connect(self.choose_maps_url.emit)
+        map_row.addWidget(self.map_track, 1)
+        map_row.addWidget(self._file_button, 0)
+        map_row.addWidget(self._maps_button, 0)
+        self._map_host = QWidget(self)
+        self._map_host.setLayout(map_row)
         joint = QHBoxLayout()
         joint.setContentsMargins(18, 0, 0, 0)
         joint.setSpacing(6)
@@ -234,13 +280,16 @@ class TransferLinkRow(QWidget):
         joint.addWidget(self.end_lat, 1)
         joint.addWidget(self.end_lon, 1)
         layout.addLayout(top)
+        layout.addWidget(self._map_host)
         layout.addLayout(joint)
         self.set_tracks(tracks, set())
+        self.set_map_tracks(map_tracks, set())
         self._apply_link(link)
         self.geometry.currentIndexChanged.connect(self._on_geometry)
         self.dash.currentIndexChanged.connect(self._emit)
         self.symbol.currentIndexChanged.connect(self._emit)
         self.track.currentIndexChanged.connect(self._emit)
+        self.map_track.currentIndexChanged.connect(self._emit)
         self.end_lat.editingFinished.connect(self._emit)
         self.end_lon.editingFinished.connect(self._emit)
         self._loading = False
@@ -261,7 +310,9 @@ class TransferLinkRow(QWidget):
         self.geometry.setCurrentIndex(max(0, self.geometry.findData(geometry)))
         self.dash.setCurrentIndex(max(0, self.dash.findData(parse_dash(link.dash))))
         self.symbol.setCurrentIndex(max(0, self.symbol.findData(link.symbol or "")))
-        if link.track_source_file_id is not None:
+        if is_map_track_geometry(geometry) and link.track_source_file_id is not None:
+            self.map_track.setCurrentIndex(max(0, self.map_track.findData(link.track_source_file_id)))
+        elif link.track_source_file_id is not None:
             self.track.setCurrentIndex(max(0, self.track.findData(link.track_source_file_id)))
         if link.end_latitude is not None:
             self.end_lat.setText(f"{link.end_latitude:.5f}")
@@ -270,10 +321,12 @@ class TransferLinkRow(QWidget):
 
     def reset_empty(self) -> None:
         self._loading = True
-        self.geometry.setCurrentIndex(self.geometry.findData(LINK_GEOMETRY_LINE))
-        self.dash.setCurrentIndex(self.dash.findData(LINK_DASH_SOLID))
-        self.symbol.setCurrentIndex(0)
+        shown = self._defaults.as_link()
+        self.geometry.setCurrentIndex(self.geometry.findData(shown.geometry))
+        self.dash.setCurrentIndex(self.dash.findData(shown.dash))
+        self.symbol.setCurrentIndex(max(0, self.symbol.findData(shown.symbol or "")))
         self.track.setCurrentIndex(0)
+        self.map_track.setCurrentIndex(0)
         self.end_lat.clear()
         self.end_lon.clear()
         self._link_id = 0
@@ -298,6 +351,31 @@ class TransferLinkRow(QWidget):
             self.track.setCurrentIndex(max(0, self.track.findData(current)))
         self.track.blockSignals(False)
 
+    def set_map_tracks(self, tracks: list[tuple[int, str]], claimed: set[int]) -> None:
+        current = self.map_track.currentData()
+        self.map_track.blockSignals(True)
+        self.map_track.clear()
+        self.map_track.addItem("Map-Track wählen", None)
+        for source_id, name in tracks:
+            self.map_track.addItem(name, source_id)
+            index = self.map_track.count() - 1
+            if source_id in claimed and source_id != current:
+                model = self.map_track.model()
+                if model is not None and hasattr(model, "item"):
+                    item = model.item(index)
+                    if item is not None:
+                        item.setEnabled(False)
+        if current is not None:
+            self.map_track.setCurrentIndex(max(0, self.map_track.findData(current)))
+        self.map_track.blockSignals(False)
+
+    def select_map_track(self, source_file_id: int | None) -> None:
+        self.map_track.setCurrentIndex(max(0, self.map_track.findData(source_file_id)))
+
+    def set_maps_busy(self, busy: bool) -> None:
+        self._maps_button.setEnabled(not busy)
+        self._file_button.setEnabled(not busy)
+
     def set_joint_visible(self, visible: bool) -> None:
         self._joint_label.setVisible(visible)
         self.end_lat.setVisible(visible)
@@ -308,9 +386,11 @@ class TransferLinkRow(QWidget):
         return geometry in {LINK_GEOMETRY_LINE, LINK_GEOMETRY_ARC, LINK_GEOMETRY_ROUTE}
 
     def track_id(self) -> int | None:
-        if str(self.geometry.currentData()) != LINK_GEOMETRY_TRACK:
+        geometry = str(self.geometry.currentData() or LINK_GEOMETRY_LINE)
+        if not uses_track_points(geometry):
             return None
-        value = self.track.currentData()
+        combo = self.map_track if is_map_track_geometry(geometry) else self.track
+        value = combo.currentData()
         return int(value) if isinstance(value, int) else None
 
     def to_link(self, sort_index: int) -> TimelineLink:
@@ -330,8 +410,9 @@ class TransferLinkRow(QWidget):
         )
 
     def _on_geometry(self) -> None:
-        track = str(self.geometry.currentData()) == LINK_GEOMETRY_TRACK
-        self.track.setVisible(track)
+        geometry = str(self.geometry.currentData() or LINK_GEOMETRY_LINE)
+        self.track.setVisible(geometry == LINK_GEOMETRY_TRACK)
+        self._map_host.setVisible(is_map_track_geometry(geometry))
         self._emit()
 
     def _emit(self) -> None:
@@ -356,11 +437,14 @@ class OutboundLinkRow(QWidget):
     """One optional line from a Tag/Stay to the next non-Transfer section."""
 
     changed = Signal()
+    choose_file = Signal()
+    choose_maps_url = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("outboundLinkRow")
         self._loading = True
+        self._defaults = LinkDefaults()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
@@ -371,6 +455,7 @@ class OutboundLinkRow(QWidget):
         row.setSpacing(6)
         self.geometry = ClickCombo(self)
         self.geometry.addItem("Gerade", LINK_GEOMETRY_LINE)
+        self.geometry.addItem("Map-Track", LINK_GEOMETRY_MAP_TRACK)
         self.geometry.addItem("Bogenlinie", LINK_GEOMETRY_ARC)
         self.geometry.addItem("Keine Linie", LINK_GEOMETRY_NONE)
         self.dash = ClickCombo(self)
@@ -382,36 +467,97 @@ class OutboundLinkRow(QWidget):
         row.addWidget(self.geometry, 0)
         row.addWidget(self.dash, 0)
         row.addWidget(self.symbol, 1)
+        track_row = QHBoxLayout()
+        track_row.setContentsMargins(0, 0, 0, 0)
+        track_row.setSpacing(6)
+        self.track = ClickCombo(self)
+        self.track.setMinimumWidth(140)
+        self.track.setToolTip("Map-Track unter .MapTracks im Import-Ordner")
+        self._file_button = QPushButton("Datei…", self)
+        self._file_button.setToolTip("GPX-Datei kopieren nach .MapTracks im Import-Ordner")
+        self._file_button.clicked.connect(self.choose_file.emit)
+        self._maps_button = QPushButton("Maps-Link…", self)
+        self._maps_button.setToolTip("Google-Maps-Routenlink in einen Map-Track umwandeln")
+        self._maps_button.clicked.connect(self.choose_maps_url.emit)
+        track_row.addWidget(self.track, 1)
+        track_row.addWidget(self._file_button, 0)
+        track_row.addWidget(self._maps_button, 0)
+        self._track_host = QWidget(self)
+        self._track_host.setLayout(track_row)
         layout.addWidget(caption)
         layout.addLayout(row)
+        layout.addWidget(self._track_host)
         self.geometry.currentIndexChanged.connect(self._on_geometry)
         self.dash.currentIndexChanged.connect(self._emit)
         self.symbol.currentIndexChanged.connect(self._emit)
+        self.track.currentIndexChanged.connect(self._emit)
+        self.set_tracks([])
         self._sync_extras()
         self._loading = False
 
+    def set_tracks(self, tracks: list[tuple[int, str]]) -> None:
+        current = self.track.currentData()
+        self.track.blockSignals(True)
+        self.track.clear()
+        self.track.addItem("Map-Track wählen", None)
+        for source_id, name in tracks:
+            self.track.addItem(name, source_id)
+        if current is not None:
+            self.track.setCurrentIndex(max(0, self.track.findData(current)))
+        self.track.blockSignals(False)
+
+    def select_track(self, source_file_id: int | None) -> None:
+        self.track.setCurrentIndex(max(0, self.track.findData(source_file_id)))
+
+    def set_maps_busy(self, busy: bool) -> None:
+        self._maps_button.setEnabled(not busy)
+        self._file_button.setEnabled(not busy)
+
+    def set_defaults(self, defaults: LinkDefaults) -> None:
+        self._defaults = defaults
+
     def set_link(self, link: TimelineLink | None) -> None:
         self._loading = True
-        geometry = LINK_GEOMETRY_LINE if link is None else link.geometry
-        dash = LINK_DASH_SOLID if link is None else link.dash
-        symbol = "" if link is None else (link.symbol or "")
-        if geometry not in {LINK_GEOMETRY_LINE, LINK_GEOMETRY_ARC, LINK_GEOMETRY_NONE}:
+        shown = link if link is not None else self._defaults.as_link()
+        geometry = shown.geometry
+        dash = shown.dash
+        symbol = shown.symbol or ""
+        allowed = {LINK_GEOMETRY_LINE, LINK_GEOMETRY_ARC, LINK_GEOMETRY_MAP_TRACK, LINK_GEOMETRY_NONE}
+        if geometry == LINK_GEOMETRY_TRACK:
+            geometry = LINK_GEOMETRY_MAP_TRACK
+        if geometry not in allowed:
             geometry = LINK_GEOMETRY_LINE
         self.geometry.setCurrentIndex(max(0, self.geometry.findData(geometry)))
         self.dash.setCurrentIndex(max(0, self.dash.findData(dash or LINK_DASH_SOLID)))
         self.symbol.setCurrentIndex(max(0, self.symbol.findData(symbol)))
+        if link is not None and link.track_source_file_id is not None:
+            self.track.setCurrentIndex(max(0, self.track.findData(link.track_source_file_id)))
+        else:
+            self.track.setCurrentIndex(0)
         self._sync_extras()
         self._loading = False
 
     def to_link(self) -> TimelineLink | None:
-        geo, dsh, sym = normalize_outbound(
-            str(self.geometry.currentData() or LINK_GEOMETRY_LINE),
-            str(self.dash.currentData() or LINK_DASH_SOLID),
-            str(self.symbol.currentData() or "") or None,
+        geo = parse_outbound_geometry(str(self.geometry.currentData() or LINK_GEOMETRY_LINE))
+        dsh = parse_dash(str(self.dash.currentData() or LINK_DASH_SOLID))
+        sym = str(self.symbol.currentData() or "") or None
+        if geo == LINK_GEOMETRY_NONE:
+            return TimelineLink(id=0, sort_index=0, geometry=LINK_GEOMETRY_NONE)
+        track_id = None
+        if geo == LINK_GEOMETRY_MAP_TRACK:
+            value = self.track.currentData()
+            track_id = int(value) if isinstance(value, int) else None
+        link = TimelineLink(
+            id=0,
+            sort_index=0,
+            geometry=geo,
+            dash=dsh,
+            symbol=sym,
+            track_source_file_id=track_id,
         )
-        if geo is None:
+        if self._defaults.matches(link):
             return None
-        return TimelineLink(id=0, sort_index=0, geometry=geo, dash=dsh or LINK_DASH_SOLID, symbol=sym)
+        return link
 
     def _on_geometry(self) -> None:
         self._sync_extras()
@@ -421,6 +567,7 @@ class OutboundLinkRow(QWidget):
         enabled = self.geometry.currentData() != LINK_GEOMETRY_NONE
         self.dash.setEnabled(enabled)
         self.symbol.setEnabled(enabled)
+        self._track_host.setVisible(self.geometry.currentData() == LINK_GEOMETRY_MAP_TRACK)
 
     def _emit(self) -> None:
         if not self._loading:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import date
 
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
@@ -32,7 +33,7 @@ from PySide6.QtWidgets import (
 
 from travelcore.maps.groups import MapTimelineCard, parse_group_key
 from travelcore.timeline.journal import calendar_key
-from travelcore.timeline.sections import KIND_DAY, KIND_MOVEMENT, insert_dates_between
+from travelcore.timeline.sections import KIND_DAY, KIND_MOVEMENT, join_insert_spans
 from traveljournal.widgets.entry_links import start_remote_pixmap
 from traveljournal.widgets.join_plus import MapSpine
 from traveljournal.widgets.thumb_zoom import DEFAULT_THUMB_ZOOM, clamp_thumb_zoom
@@ -456,18 +457,18 @@ class MapTimelineStrip(QScrollArea):
             return
         self._empty.setVisible(False)
         self._empty.setParent(self._inner)
-        for index, card in enumerate(self._cards):
-            if index:
-                previous = self._cards[index - 1]
-                start, end = insert_dates_between(
-                    calendar_key(previous.ended_at) or calendar_key(previous.started_at),
+        join_spans = join_insert_spans(
+            [
+                (
                     calendar_key(card.started_at),
+                    calendar_key(card.ended_at) or calendar_key(card.started_at),
                 )
-                line = MapSpine(self._inner)
-                line.add_requested.connect(
-                    lambda start=start, end=end: self.add_between.emit((start, end))
-                )
-                self._row.addWidget(line, 0, Qt.AlignmentFlag.AlignVCenter)
+                for card in self._cards
+            ]
+        )
+        for index, card in enumerate(self._cards):
+            start, end = join_spans[index]
+            self._add_join(start, end)
             widget = _CardWidget(card, self._inner)
             widget.clicked.connect(self.center_on)
             widget.open_requested.connect(self.open_in_timeline.emit)
@@ -475,6 +476,9 @@ class MapTimelineStrip(QScrollArea):
             widget.zoom_requested.connect(self.zoom_requested.emit)
             self._widgets.append(widget)
             self._row.addWidget(widget, 0, Qt.AlignmentFlag.AlignVCenter)
+        if join_spans:
+            start, end = join_spans[-1]
+            self._add_join(start, end)
         self._row.addWidget(self._right_pad)
         self._update_end_padding()
         keys = {widget.card.group_key for widget in self._widgets}
@@ -482,6 +486,13 @@ class MapTimelineStrip(QScrollArea):
             QTimer.singleShot(0, lambda: self.center_on(keep, emit=False))
         else:
             QTimer.singleShot(0, self._center_first)
+
+    def _add_join(self, start: date, end: date) -> None:
+        line = MapSpine(self._inner)
+        line.add_requested.connect(
+            lambda start=start, end=end: self.add_between.emit((start, end))
+        )
+        self._row.addWidget(line, 0, Qt.AlignmentFlag.AlignVCenter)
 
     def center_on(self, group_key: str, *, emit: bool = True) -> None:
         widget = next((item for item in self._widgets if item.card.group_key == group_key), None)

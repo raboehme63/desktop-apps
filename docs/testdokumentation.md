@@ -2,9 +2,9 @@
 
 | Feld | Inhalt |
 | --- | --- |
-| Version | 3.1 |
-| Stand | 31. August 2026 |
-| Bezugsversion Software | Phase 7 plus Medien-Pipeline, Software **R3.1.0** |
+| Version | 3.2 |
+| Stand | 2. September 2026 |
+| Bezugsversion Software | Phase 7 plus Medien-Pipeline, Software **R3.2.0** |
 | Bezug | [pflichtenheft.md](pflichtenheft.md), [konzept.md](konzept.md), [packaging/README.md](../packaging/README.md) |
 
 Diese Dokumentation beschreibt **Teststrategie, Automatisierung, manuelle Prüfung und Abdeckungslücken**. Sie ist die Testdoku zum Pflichtenheft, kein Ersatz für pytest-Ausgaben.
@@ -24,9 +24,9 @@ Diese Dokumentation beschreibt **Teststrategie, Automatisierung, manuelle Prüfu
 
 | Stufe | Ort | Werkzeug | Was |
 | --- | --- | --- | --- |
-| Unit | `packages/travelcore/tests/` | pytest | Typen, Hash, Zeit, GPS, Provider, HEIC-Container, GPX/IGC/KML, Interpolation, ExifTool-JSON, Thumbnails, Orientierung, Timeline, Abschnitte, History-Snapshots, Länderkatalog, Travelbook-PDF, CEWE-`.mcf` |
+| Unit | `packages/travelcore/tests/`, `packages/fitnesscore/tests/` | pytest | Typen, Hash, Zeit, GPS, Provider, HEIC-Container, GPX/IGC/KML, Interpolation, ExifTool-JSON, Thumbnails, Orientierung, Timeline, Abschnitte, History-Snapshots, Länderkatalog, Travelbook-PDF, CEWE-`.mcf`; Fitness-Import, GPX- und IGC-Export |
 | Integration | `packages/travelcore/tests/test_indexer.py`, `test_database.py`, `test_timeline.py`; `tests/integration/`; `tests/test_edit_history.py` | pytest | Projektordner, Schema, Index → SQLite, Timeline-Sync, Re-Open, Workspace-Undo |
-| GUI-Rauch | `tests/test_gui_smoke.py` | pytest + Qt offscreen | Hauptfenster, sechs Seiten, Menü **Bearbeiten**, Inspektor, Register, Titel mit Version, Timeline-Speichern nur bei Abschnitten/Texten/Reisetitel/YouTube, Sichtbarkeits-Schalter, Verlassen-Dialog, Karten-Refresh ohne Live-Reuse, **Filtern**, Thumbnail-Schieber inkl. Import, Ampel-Hover, Länderauswahl und Reise von–bis |
+| GUI-Rauch | `tests/test_gui_smoke.py` | pytest + Qt offscreen | Hauptfenster, sechs Seiten, Menü **Bearbeiten**, Inspektor, Register, Titel mit Version R3.2.0, Timeline-Speichern nur bei Abschnitten/Texten/Reisetitel/YouTube, Sichtbarkeits-Schalter, Verlassen-Dialog, Karten-Refresh ohne Live-Reuse, **Filtern**, Thumbnail-Schieber inkl. Import, Ampel-Hover, Länderauswahl und Reise von–bis, Fitness-/IGC-Importfelder |
 | Paketierung | `packaging/` | manuell nach `build.ps1` | Frozen-EXE startet, Alembic/Karte, kein Python nötig (MT-22) |
 | Manuell | dieses Dokument, Abschnitt 7 | Windows-Desktop | Import echter HEIC/JPEG, Liste, Timeline, Abschnitte, Karte, Inspektor, Undo/Redo |
 | Statisch | Repository-Wurzel | Ruff, später pyright | Stil, Imports, grundlegende Typen |
@@ -41,7 +41,7 @@ Nicht eingeführt (geplant): pytest-qt für Interaktion, visuelle Galerie-/Karte
 
 - Windows 10/11
 - Python 3.12 im Projekt-venv (nicht eine fremde `python.exe` auf dem PATH)
-- Installierte Editables: `travelcore`, `traveljournal`
+- Installierte Editables: `travelcore`, `fitnesscore`, `traveljournal`
 - pytest (und ruff für die statische Prüfung)
 
 MT-22 (Windows-Paket) braucht zusätzlich das Ergebnis von `packaging/build.ps1`, nicht das venv.
@@ -54,6 +54,7 @@ ExifTool ist **kein** Testdependency. HEIC- und Provider-Tests müssen ohne das 
 cd D:\20-GITWorkspace\desktop-apps
 .\.venv\Scripts\python.exe -m pytest
 .\.venv\Scripts\python.exe -m pytest packages/travelcore/tests/test_timeline.py -q
+.\.venv\Scripts\python.exe -m pytest packages/fitnesscore/tests -q
 .\.venv\Scripts\python.exe -m ruff check packages apps tests
 .\.venv\Scripts\python.exe -m ruff format --check packages apps tests
 ```
@@ -85,8 +86,79 @@ Erzeugt GPX-Tracks aus JSON-Dateien mit nichtleerer Routes-Sektion.
   -r              mit -d auch Unterverzeichnisse einbeziehen
 ```
 
+### 3.4 Hilfsprogramm Google-Maps-Link → GPX
 
-### 3.4 Testdatenregel
+`scripts/maps_url_to_gpx.py` erzeugt aus einem Google-Maps-Routenlink
+(auch `maps.app.goo.gl`) eine GPX-Datei mit Wegpunkten und Track. Dieselbe
+Konvertierung nutzt die Timeline unter **Verbindung zum nächsten Abschnitt**
+→ **Map-Track** → **Maps-Link…** (Ablage `.MapTracks/` im Import-Ordner, Dialog
+mit Namensvorschlag, überschreibbar). Stopps
+kommen aus dem Link; die Straßenführung holt OSRM (OpenStreetMap), nicht
+Google. Aufruf und Kurzhilfe: [README.md](../README.md)
+(Abschnitt *Google-Maps-Link nach GPX*). Tests:
+`tests/test_maps_url_to_gpx.py`, `packages/travelcore/tests/test_maptracks.py`.
+Unit-Tests mocken HTTP; sie rufen weder Google noch OSRM live auf.
+
+```powershell
+.\.venv\Scripts\python.exe scripts\maps_url_to_gpx.py -h
+.\.venv\Scripts\python.exe scripts\maps_url_to_gpx.py "https://maps.app.goo.gl/…"
+.\.venv\Scripts\python.exe scripts\maps_url_to_gpx.py -o D:\tracks\route.gpx "https://maps.app.goo.gl/…"
+```
+
+```
+usage: maps_url_to_gpx.py [-h] [-o DATEI] [--waypoints-only] [--router URL]
+                          URL
+
+Erzeugt eine GPX-Datei aus einem Google-Maps-Link der Routenplanung. Stopps
+kommen aus dem Link, die Strecke folgt OpenStreetMap-Straßen (OSRM).
+
+  URL               Google-Maps-Routenlink (auch maps.app.goo.gl)
+  -o DATEI          Zieldatei oder Ordner
+  --waypoints-only  keine Straßenführung, nur Stopps als Track verbinden
+  --router URL      OSRM-Basis-URL (Standard: https://router.project-osrm.org)
+```
+
+### 3.5 Fitness-Datenbank (CLI)
+
+`packages/fitnesscore` importiert Polar-JSON, FIT und IGC in eine eigene SQLite
+(`fitness.sqlite`), nicht ins Reiseprojekt. Das Reisetagebuch holt GPX auf der Seite **Import** (**Fitnessdaten Importieren**,
+Zeitraum vorbefüllt aus Reise von–bis, überschreibbar) nach `{Import}/.FitnessTracks/`;
+Scan und Synchronisieren nehmen den Ordner mit. IGC derselben Datenbank holt
+die Seite Import nach `{Import}/.IGCTracks/` (jeweils mit Fortschritt; DB-Pfade in `config.json`). Aufruf und Parameter:
+[README.md](../README.md) (Abschnitt *Fitness-Datenbank*),
+[packages/fitnesscore/README.md](../packages/fitnesscore/README.md). Tests:
+`packages/fitnesscore/tests/`, `packages/travelcore/tests/test_fitnesstracks.py`,
+`packages/travelcore/tests/test_igctracks.py`, `tests/test_fitness_tracks.py`,
+`tests/test_igc_tracks.py`.
+
+```powershell
+.\.venv\Scripts\python.exe -m fitnesscore -h
+.\.venv\Scripts\python.exe -m fitnesscore --db D:\Fitness init
+.\.venv\Scripts\python.exe -m fitnesscore --db D:\Fitness import -d D:\tracks
+.\.venv\Scripts\python.exe -m fitnesscore --db D:\Fitness import -d D:\tracks -r
+.\.venv\Scripts\python.exe -m fitnesscore --db D:\Fitness export-gpx --from 2026-08-01 --to 2026-09-02 --out D:\out
+.\.venv\Scripts\python.exe -m fitnesscore --db D:\Fitness export-igc --from 2025-05-01 --to 2025-05-31 --out D:\out
+```
+
+```
+usage: fitnessdb [-h] [--db ORDNER] {init,import,export-gpx,export-igc,sports} ...
+
+  --db ORDNER  Store-Ordner oder fitness.sqlite (Standard: ./fitness)
+  init         leere Datenbank anlegen
+  import       -f DATEI | -d VERZEICHNIS  [-r|--recursive]
+  export-gpx   [--sports SPORT …] --from DATUM --to DATUM --out ORDNER
+  export-igc   [--sports SPORT …] --from DATUM --to DATUM --out ORDNER
+  sports       Slugs mit Track-Anzahl
+```
+
+`--sports` ist optional (ohne Flag alle Treffer im Zeitraum). `--from` / `--to`
+sind UTC-Kalendertage, einschließlich. `export-igc` schreibt die Original-IGC,
+keine GPX. Rekursiver Import: **`-r`**, **`--r`** oder **`--recursive`**.
+Erneuter `import` über denselben Ordner ist das Update (bekannte SHA-256
+übersprungen). Ein optionaler Test liest eine lokale Polar-FIT unter `B:\…`,
+wenn die Datei fehlt, wird er übersprungen.
+
+### 3.6 Testdatenregel
 
 | Erlaubt | Verboten |
 | --- | --- |
@@ -101,7 +173,7 @@ Hilfsmodul: `packages/travelcore/tests/jpeg_fixtures.py`. GPX-Hilfen: `gpx_fixtu
 
 ## 4. Abbildungsmatrix Pflichtenheft → automatisierte Tests
 
-Stand nach `pytest --collect-only`: **560 Tests** (31. August 2026). Neue Tests sind ergänzend zu führen, nicht still zu löschen.
+Stand nach `pytest --collect-only`: **578 Tests** (2. September 2026). Neue Tests sind ergänzend zu führen, nicht still zu löschen.
 
 ### 4.1 Dateitypen und Scan — FA-010 bis FA-016
 
@@ -116,6 +188,9 @@ Stand nach `pytest --collect-only`: **560 Tests** (31. August 2026). Neue Tests 
 | `test_scan_finds_supported_files_recursively` | `test_scanner.py` | Rekursion, JPEG-Groß/Kleinschreibung, GPX, MD, ZIP außen vor |
 | `test_scan_finds_igc_flight_log` | `test_scanner.py` | IGC wird als GPS gefunden |
 | `test_scan_skips_thumbnail_jpegs` | `test_scanner.py` | `thumbnails/` und `cache/` nicht als Fotos |
+| `test_scan_skips_dot_map_tracks` | `test_scanner.py` | `.MapTracks/` im Import-Ordner nicht als GPS |
+| `test_scan_includes_fitness_tracks` | `test_scanner.py` | `.FitnessTracks/` wird gescannt, `.MapTracks/` nicht |
+| `test_scan_includes_igc_tracks` | `test_scanner.py` | `.IGCTracks/` wird gescannt |
 
 ### 4.2 Index, Hash, Fehler — FA-020 bis FA-026, FA-095
 
@@ -198,9 +273,10 @@ Stand nach `pytest --collect-only`: **560 Tests** (31. August 2026). Neue Tests 
 | `test_create_under_rejects_existing_project` | `test_database.py` | bestehendes Projekt nicht überschreiben |
 | `test_create_under_rejects_empty_name` | `test_database.py` | leerer Name abgelehnt |
 | `test_sqlite_waits_when_busy` | `test_database.py` | Busy-Timeout statt sofortigem Fehler |
-| `test_new_project_writes_settings_file` | `test_project_settings.py` | Default-`settings.toml` |
+| `test_new_project_writes_settings_file` | `test_project_settings.py` | Default-`settings.toml` inkl. Standard-Verbindung Gerade/Pfeil |
+| `test_default_link_settings_reject_unknown_values` | `test_project_settings.py` | Unbekannter Linientyp/Strich/Symbol fällt auf Gerade, durchgezogen, Pfeil |
 | `test_normalize_stay_link_color_accepts_hex_and_falls_back` | `test_project_settings.py` | Linienfarbe Hex / Fallback weiß |
-| `test_settings_roundtrip_preserves_values` | `test_project_settings.py` | Exportformat, Wurzel, Zeitzone, CPU-Worker, Kartenzahnrad |
+| `test_settings_roundtrip_preserves_values` | `test_project_settings.py` | Exportformat, Wurzel, Zeitzone, CPU-Worker, Kartenzahnrad und Detail-Flags Flüge/Aktivitäten, Standard-Verbindung |
 | `test_corrupt_settings_raise` | `test_project_settings.py` | unlesbares TOML → `ProjectError` |
 | `test_ensure_fills_source_root_from_database` | `test_project_settings.py` | fehlende Wurzel aus der DB nachziehen |
 | `test_rebase_rewrites_indexed_paths` | `test_project_settings.py` | Pfad-Rebase ohne Original-Move |
@@ -234,7 +310,7 @@ Stand nach `pytest --collect-only`: **560 Tests** (31. August 2026). Neue Tests 
 | `test_catalog_files_live_next_to_module` | `test_country_catalog.py` | `catalog.json`, NOTICE, `flags/de.svg`, `shapes/de.svg` |
 | `test_country_at_uses_silhouette_outline` | `test_country_catalog.py` | Hochries/München → DE trotz AT in der Reise; Wien → AT; Vaduz → LI; Kapstadt → ZA; Mailand → IT |
 | `test_protocols_are_importable` | `test_interfaces.py` | `MetadataProvider`, `RankingStrategy`, `MapBackend` |
-| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R3.1.0, Menü **Bearbeiten** mit Strg+Z/Strg+Y, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren**, Export ohne Kopfzeile, Modus Vorschau/Editiermodus, einklappbare Auswahl, Blättern mit Pfeilen links/rechts, Cover dann Titelseite dann Seitenzahlen ab Reiseübersicht 1–2/n, Seitenformat DIN A4 Hochformat, Dateiformat erst im Export-Dialog (HTML/PDF/CEWE; CEWE-Hinweis, Qualität nur bei PDF), Länderauswahl und Reise von–bis deaktiviert ohne Projekt |
+| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R3.2.0, Menü **Bearbeiten** mit Strg+Z/Strg+Y, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren**, Export ohne Kopfzeile, Modus Vorschau/Editiermodus, einklappbare Auswahl, Blättern mit Pfeilen links/rechts, Cover dann Titelseite dann Seitenzahlen ab Reiseübersicht 1–2/n, Seitenformat DIN A4 Hochformat, Dateiformat erst im Export-Dialog (HTML/PDF/CEWE; CEWE-Hinweis, Qualität nur bei PDF), Länderauswahl und Reise von–bis deaktiviert ohne Projekt |
 | `test_country_picker_adds_flag_and_shape` | `tests/test_gui_smoke.py` | Länderauswahl: Italien und Slowenien mit Flagge und Umriss |
 | `test_project_span_edits_update_duration` | `tests/test_gui_smoke.py` | Projektseite: von–bis setzt Dauer (2 Tage) |
 | `test_summary_countries_stack_evenly_with_flag_in_outline` | `tests/test_gui_smoke.py` | Reiseübersicht: Umriss, Name in Versalien, kleine Flagge hinter dem Namen |
@@ -247,6 +323,39 @@ Stand nach `pytest --collect-only`: **560 Tests** (31. August 2026). Neue Tests 
 | `test_parse_gpx_track_and_segment` | `test_gpx_parse.py` | Punkte, Höhe, UTC-Zeit, Segment-ID |
 | `test_convert_file_writes_sibling_gpx` | `tests/test_json_routes_to_gpx.py` | Polar-JSON Routes → GPX neben der Datei (Hilfsskript) |
 | `test_directory_mode_prints_dots_and_counts` | `tests/test_json_routes_to_gpx.py` | `-d` / `-r`, Punkte und Zähler `JSON n, GPX m` |
+| `test_fitness_track_is_indexed_scanned_and_in_gallery` | `packages/travelcore/tests/test_fitnesstracks.py` | Fitness-GPX indexiert, Galerie-Chip **Act**, Zähler `act` |
+| `test_workspace_import_fitness_tracks_and_rescan` | `tests/test_fitness_tracks.py` | Import schreibt `.FitnessTracks/`, Re-Scan löscht nicht, Re-Export verdoppelt nicht |
+| `test_workspace_import_fitness_uses_date_override` | `tests/test_fitness_tracks.py` | Zeitraum-Überschreibung statt Reise von–bis |
+| `test_import_view_fitness_span_prefilled_and_overridable` | `tests/test_gui_smoke.py` | Import-Seite: Von/Bis aus Reise, gemerkte Fitness-/IGC-DB |
+| `test_format_import_status` | `tests/test_gui_smoke.py` | Importzähler Fotos, Videos, MAP, Activity, Flüge, Sonstige |
+| `test_workspace_import_fitness_reports_progress` | `tests/test_fitness_tracks.py` | Fitness-Import ruft die Fortschrittsanzeige |
+| `test_export_igc_writes_original_payload` | `packages/fitnesscore/tests/test_igc.py` | IGC-Export schreibt das Original aus der Fitness-DB |
+| `test_igc_track_is_indexed_scanned_and_in_gallery` | `packages/travelcore/tests/test_igctracks.py` | IGC unter `.IGCTracks/`, Galerie-Chip **igc**, Zähler `flights` |
+| `test_workspace_import_igc_tracks_and_rescan` | `tests/test_igc_tracks.py` | Import-Seite holt IGC, Re-Scan löscht nicht |
+| `test_workspace_import_igc_reports_progress` | `tests/test_igc_tracks.py` | IGC-Import ruft die Fortschrittsanzeige |
+| `test_import_all_kinds_but_gpx_only_from_sessions` | `packages/fitnesscore/tests/test_ingest_gpx.py` | Alle JSON-Arten in die Fitness-DB; GPX-Export nur Sessions mit Sport/Datum |
+| `test_cli_init_import_export` | `packages/fitnesscore/tests/test_ingest_gpx.py` | `init`, `import -f`, `export-gpx` mit und ohne `--sports` |
+| `test_cli_import_recursive_flag` | `packages/fitnesscore/tests/test_ingest_gpx.py` | `-r` / `--r` / `--recursive` holen Unterordner |
+| `test_import_igc_and_export_original_by_sport` | `packages/fitnesscore/tests/test_igc.py` | IGC-Import, Sport `paragliding`, Original-IGC nach Datum |
+| `test_cli_export_igc` | `packages/fitnesscore/tests/test_igc.py` | CLI `export-igc` schreibt `.igc`, keine GPX |
+| `test_parse_and_match_optional_sports` | `packages/fitnesscore/tests/test_sports.py` | `--sports` optional, Komma und mehrere Werte |
+| `test_parse_sample_dir_url_reads_named_stops_and_driving_mode` | `tests/test_maps_url_to_gpx.py` | Maps-`/dir/`-URL: drei Stopps, Koordinaten, Auto |
+| `test_route_filename_stem_uses_start_and_end` | `tests/test_maps_url_to_gpx.py` | Dateiname aus Anfangs- und Endpunkt der Maps-Suche |
+| `test_route_filename_stem_uses_place_name_from_address` | `tests/test_maps_url_to_gpx.py` | Ortsname aus der Adresse (`Lähnwald`, nicht die volle Zeile) |
+| `test_route_filename_stem_uses_numbered_placeholder_without_name` | `tests/test_maps_url_to_gpx.py` | ohne Ortsname: `Stop-1` … `Stop-n` |
+| `test_coord_start_is_not_used_as_place_name` | `tests/test_maps_url_to_gpx.py` | Koordinate im Pfad wird nicht zum Dateinamen |
+| `test_resolve_fills_start_name_from_html_when_path_is_coords` | `tests/test_maps_url_to_gpx.py` | Ortsname für Koordinaten-Start aus der Maps-Seite |
+| `test_resolve_uses_nominatim_when_maps_has_only_coords` | `tests/test_maps_url_to_gpx.py` | Ortsname über Nominatim, wenn der Link nur Koordinaten hat |
+| `test_convert_writes_gpx_and_follows_roads` | `tests/test_maps_url_to_gpx.py` | GPX mit Wegpunkten und OSRM-Track (HTTP gemockt) |
+| `test_import_map_track_copies_into_import_folder` | `packages/travelcore/tests/test_maptracks.py` | GPX-Kopie nach `{Import}/.MapTracks/`, nicht in Galerie, Zähler `map`, Sync und Re-Index lassen sie stehen |
+| `test_import_map_track_requires_source_root` | `packages/travelcore/tests/test_maptracks.py` | ohne Import-Ordner keine Ablage |
+| `test_is_map_track_path_accepts_legacy_and_dot_folder` | `packages/travelcore/tests/test_maptracks.py` | `.MapTracks` und altes `MapTracks` |
+| `test_import_map_track_gpx_and_outbound_link` | `packages/travelcore/tests/test_maptracks.py` | erzeugte GPX unter `.MapTracks/`, Ausgangslinie speichert `outbound_track_source_file_id` |
+| `test_import_map_track_gpx_uses_route_stem` | `packages/travelcore/tests/test_maptracks.py` | Maps-Link-GPX als `Start-to-Ziel.gpx`, Duplikat `-2` |
+| `test_map_track_name_suggestion_is_editable` | `packages/travelcore/tests/test_maptracks.py` | Dialogvorschlag: Bindestriche als Leerzeichen |
+| `test_empty_gpx_is_rejected` | `packages/travelcore/tests/test_maptracks.py` | leere GPX nicht indexiert, keine Datei in `.MapTracks/` |
+| `test_stay_links_follow_outbound_track_geometry` | `test_maps.py` | Ausgangslinie Map-Track folgt den GPX-Punkten |
+| `test_map_track_appears_on_timeline_and_overview` | `packages/travelcore/tests/test_maptracks.py` | Map-Track in der Tracks-Galerie, Überblick und Detail; Farbe `#5b8def` |
 | `test_summarize_mean_of_first_points_and_start_time` | `test_gpx_parse.py` | Mittelwert der ersten Punkte, erste Trackzeit |
 | `test_summarize_uses_first_timed_point_even_if_later` | `test_gpx_parse.py` | Startzeit ist der erste Punkt **mit** Zeit |
 | `test_summarize_untimed_points_have_position_but_no_start` | `test_gpx_parse.py` | Position ohne `recorded_at` |
@@ -267,6 +376,7 @@ Stand nach `pytest --collect-only`: **560 Tests** (31. August 2026). Neue Tests 
 | `test_indexer_skips_unchanged_gpx_track_rewrite` | `test_indexer.py` | unveränderte GPX: keine neuen Punkt-IDs |
 | `test_indexer_untimed_gpx_sets_position_without_date` | `test_indexer.py` | GPX ohne Zeiten: Position, keine Startzeit |
 | `test_indexer_does_not_overwrite_exif_gps_with_gpx` | `test_indexer.py` | EXIF-GPS bleibt |
+| `test_missing_gpx_after_scan_does_not_abort_import` | `test_indexer.py` | GPX nach dem Scan weg: Import läuft weiter, Fehlerzeile |
 | `test_corrupt_gpx_does_not_abort_import` | `test_indexer.py` | defekte GPX als `file_errors.stage=gpx` |
 | `test_empty_gpx_does_not_abort_import` | `test_indexer.py` | leere GPX kein Importabbruch |
 | `test_parse_igc_pilot_and_points` | `test_igc_parse.py` | Pilot, UTC-Zeit, Bozen-Koordinaten |
@@ -323,7 +433,8 @@ Stand nach `pytest --collect-only`: **560 Tests** (31. August 2026). Neue Tests 
 | `test_downsample_keeps_endpoints` | `test_maps.py` | Trackpunkte werden ausgedünnt, Start/Ende bleiben |
 | `test_map_scene_has_track_and_photo` | `test_maps.py` | Übersicht ein Cover, Detail: Polylinie + Fotomarker |
 | `test_map_scene_includes_place` | `test_maps.py` | Ort im Detail des Tags |
-| `test_folium_overview_cover_uses_expand_url` | `test_maps.py` | rundes Cover, Expand-Bridge, Zoom-Halt, Popup-Skript (Blättern, `centerBrowseView` vor `openPopup`, `lockPopupImageBox`, Fit-Reise, Cover-Aktivierung), Aufenthaltslinien, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad, Symbol-Spiegelung in eigenem Wrapper |
+| `test_folium_overview_cover_uses_expand_url` | `test_maps.py` | rundes Cover, Expand-Bridge, Zoom-Halt, Popup-Skript (Blättern, `centerBrowseView` vor `openPopup`, `lockPopupImageBox`, Fit-Reise, Cover-Aktivierung), Aufenthaltslinien, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad, Detail-Checkboxen Flüge/Aktivitäten, Symbol-Spiegelung in eigenem Wrapper |
+| `test_overview_does_not_paint_map_track_twice` | `test_maps.py` | Map-Track nur als Verbindungslinie, nicht zusätzlich als Overlay |
 | `test_overview_offline_omits_satellite` | `test_maps.py` | ohne Kacheln kein Layer-Umschalter, Zahnrad bleibt |
 | `test_timeline_js_cards_uses_relative_cover` | `test_maps.py` | Timeline-Karten relative Cover-Pfade |
 | `test_leaflet_payload_includes_source_file_id` | `test_maps.py` | Detail-Payload: `source_file_id` an Marker und Track, Thumbnail-Popup, Blickrichtung |
@@ -341,6 +452,7 @@ Stand nach `pytest --collect-only`: **560 Tests** (31. August 2026). Neue Tests 
 | `test_map_cache_reuses_html_when_inputs_unchanged` | `test_maps.py` | Disk-Cache ohne Rebuild |
 | `test_map_cache_rebuilds_when_provider_or_force_changes` | `test_maps.py` | Cache-Invalidierung |
 | `test_map_cache_rebuilds_when_link_color_changes` | `test_maps.py` | Cache neu bei geänderter Linienfarbe |
+| `test_map_cache_rebuilds_when_map_track_color_changes` | `test_maps.py` | Cache neu bei geänderter Map-Track-Farbe |
 | `test_pick_cover_item_uses_first_photo` | `test_maps.py` | ohne Titelbild erstes Foto |
 | `test_pick_cover_item_uses_first_track_without_photo` | `test_maps.py` | ohne Foto erster Track |
 | `test_pick_cover_youtube_uses_first_link` | `test_maps.py` | YouTube-Cover-URL |
@@ -359,8 +471,9 @@ Stand nach `pytest --collect-only`: **560 Tests** (31. August 2026). Neue Tests 
 | `test_stay_links_use_first_transfer_segments` | `test_transfer_links.py` | erster Transfer liefert Segmente |
 | `test_transfer_link_row_keeps_dashed` | `tests/test_gui_smoke.py` | Transfer-Zeile behält gestrichelt; Verkehrsmittel mit Symbol vor dem Namen |
 | `test_stay_links_use_left_outbound_when_next_is_not_transfer` | `test_maps.py` | Tag/Aufenthalt-Ausgangslinie ohne Transfer dazwischen; Punkte vom linken zum rechten Cover |
+| `test_stay_links_inherit_trip_defaults_when_outbound_is_empty` | `test_maps.py` | Leere Ausgangslinie/Transfer-Liste übernimmt Bogen/Zug aus dem Reise-Standard |
 | `test_stay_links_omit_when_left_outbound_is_hidden` | `test_maps.py` | Keine Linie: keine StayLink-Kante |
-| `test_normalize_outbound_treats_straight_solid_as_empty` | `test_timeline_sections.py` | Standard = keine gespeicherten outbound-Felder; `none` bleibt `none` |
+| `test_normalize_outbound_null_means_inherit` | `test_timeline_sections.py` | NULL = Reise-Standard erben; `none` bleibt `none`; Gerade/Pfeil kann als Override gespeichert werden |
 | `test_kind_change_copies_outbound_to_transfer_and_back` | `test_timeline_sections.py` | Typwechsel übernimmt Linie/Bogen |
 | `test_kind_change_hidden_outbound_does_not_seed_transfer` | `test_timeline_sections.py` | Keine Linie wird nicht zur Transfer-Liste |
 | `test_stay_links_skip_stays_without_gps` | `test_maps.py` | Aufenthalt ohne GPS ist kein Linienende |
@@ -377,7 +490,7 @@ Stand nach `pytest --collect-only`: **560 Tests** (31. August 2026). Neue Tests 
 | `test_map_view_refresh_applies_pending_instead_of_live_reuse` | `tests/test_gui_smoke.py` | `refresh()` übernimmt `_pending_result` statt alter Live-Karte |
 | `test_publish_map_display_writes_unique_file` | `tests/test_gui_smoke.py` | WebEngine lädt eine neue HTML-Kopie nach Rebuild |
 | `test_map_view_applies_prepared_result_when_shown` | `tests/test_gui_smoke.py` | Hintergrund-Karte wird beim Öffnen der Seite übernommen |
-| `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Leiste zentriert; Transfer-Sechseck; Zähler; Plus; Rechtsklick Platzieren/Verschieben/Zentrieren; Cursor folgt der Karte |
+| `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Leiste zentriert; Transfer-Sechseck; Zähler; Plus vor, zwischen und nach den Karten; Rechtsklick Platzieren/Verschieben/Zentrieren; Cursor folgt der Karte |
 | `test_strip_click_closes_detail_and_zooms_cover` | `tests/test_gui_smoke.py` | andere Leistenkarte schließt Detail und `ZoomToCover`; dieselbe Karte bleibt im Detail |
 | `test_inspector_map_opens_thumbnail_then_original_on_double_click` | `tests/test_gui_smoke.py` | Inspektor: Vorschau, Doppelklick Original |
 
@@ -420,6 +533,8 @@ Stand nach `pytest --collect-only`: **560 Tests** (31. August 2026). Neue Tests 
 | `test_format_card_dates_omits_am_von_bis` | `test_timeline_sections.py` | Kartenkopf: `12.12.2026` bzw. `11.11.2026 - 21.11.2026` |
 | `test_format_scroll_date_is_compact` | `test_timeline_sections.py` | kompaktes Datum am Timeline-Schieber |
 | `test_insert_dates_between_uses_open_gap` | `test_timeline_sections.py` | Datum der Lücke zwischen zwei Karten |
+| `test_insert_dates_before_and_after_trip_ends` | `test_timeline_sections.py` | Datum vor der ersten und nach der letzten Karte |
+| `test_join_insert_spans_includes_ends` | `test_timeline_sections.py` | **+** vor, zwischen und nach den Karten |
 | `test_create_section_same_day_is_am` | `test_timeline_sections.py` | Aufenthalt am selben Kalendertag |
 | `test_dissolve_section_returns_files_to_day_sections` | `test_timeline_sections.py` | Auflösen → Tage nach Journal-Zeit |
 | `test_create_empty_section_uses_manual_date` | `test_timeline_sections.py` | leerer Abschnitt mit manuellem Datum |
@@ -502,10 +617,16 @@ Stand nach `pytest --collect-only`: **560 Tests** (31. August 2026). Neue Tests 
 
 | Test | Datei | Prüft |
 | --- | --- | --- |
-| `test_app_window_title_includes_version` | `tests/test_gui_smoke.py` | `Reisetagebuch R3.1.0` |
+| `test_app_window_title_includes_version` | `tests/test_gui_smoke.py` | `Reisetagebuch R3.2.0` |
 | `test_source_sync_dialog_defaults_to_timeline` | `tests/test_gui_smoke.py` | Sync-Dialog: Timeline vorausgewählt, Pool wählbar |
 | `test_source_sync_dialog_hides_destination_without_new_files` | `tests/test_gui_smoke.py` | ohne neue Dateien keine Timeline/Pool-Wahl |
 | `test_entry_widget_separates_tracks_from_media` | `tests/test_gui_smoke.py` | getrennte Galerien |
+| `test_entry_widget_folds_media_and_tracks` | `tests/test_gui_smoke.py` | Galerien einklappen, Kopfzeilen und Tagebuch bleiben |
+| `test_entry_widget_marks_map_track_on_track_header` | `tests/test_gui_smoke.py` | Chip **Map** an der Track-Kopfzeile |
+| `test_entry_widget_track_chips_map_act_igc` | `tests/test_gui_smoke.py` | Tracks tragen Chip **Map**, **Act**, **igc** |
+| `test_track_badge_for_map_act_igc` | `packages/travelcore/tests/test_track_badge.py` | Map, Fitness-Act, IGC; sonstige GPX ohne Chip |
+| `test_blank_fitness_thumb_is_marked_for_leaflet_refresh` | `test_thumbnails.py` | Schwarze Fitness-Thumbs werden neu mit Karte erzeugt |
+| `test_timeline_fold_all_galleries` | `tests/test_gui_smoke.py` | **Alles ein-/ausklappen** |
 | `test_entry_widget_track_can_be_cover` | `tests/test_gui_smoke.py` | T-Chip auf Track |
 | `test_entry_widget_shows_cover_in_heading` | `tests/test_gui_smoke.py` | Titelbild 168 px im Kartenkopf |
 | `test_entry_widget_falls_back_to_first_photo` | `tests/test_gui_smoke.py` | ohne T-Chip erstes Foto im Kartenkopf |
@@ -538,8 +659,8 @@ Stand nach `pytest --collect-only`: **560 Tests** (31. August 2026). Neue Tests 
 | `test_timeline_undo_pending_toggles_save_button` | `tests/test_gui_smoke.py` | Undo/Redo eines ungespeicherten Abschnitts schaltet Speichern |
 | `test_timeline_leave_prompts_when_text_dirty` | `tests/test_gui_smoke.py` | `confirm_leave` fragt Speichern/Verwerfen/Abbrechen bei dirty Text |
 | `test_scroll_offset_to_widget_top_uses_host_not_page_chrome` | `tests/test_gui_smoke.py` | Reveal ignoriert Reisetitel über der Liste |
-| `test_timeline_join_is_wide_downward_connector` | `tests/test_gui_smoke.py` | schlanke Verbindungslinie mit Plus zwischen Timeline-Karten |
-| `test_entry_span_dates_feeds_join_insert` | `tests/test_gui_smoke.py` | Lückendatum aus den Karten davor/danach |
+| `test_timeline_join_is_wide_downward_connector` | `tests/test_gui_smoke.py` | schlanke Verbindungslinie mit Plus vor, zwischen und nach Timeline-Karten |
+| `test_entry_span_dates_feeds_join_insert` | `tests/test_gui_smoke.py` | Lückendatum aus den Karten davor/danach, plus Tag vor der ersten und nach der letzten |
 | `test_settings_dialog_has_scrollbar` | `tests/test_gui_smoke.py` | Einstellungen-Dialog hat vertikalen Schieber |
 | `test_span_index_at_mid_contains_then_nearest` | `tests/test_gui_smoke.py` | mittlerer Abschnitt für den Schieber |
 | `test_timeline_scroll_date_follows_handle` | `tests/test_gui_smoke.py` | Datum klebt am Timeline-Schieber |
@@ -582,21 +703,23 @@ Stand nach `pytest --collect-only`: **560 Tests** (31. August 2026). Neue Tests 
 | `test_map_view_refresh_applies_pending_instead_of_live_reuse` | `tests/test_gui_smoke.py` | `refresh()` übernimmt `_pending_result` statt Live-Reuse |
 | `test_publish_map_display_writes_unique_file` | `tests/test_gui_smoke.py` | WebEngine lädt eine neue HTML-Kopie nach Rebuild |
 | `test_map_view_applies_prepared_result_when_shown` | `tests/test_gui_smoke.py` | Hintergrund-Karte wird beim Öffnen der Seite übernommen |
-| `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Timeline-Leiste zentriert; Zähler Fotos/Tracks/IGC/YouTube, Reserve-Schalter, Plus zwischen Karten |
+| `test_map_timeline_strip_centers_first_card` | `tests/test_gui_smoke.py` | Timeline-Leiste zentriert; Zähler Fotos/Tracks/IGC/YouTube, Reserve-Schalter, Plus vor, zwischen und nach den Karten |
 | `test_strip_click_closes_detail_and_zooms_cover` | `tests/test_gui_smoke.py` | andere Leistenkarte schließt Detail und zoomt; dieselbe bleibt |
 | `test_inspector_map_opens_thumbnail_then_original_on_double_click` | `tests/test_gui_smoke.py` | Vorschau, dann Original |
 | `test_thumb_zoom_persists` | `tests/test_workspace.py` | `timeline_thumb_zoom`, `map_thumb_zoom`, `media_thumb_zoom` und `import_thumb_zoom` in `config.json` |
 | `test_normalize_timeline_media_tab` | `tests/test_workspace.py` | gültige Tab-Namen |
 | `test_timeline_media_tab_persists` | `tests/test_workspace.py` | `config.json` hält das Register |
+| `test_store_db_paths_persist` | `tests/test_workspace.py` | Fitness- und IGC-DB-Pfad in `config.json` |
 | `test_sidebar_collapsed_persists` | `tests/test_workspace.py` | `config.json` hält die eingeklappte Navigation |
 | `test_timeline_pool_visible_persists` | `tests/test_workspace.py` | `config.json` hält die Pool-Spalte |
+| `test_timeline_galleries_collapsed_persists` | `tests/test_workspace.py` | `config.json` hält eingeklappte Timeline-Galerien |
 | `test_pool_width_persists` | `tests/test_workspace.py` | `config.json` hält die Pool-Breite |
 | `test_inspector_geometry_persists` | `tests/test_workspace.py` | `config.json` hält die Inspektor-Größe |
 | `test_inspector_remembers_window_size` | `tests/test_gui_smoke.py` | nächstes Öffnen mit derselben Fenstergröße |
 | `test_pool_media_tab_persists` | `tests/test_workspace.py` | `config.json` hält das Pool-Bewertungsregister |
 | `test_show_rejected_in_all_persists` | `tests/test_workspace.py` | `config.json` hält „Aussortierte anzeigen“ |
 | `test_inspector_show_rejected_persists` | `tests/test_workspace.py` | `config.json` hält Inspektor „Aussortierte anzeigen“ |
-| `test_map_display_flags_persist_in_project` | `tests/test_workspace.py` | Zahnrad-Optionen in `settings.toml` |
+| `test_map_display_flags_persist_in_project` | `tests/test_workspace.py` | Zahnrad- und Detail-Optionen in `settings.toml` |
 
 ### 4.16 Rückgängig und Wiederherstellen — FA-085
 
@@ -654,7 +777,7 @@ Stand nach `pytest --collect-only`: **560 Tests** (31. August 2026). Neue Tests 
 
 ## 5. Abdeckung gegen das Pflichtenheft
 
-### 5.1 Gut abgedeckt (Phase 7 plus Medien-Pipeline, R3.1.0)
+### 5.1 Gut abgedeckt (Phase 7 plus Medien-Pipeline, R3.2.0)
 
 - Dateiklassifikation und rekursiver Scan
 - SHA-256 und Skip unveränderter Dateien
@@ -663,6 +786,10 @@ Stand nach `pytest --collect-only`: **560 Tests** (31. August 2026). Neue Tests 
 - HEIC-GPS/Kamera ohne ExifTool (ISO 6709, eingebettetes TIFF, Apple-Boxen)
 - GPX-Parsing inkl. zeitloser und leerer Tracks, Interpolation, keine Überschreibung von EXIF-GPS
 - Hilfsskript Polar-JSON `routes` → Sibling-GPX (`tests/test_json_routes_to_gpx.py`)
+- Fitness-Datenbank: Import aller JSON/FIT/IGC, optionales `--sports`, GPX- und IGC-Export (`packages/fitnesscore/tests/`); GUI nach `.FitnessTracks/` und `.IGCTracks/` (gemerkte DB-Pfade, eigene Fortschrittsanzeige)
+- Track-Chips **Map** / **Act** / **igc**; Importzähler MAP / Activity / Flüge / Sonstige; Kartendetail **Flüge anzeigen** / **Aktivitäten anzeigen**
+- Hilfsskript Google-Maps-Routenlink → GPX (`tests/test_maps_url_to_gpx.py`)
+- Ausgangslinie Map-Track / `.MapTracks/` im Import-Ordner (`packages/travelcore/tests/test_maptracks.py`)
 - IGC-Parsing, Pilot, DHV-Leonardo-Link überlebt Re-Import
 - KML/GeoJSON-Parser für Track-Vorschauen (kein Ingest)
 - JPEG-Thumbnails (große JPEGs per Decoder-Draft), HEIC-Vorschau (Windows-Shell/WIC oder eingebettetes JPEG), Originale unverändert
@@ -672,13 +799,13 @@ Stand nach `pytest --collect-only`: **560 Tests** (31. August 2026). Neue Tests 
 - Sortierstatus Favorit/Reserve/Aussortiert inkl. Fallback auf Favoriten-Flag
 - Import bricht bei einer defekten Datei (JPEG oder GPX) nicht ab
 - Projekt anlegen, Schema (Abschnitte, Mitglieder, Journal-Zeit, Pool `parked`, URLs, Cover, Drehung), Wiederöffnen, `settings.toml` und Pfad-Rebase
-- Karte: Titelbild-Kreise je Tag/Transfer/Aufenthalt (Cover-Fallback Foto/Track/YouTube), Verbindungslinien (Transfer-Liste oder Ausgangslinie, Symbol in Fahrtrichtung), Transfer-Kreis per dünner Linie am Verkehrssymbol, Layer-Menü Straßenkarte/Topo/Satellit, Fit-Reise, Zahnrad (Fotokegel, Reserve, Ortsnamen und Straßen auf Satellit), Leiste darunter mit **+**, Tagebuchtext rechts, YouTube-Thumbs unten rechts auf der Karte, Cover-Zoom und Überlappungsgruppe, Detail mit Tracklinie und Fotomarkern (Stapel naher Fotos bis Zoom 16), Foto-Popup (Vorab-Zentrierung, Blättern, Schieber-Zoom, Bewertung), offline ohne OSM
+- Karte: Titelbild-Kreise je Tag/Transfer/Aufenthalt (Cover-Fallback Foto/Track/YouTube), Verbindungslinien (Transfer-Liste oder Ausgangslinie, Symbol in Fahrtrichtung), Transfer-Kreis per dünner Linie am Verkehrssymbol, Layer-Menü Straßenkarte/Topo/Satellit, Fit-Reise, Zahnrad (Fotokegel, Reserve, Ortsnamen und Straßen auf Satellit), Leiste darunter mit **+**, Tagebuchtext rechts, YouTube-Thumbs unten rechts auf der Karte, Cover-Zoom und Überlappungsgruppe, Detail mit Tracklinie und Fotomarkern (Stapel naher Fotos bis Zoom 16; Checkboxen **Flüge anzeigen** / **Aktivitäten anzeigen**), Foto-Popup (Vorab-Zentrierung, Blättern, Schieber-Zoom, Bewertung), offline ohne OSM
 - Verkehrsmittelsymbole: Katalog = `MOVEMENT_MODES`, Hilfe und Combos, Camper/Van nach rechts, Karten-Spiegelung in eigenem Wrapper
 - Timeline: Tage als Abschnitte mit Mitgliedern, Medienpool, Journal-Zeit, Drag & Drop Karte↔Karte und Pool inkl. Auto-Scroll, manuelle Texte bleiben, Ortsvorschläge, `used_in_journal`; Sichtbarkeits-Schalter (ein = Karte/Export); Speichern-Button nur bei Abschnitten, Texten, Reisetitel, YouTube (sonst grau; Undo/Redo schaltet mit); Verlassen-Dialog Speichern/Verwerfen/Abbrechen; Rückgängig/Wiederherstellen (Snapshots in `travelcore`, Stack im Workspace)
 - Reiseabschnitte, Pending-Vorschau, Eintrags-Titelbild (Foto und Track, YouTube-Fallback)
 - YouTube- und DHV-Leonardo-URL-Normalisierung
 - Anzeigedrehung (Index, Cachepfad, Re-Import, Inspektor ohne Originalschreiben)
-- GUI-Rauch: Fenstertitel mit Version R3.1.0, Menü **Bearbeiten** (Strg+Z/Strg+Y), Pipeline Import→Medien→Timeline, Pool-Spalte, getrennte Medien/Tracks, Register nur per Klick (auch Tracks), Inspektor Blättern/Zoom/Drehen/Pool/Zur Karte (letzter Klick, geladene Karte ohne Neuaufbau), Sichtbarkeits-Schalter, Speichern/Verlassen, Thumbnail-Schieber, Länderauswahl und Reise von–bis ohne Projekt deaktiviert
+- GUI-Rauch: Fenstertitel mit Version R3.2.0, Menü **Bearbeiten** (Strg+Z/Strg+Y), Pipeline Import→Medien→Timeline, Pool-Spalte, getrennte Medien/Tracks, Register nur per Klick (auch Tracks), Inspektor Blättern/Zoom/Drehen/Pool/Zur Karte (letzter Klick, geladene Karte ohne Neuaufbau), Sichtbarkeits-Schalter, Speichern/Verlassen, Thumbnail-Schieber, Länderauswahl und Reise von–bis ohne Projekt deaktiviert
 - Medien-Cluster: SHA-256-Stapel, 30-s-Szenengruppen, manuelle Gruppen ohne Schlüssel, Overlay blendet Nicht-Schlüssel aus, Galerie-Kennzeichen G/×n, Inspektor-Blättern (Links/rechts Schlüssel, hoch/runter Gruppe, Leertaste, Aussortierte-Checkbox), Statistikleiste
 - Qualitätsampel: `technical_quality` in `photo_analyses`, Pillow-Analyse ohne Originalschreiben, Ampel in der Galerie, Knopf **Qualität prüfen**, Hover mit ausschlaggebenden Einzelwerten (`quality_tooltip`)
 - Medien-**Filtern**: Qualität, Zeitraum Von–Bis, Bewertung (Mehrfachauswahl) für Galerie und Pool
@@ -728,7 +855,7 @@ Schweregrade für manuelle Funde:
 
 ---
 
-## 7. Manuelle Testfälle (Phase 3 bis 7 plus Medien-Pipeline, Software R3.1.0, inkl. Windows-Paket und Undo/Redo)
+## 7. Manuelle Testfälle (Phase 3 bis 7 plus Medien-Pipeline, Software R3.2.0, inkl. Windows-Paket und Undo/Redo)
 
 Voraussetzung: App starten mit
 
@@ -767,9 +894,12 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Quelle mit mehr als 250 unterstützten Dateien | Tabellenzeilen = indexierte Dateien; Zähler und Fußzeile („N Dateien in der Liste“) stimmen überein |
+| Quelle mit mehr als 250 unterstützten Dateien | Tabellenzeilen = indexierte Dateien; Zähler und Fußzeile („N Dateien in der Liste“) stimmen überein; Tracks als **MAP**, **Activity**, **Flüge**, **Sonstige** |
 | Klick oder Mouseover auf eine Fotozeile | Rechts: Vorschaubild (nach Thumbnail-Lauf) und Metadaten inkl. GPS/Kamera |
 | Thumbnail-Schieber auf Import | rechte Vorschau 50–200 %; bleibt in `config.json` als `import_thumb_zoom` |
+| Fitness-DB wählen, Zeitraum (vorbefüllt, überschreibbar), **Fitnessdaten Importieren** | GPX unter `{Import}/.FitnessTracks/`; Fortschrittsanzeige; Scan/Sync überspringt den Ordner nicht; Pfad bleibt in `config.json` |
+| IGC-DB wählen, Zeitraum (vorbefüllt, überschreibbar), **IGC-Daten Importieren** | IGC unter `{Import}/.IGCTracks/`; Fortschrittsanzeige; Scan/Sync überspringt den Ordner nicht; Pfad bleibt in `config.json` |
+| App schließen und neu öffnen, Seite Import | dieselben Fitness- und IGC-Datenbankfelder |
 
 ### MT-23 Quellverzeichnis synchronisieren
 
@@ -803,7 +933,7 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Projekt → Einstellungen: GPS-Zeitfenster, Standardzeitzone, Kartenanbieter, Verbindungslinien-Farbe | Werte in `settings.toml`; Originale unverändert; Standardfarbe der Linien weiß; Dialog hat einen vertikalen Schieber, Speichern/Abbrechen bleiben unten |
+| Projekt → Einstellungen: GPS-Zeitfenster, Standardzeitzone, Kartenanbieter, Verbindungslinien-Farbe, Map-Track-Farbe, Standard-Verbindung (Linientyp, Strich, Symbol) | Werte in `settings.toml`; Originale unverändert; Standardfarbe der Linien weiß, Map-Tracks blau (`#5b8def`); Dialog hat einen vertikalen Schieber, Speichern/Abbrechen bleiben unten; Abschnitte ohne eigene Linie zeigen Auto/Zug/Bogen wie in den Einstellungen |
 | Wurzelverzeichnis auf einen verschobenen Ordner setzen | Index-Pfade umgeschrieben, Dateien selbst nicht bewegt |
 | Kartenanbieter `offline` | Karte ohne OSM-, Topo- und Satellitenkacheln, Track und Marker bleiben |
 
@@ -840,8 +970,9 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | ein runder Kreis je Tag, Transfer oder Aufenthalt; zwischen **Tag- und Aufenthaltskreisen** in Timeline-Reihenfolge eine Verbindungslinie mit Richtungsmarker; Transfer-Kreis mit dünner Linie am Verkehrssymbol; Layer-Symbol oben rechts mit Straßenkarte / Topo / Satellit; **Ganze Reise** zwischen Zoom und Zahnrad; Zahnrad unter den Zoom-Buttons; ohne gesetztes Titelbild das erste Foto, sonst das erste Track-Thumbnail, sonst das erste YouTube-Vorschaubild; darunter die Timeline-Leiste mit denselben Einträgen und **+** zwischen den Karten; **Übersicht aller Kreise** im Ausschnitt |
+| Nach Import mit GPX und Fotos (mit oder ohne EXIF-GPS) Seite **Karte** öffnen | ein runder Kreis je Tag, Transfer oder Aufenthalt; zwischen **Tag- und Aufenthaltskreisen** in Timeline-Reihenfolge eine Verbindungslinie mit Richtungsmarker; Transfer-Kreis mit dünner Linie am Verkehrssymbol; Layer-Symbol oben rechts mit Straßenkarte / Topo / Satellit; **Ganze Reise** zwischen Zoom und Zahnrad; Zahnrad unter den Zoom-Buttons; ohne gesetztes Titelbild das erste Foto, sonst das erste Track-Thumbnail, sonst das erste YouTube-Vorschaubild; darunter die Timeline-Leiste mit denselben Einträgen und **+** vor, zwischen und nach den Karten; **Übersicht aller Kreise** im Ausschnitt |
 | **+** zwischen zwei Leistenkarten | Dialog **Neuer Reiseabschnitt** mit Datum der Lücke; nach OK erscheint der Abschnitt in der Timeline (**Speichern**) |
+| **+** vor der ersten bzw. nach der letzten Leistenkarte | derselbe Dialog; Datum = Tag vor der ersten bzw. nach der letzten Karte |
 | Layer-Symbol: **Straßenkarte**, **Topo**, **Satellit** | wechselt OSM, OpenTopoMap und Esri World Imagery; Kreise und Linien bleiben; Quellenangabe je Anbieter; mit Ortsnamen-Option zusätzlich CARTO; `offline` ohne Symbol |
 | Zahnrad: **Fotokegel anzeigen** | ab Zoom 17 ein Kegel an Fotos mit Blickrichtung und Brennweite (am Stapel und am Ursprung nach der Auswahl); im Fächer keine Kegel; bleibt nach Projekt-Neuöffnen |
 | Zahnrad: **Reserve-Elemente anzeigen** aus | Reserve-Medien unsichtbar; Aussortierte nie auf der Karte; bleibt nach Projekt-Neuöffnen |
@@ -871,7 +1002,9 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | **Ganze Reise** | alle Cover-Kreise im Ausschnitt, ohne Zoomanimation |
 | Mehrere Cover-Kreise überlappen sich (weit herausgezoomt), erster Klick auf die Gruppe | die Gruppe wird eingepasst; noch kein Detail |
 | Zweiter Klick auf einen einzelnen Kreis der Gruppe | Zoom auf diesen Kreis (mindestens 14), ohne Zoomanimation |
-| Noch ein Klick auf denselben Kreis | Detailansicht: Fotos, Videos und Tracks dieses Eintrags, Ausschnitt angepasst; **Reiseabschnitt schließen** rechts neben dem Zoom-Plus stellt Zoom und Ausschnitt der Übersicht wieder her |
+| Noch ein Klick auf denselben Kreis | Detailansicht: Fotos, Videos und Tracks dieses Eintrags, Ausschnitt angepasst; **Reiseabschnitt schließen** rechts neben dem Zoom-Plus stellt Zoom und Ausschnitt der Übersicht wieder her; daneben **Flüge anzeigen** und **Aktivitäten anzeigen** (Standard ein) |
+| Detail: **Flüge anzeigen** aus | IGC-Fluglinien und Flugmarker unsichtbar; Map-Tracks bleiben; bleibt nach Projekt-Neuöffnen |
+| Detail: **Aktivitäten anzeigen** aus | Fitness- und sonstige GPX-Linien unsichtbar; Map-Tracks bleiben; bleibt nach Projekt-Neuöffnen |
 | Klick auf das Verkehrssymbol eines Transfers | dieselbe Detailansicht wie der zweite Klick auf den Transfer-Kreis |
 | Freie Karte: offene Hand (Verschieben); über einem Kreis: Zeiger (Auswahl) | der Kreis-Klick zoomt bzw. öffnet das Detail, startet kein Mausrad-Zoomen |
 | In der Detailansicht eine **andere** Leistenkarte anklicken | Detail schließt; Zoom auf den Cover-Kreis dieses Abschnitts; der Mauszeiger steht über der Kartenmitte |
@@ -893,8 +1026,9 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Nach Import Seite **Timeline** öffnen bzw. **Timeline aktualisieren** | ein Tag je Aufnahmedatum, Karten von früh nach spät; Kartenkopf: Titelbild, rechts Titel, darunter Typ/Datum (`14.05.2025` bzw. `01.08.2025 - 10.08.2025`), oben rechts Sichtbarkeits-Schalter, **Zur Karte** und **Menü**; danach Verbindungslinien; darunter Tagebucheintrag; zwischen den Karten Abstand und schlanke Linie mit **+** in einem Ring; Fotos auf der Karte nach Journal-Zeit; Auto-Ereignis mit Medienzähler |
+| Nach Import Seite **Timeline** öffnen bzw. **Timeline aktualisieren** | ein Tag je Aufnahmedatum, Karten von früh nach spät; Kartenkopf: Titelbild, rechts Titel, darunter Typ/Datum (`14.05.2025` bzw. `01.08.2025 - 10.08.2025`), oben rechts Sichtbarkeits-Schalter, **Zur Karte** und **Menü**; danach Verbindungslinien; darunter Tagebucheintrag; vor der ersten, zwischen den Karten und nach der letzten Abstand und schlanke Linie mit **+** in einem Ring; Fotos auf der Karte nach Journal-Zeit; Auto-Ereignis mit Medienzähler |
 | **+** auf der Linie zwischen zwei Karten | Dialog **Neuer Reiseabschnitt**; Tag **Am** = erster offener Tag der Lücke; Aufenthalt/Transfer **Von**/**Bis** = offene Tage; ohne Lücke das Datum der vorherigen Karte |
+| **+** vor der ersten bzw. nach der letzten Karte (Timeline und Kartenleiste) | derselbe Dialog; Datum = Tag vor der ersten bzw. nach der letzten Karte |
 | Vertikalen Schieber ziehen | links am Griff das Datum des Abschnitts in der Bildmitte (`14.05.2025` bzw. `01.–10.08.2025`) |
 | Pool-Schieber ziehen | links am Griff das Aufnahmedatum des Mediums in der Bildmitte |
 | Timeline ohne ungespeicherte Abschnitte, Texte, Reisetitel oder YouTube | **Speichern** ist grau und inaktiv |
@@ -920,12 +1054,15 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Transfer-Verbindungslinie: **durchgezogen** / **gestrichelt** | nach Speichern auf der Karte dieselbe Strichart |
 | Transfer mit mehreren Verkehrsmitteln, **Speichern**, ⊟ auflösen | Dateien wieder auf Tagen |
 | Tag oder Aufenthalt, nächster Eintrag kein Transfer: **Verbindung zum nächsten Abschnitt** | Gerade/Bogenlinie, durchgezogen/gestrichelt, ein Verkehrsmittel (Symbol vor dem Namen, Nase nach rechts in der Liste); leer = Richtungspfeil auf der Geraden; **Keine Linie** zeichnet nichts zum Folgekreis; Track und Route fehlen; Symbolspitze zur nächsten Tag-/Aufenthaltsposition |
+| **Map-Track** → **Datei…** oder **Maps-Link…** (Import-Ordner gesetzt) | GPX unter `{Import}/.MapTracks/`; Datei-Import **Map-Track**; Maps-Link: Dialog mit Namensvorschlag (überschreibbar, Abbrechen speichert nicht); nicht im Projektordner; nicht in der Mediengalerie; Scan/Sync lässt die Datei stehen |
 | Letzter Eintrag oder nächster Eintrag ist Transfer | keine Ausgangslinie-Zeile; gespeicherte Werte bleiben |
 | YouTube im **Menü**, Dialog-OK | **Speichern** wird aktiv; ohne Speichern die Timeline verlassen: Dialog Speichern/Verwerfen/Abbrechen; nach Verwerfen YouTube nicht in der DB |
 | Titel, Tagebuchtext, Reisetitel, YouTube oder neuen Abschnitt ändern und die Timeline verlassen | Dialog Speichern/Verwerfen/Abbrechen; Abbrechen bleibt auf der Seite; Verwerfen stellt den letzten gespeicherten Stand her |
 | **Timeline aktualisieren** bei geändertem Titel/Text | Texte werden mitgeschrieben; **Speichern** bleibt aktiv, wenn Abschnitte oder YouTube noch ungespeichert sind |
 | DHV-Leonardo extra an gespeichertem Tag, Dialog-OK | sofort in der DB; nie als „DAV“ bezeichnet |
 | Chip **T** auf Foto und auf Track | Cover in der Kartenüberschrift; Video hat kein T |
+| Medien- oder Track-Kopfzeile anklicken | Galerie klappt ein; Tagebucheintrag und Kopfzeile bleiben; Map-Track zeigt Chip **Map** an der Track-Kopfzeile; Fitness **Act**, IGC **igc** auf dem Thumbnail |
+| **Alles einklappen** / **Alles ausklappen** | alle Karten folgen; Zustand bleibt in `config.json` |
 | Ohne Chip T | Fallback: erstes Foto, sonst erstes Track-Thumbnail, sonst erstes YouTube-Vorschaubild |
 | **Zur Karte** an einem gespeicherten Reiseabschnitt oder Tag | Seite **Karte**, passende Leistenkarte fokussiert |
 | Rechtsklick auf ein Thumbnail, **Zur Karte…** | Seite **Karte**, Detailansicht, Foto an der Position, Leistenkarte des Bildes mittig (nur mit Kartenposition, gespeicherter Eintrag) |
@@ -987,8 +1124,8 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| App ohne Projekt | Titelleiste `Reisetagebuch R3.1.0` |
-| Projekt öffnen | `Reisetagebuch R3.1.0 - {Projekttitel}` |
+| App ohne Projekt | Titelleiste `Reisetagebuch R3.2.0` |
+| Projekt öffnen | `Reisetagebuch R3.2.0 - {Projekttitel}` |
 
 ### MT-22 Windows-Paket (FA-140–FA-144)
 
@@ -996,7 +1133,7 @@ Voraussetzung: `packaging/build.ps1` erfolgreich; optional Inno Setup 6 für die
 
 | Schritt | Erwartung |
 | --- | --- |
-| `dist/Reisetagebuch/Reisetagebuch.exe` starten (ohne venv, ohne `python` auf dem PATH) | Fenster `Reisetagebuch R3.1.0`; kein Python-Fehlerdialog |
+| `dist/Reisetagebuch/Reisetagebuch.exe` starten (ohne venv, ohne `python` auf dem PATH) | Fenster `Reisetagebuch R3.2.0`; kein Python-Fehlerdialog |
 | Neues Projekt anlegen, JPEG-Ordner importieren | Index und Thumbnails wie in der Entwicklungsumgebung; Originale unverändert |
 | Seite **Karte** | WebEngine zeigt die Karte (nicht nur den HTML-Pfad) |
 | `%LOCALAPPDATA%\TravelJournal` | `config.json` / `recent.json` wie bisher, nicht im Programmordner |
@@ -1088,8 +1225,12 @@ Diese Fälle werden mit der jeweiligen Phase verbindlich.
 | Timeline / Abschnitte | `test_timeline.py`, `test_timeline_sections.py`, `tests/test_gui_smoke.py` (Speichern-Button), manuell MT-13 |
 | Undo / Redo | `test_timeline_history.py`, `tests/test_edit_history.py`, Menü in `tests/test_gui_smoke.py`, manuell MT-24 |
 | Hilfsskript JSON → GPX | `tests/test_json_routes_to_gpx.py`; Aufruf im README |
+| Fitness-Datenbank CLI | `packages/fitnesscore/tests/`; Aufruf und Parameter im README |
+| Fitness-Tracks im Reisetagebuch | `packages/travelcore/tests/test_fitnesstracks.py`, `tests/test_fitness_tracks.py`, `test_scanner.py`; manuell MT-08 |
+| IGC-Tracks im Reisetagebuch | `packages/travelcore/tests/test_igctracks.py`, `tests/test_igc_tracks.py`, `test_scanner.py`; manuell MT-08 |
+| Hilfsskript Maps → GPX | `tests/test_maps_url_to_gpx.py`; Aufruf im README |
 | Karte / Leiste / Kreis-Detail | `test_maps.py`, `tests/test_gui_smoke.py` (Map-Fälle), manuell MT-12 |
-| Verbindungslinien / Symbole | `test_transfer_links.py`, `test_symbols.py`, `test_maps.py` (outbound), `tests/test_gui_smoke.py` (Transfer-Zeile), manuell MT-12, MT-13, MT-25 |
+| Verbindungslinien / Symbole | `test_transfer_links.py`, `test_symbols.py`, `test_maps.py` (outbound), `packages/travelcore/tests/test_maptracks.py`, `tests/test_gui_smoke.py` (Transfer-Zeile), manuell MT-12, MT-13, MT-25 |
 | Inspektor / Drehung / Register / Zur Karte | `test_orientation.py`, `tests/test_gui_smoke.py`, manuell MT-18–MT-21 |
 | Medien-Cluster / Statistik | `packages/travelcore/tests/test_clusters.py`, `tests/test_gui_smoke.py` (Cluster-Fälle), manuell MT-26 |
 | Qualitätsampel | `packages/travelcore/tests/test_quality.py` (inkl. `test_quality_tooltip_names_decisive_parts`), `tests/test_gui_smoke.py` (Ampel, Hover), manuell MT-27 |
@@ -1108,6 +1249,10 @@ Ein Phasenabschluss ohne grüne Automatisierung gilt als nicht abgenommen.
 
 | Datum | Kommando | Ergebnis |
 | --- | --- | --- |
+| 02.09.2026 | `python -m pytest --collect-only -q` im Projekt-venv | 643 Tests gesammelt (R3.2.0; Fitness-/IGC-Import, Track-Chips, Kartendetail Flüge/Aktivitäten) |
+| 02.09.2026 | `python -m pytest --collect-only` im Projekt-venv | 622 Tests gesammelt (Fitness-Tracks unter `.FitnessTracks/`, Scan nimmt sie mit) |
+| 02.09.2026 | `python -m pytest --collect-only` im Projekt-venv | 578 Tests gesammelt (Ausgangslinie Track, `.MapTracks/` im Import-Ordner) |
+| 02.09.2026 | `python -m pytest --collect-only` im Projekt-venv | 574 Tests gesammelt (Maps-URL → GPX Hilfsskript) |
 | 31.08.2026 | `python -m pytest --collect-only -q` im Projekt-venv | 560 Tests gesammelt (R3.1.0; CEWE-`.mcf` Hybrid, Travelbook-PDF, Sichtbarkeit) |
 | 31.08.2026 | `python -m pytest --collect-only -q` im Projekt-venv | 452 Tests gesammelt (R3.1.0; Sichtbarkeit, Speichern/Verlassen, Karten-Refresh) |
 | 30.08.2026 | `python -m pytest` im Projekt-venv | 443 bestanden (R3.0.0; Filtern, Import-Zoom, Ampel-Hover) |
@@ -1121,4 +1266,4 @@ Ein Phasenabschluss ohne grüne Automatisierung gilt als nicht abgenommen.
 | 26.08.2026 | `python -m pytest` im Projekt-venv | 222 bestanden |
 | 18.08.2026 | `python -m pytest` im Projekt-venv | 98 bestanden |
 
-Collect-only für R3.1.0 am 31.08.2026; die nächste vollständige `pytest`-Fahrt hier fortschreiben.
+Collect-only für R3.2.0 am 02.09.2026 (643 Tests); die nächste vollständige `pytest`-Fahrt hier fortschreiben.

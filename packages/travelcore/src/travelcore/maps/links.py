@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from math import atan2, cos, radians, sin, sqrt
 
 from travelcore.maps.scene import (
+    MAX_TRACK_DISPLAY_POINTS,
     STAY_LINK_ROLE_GAP,
     STAY_LINK_ROLE_USER,
     STAY_LINK_STYLE_CURVE,
@@ -22,9 +23,11 @@ from travelcore.timeline.transfer_links import (
     LINK_DASH_SOLID,
     LINK_GEOMETRY_ARC,
     LINK_GEOMETRY_LINE,
+    LINK_GEOMETRY_MAP_TRACK,
     LINK_GEOMETRY_ROUTE,
     LINK_GEOMETRY_TRACK,
-    OVERVIEW_TRACK_POINTS,
+    is_map_track_geometry,
+    uses_track_points,
 )
 from travelcore.timeline.types import TimelineLink
 
@@ -32,6 +35,7 @@ _EARTH_M = 6371000.0
 _STYLE_BY_GEOMETRY = {
     LINK_GEOMETRY_LINE: STAY_LINK_STYLE_STRAIGHT,
     LINK_GEOMETRY_TRACK: STAY_LINK_STYLE_TRACK,
+    LINK_GEOMETRY_MAP_TRACK: STAY_LINK_STYLE_TRACK,
     LINK_GEOMETRY_ARC: STAY_LINK_STYLE_CURVE,
     LINK_GEOMETRY_ROUTE: STAY_LINK_STYLE_ROUTE,
 }
@@ -145,9 +149,9 @@ def _user_segments(
         following = links[index + 1] if index + 1 < len(links) else None
         vertex = _end_vertex(link, following, end, tracks)
         track_pts = _track_points(link, tracks)
-        if link.geometry == LINK_GEOMETRY_TRACK and track_pts:
+        if uses_track_points(link.geometry) and track_pts:
             aligned = orient_track(track_pts, cursor, vertex or end)
-            points = downsample_points(aligned, max_points=OVERVIEW_TRACK_POINTS)
+            points = downsample_points(aligned, max_points=MAX_TRACK_DISPLAY_POINTS)
             if len(points) >= 2:
                 segments.append(_user_segment(link, points))
                 cursor = points[-1]
@@ -184,7 +188,7 @@ def _track_points(
     link: TimelineLink,
     tracks: Mapping[int, tuple[tuple[float, float], ...]],
 ) -> tuple[tuple[float, float], ...]:
-    if link.geometry != LINK_GEOMETRY_TRACK or link.track_source_file_id is None:
+    if not uses_track_points(link.geometry) or link.track_source_file_id is None:
         return ()
     return tracks.get(link.track_source_file_id, ())
 
@@ -196,6 +200,7 @@ def _user_segment(link: TimelineLink, points: Sequence[tuple[float, float]]) -> 
         dash=link.dash or LINK_DASH_SOLID,
         symbol=link.symbol,
         points=tuple(points),
+        map_track=is_map_track_geometry(link.geometry),
     )
 
 

@@ -616,6 +616,18 @@ QLabel#fieldCaption {
     font-weight: 600;
 }
 
+QLabel#galleryFoldChevron {
+    background-color: transparent;
+    color: #c5cddb;
+    font-size: 13px;
+    min-width: 12px;
+}
+
+QWidget#mapTrackChip {
+    background-color: transparent;
+    border: none;
+}
+
 QComboBox#sectionKind {
     min-width: 108px;
     max-width: 148px;

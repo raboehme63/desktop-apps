@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from math import atan, ceil, degrees
 from pathlib import Path
@@ -22,10 +22,13 @@ from travelcore.database.models import (
     Trip,
     TripDay,
 )
+from travelcore.gps.maptracks import is_map_track_path
+from travelcore.gps.track_badge import TRACK_BADGE_IGC, TRACK_BADGE_MAP, track_badge_for
 from travelcore.media.gallery import SORT_REJECTED, effective_sort_status
 from travelcore.media.orientation import normalize_rotation_degrees
 from travelcore.media.thumbnails import cached_thumbnail_path
 from travelcore.media.types import FileKind
+from travelcore.project_settings import DEFAULT_MAP_TRACK_COLOR
 from travelcore.timeline.journal import aware, calendar_key
 
 MAX_TRACK_DISPLAY_POINTS = 2500
@@ -70,6 +73,7 @@ class MapMarker:
     sort_status: str | None = None
     heading_degrees: float | None = None
     fov_degrees: float | None = None
+    map_track: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +87,7 @@ class MapPolyline:
     external_url: str | None = None
     source_file_id: int | None = None
     sort_status: str | None = None
+    map_track: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +99,7 @@ class StayLinkSegment:
     dash: str = "solid"
     symbol: str | None = None
     points: tuple[tuple[float, float], ...] = ()
+    map_track: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,6 +136,18 @@ class MapScene:
     @property
     def empty(self) -> bool:
         return not self.markers and not self.polylines and self.center is None
+
+
+def apply_map_track_color(scene: MapScene, color: str) -> MapScene:
+    """Paint Map-Track polylines with the project color without touching GPS tracks."""
+
+    from travelcore.project_settings import normalize_map_track_color
+
+    painted = normalize_map_track_color(color)
+    lines = tuple(replace(line, color=painted) if line.map_track else line for line in scene.polylines)
+    if lines == scene.polylines:
+        return scene
+    return replace(scene, polylines=lines)
 
 
 def stay_link_visible(pixel_distance: float, *, cover_px: float = COVER_ICON_PX) -> bool:
@@ -199,6 +217,9 @@ def track_polylines(
     statuses = _sort_status_map(
         session, {track.source_file_id for track in meta.values() if track.source_file_id}
     )
+    map_track_ids = _map_track_source_ids(
+        session, {track.source_file_id for track in meta.values() if track.source_file_id}
+    )
     lines: list[MapPolyline] = []
     for key, coords in grouped.items():
         track = meta[key[0]]
@@ -206,6 +227,7 @@ def track_polylines(
         if status == SORT_REJECTED:
             continue
         is_flight = track.track_format == "igc"
+        is_map = bool(track.source_file_id and track.source_file_id in map_track_ids)
         sampled = downsample_points(
             coords,
             max_points=MAX_FLIGHT_DISPLAY_POINTS if is_flight else MAX_TRACK_DISPLAY_POINTS,
@@ -213,17 +235,24 @@ def track_polylines(
         if len(sampled) < 2:
             continue
         label = _day_key(started.get(track.id))
+        if is_flight:
+            color = "#e07a3d"
+        elif is_map:
+            color = DEFAULT_MAP_TRACK_COLOR
+        else:
+            color = "#2eb8a0"
         lines.append(
             MapPolyline(
                 name=label,
                 points=tuple(sampled),
                 kind="flight" if is_flight else "track",
-                color="#e07a3d" if is_flight else "#2eb8a0",
+                color=color,
                 min_zoom=FLIGHT_LINE_MIN_ZOOM if is_flight else 0,
                 pilot=track.pilot,
                 external_url=track.external_url,
                 source_file_id=track.source_file_id,
                 sort_status=status,
+                map_track=is_map,
             )
         )
     return lines
@@ -290,10 +319,13 @@ def _photo_markers(
         if day_key not in day_index:
             day_index[day_key] = len(day_index)
         color = _DAY_COLORS[day_index[day_key] % len(_DAY_COLORS)]
+        badge = track_badge_for(row.path, row.filename) if row.file_kind == FileKind.GPS.value else None
         if row.file_kind == FileKind.PHOTO.value:
             kind = "photo"
         elif row.file_kind == FileKind.VIDEO.value:
             kind = "video"
+        elif badge == TRACK_BADGE_IGC:
+            kind = "flight"
         else:
             kind = "track"
         heading = row.heading_degrees if kind == "photo" else None
@@ -319,6 +351,7 @@ def _photo_markers(
                 sort_status=status,
                 heading_degrees=heading,
                 fov_degrees=fov,
+                map_track=badge == TRACK_BADGE_MAP,
             )
         )
     return markers
@@ -378,6 +411,13 @@ def photo_fov_degrees(focal_35mm: float | None, focal_mm: float | None = None) -
         return DEFAULT_PHOTO_FOV_DEGREES
     fov = 2 * degrees(atan(18.0 / fl))
     return max(8.0, min(fov, 140.0))
+
+
+def _map_track_source_ids(session: Session, source_ids: set[int]) -> set[int]:
+    if not source_ids:
+        return set()
+    rows = session.scalars(select(SourceFile).where(SourceFile.id.in_(source_ids)))
+    return {row.id for row in rows if row.id is not None and is_map_track_path(row.path)}
 
 
 def _sort_status_map(session: Session, source_ids: set[int]) -> dict[int, str | None]:

@@ -152,6 +152,7 @@ class TimelineSnapshot:
     days: tuple[TimelineDay, ...] = field(default_factory=tuple)
     sections: tuple[TimelineSection, ...] = field(default_factory=tuple)
     entries: tuple[TimelineEntry, ...] = field(default_factory=tuple)
+    map_track_items: tuple[TimelinePhoto, ...] = field(default_factory=tuple)
 
     @property
     def day_count(self) -> int:

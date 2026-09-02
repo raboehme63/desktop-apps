@@ -27,6 +27,7 @@ from PySide6.QtGui import (
     QFont,
     QMouseEvent,
     QPainter,
+    QPaintEvent,
     QPixmap,
 )
 from PySide6.QtWidgets import (
@@ -40,6 +41,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from travelcore.gps.track_badge import TRACK_BADGE_ACT, TRACK_BADGE_IGC, TRACK_BADGE_MAP
 from travelcore.image_analysis.quality import (
     QUALITY_GREEN,
     QUALITY_RED,
@@ -70,6 +72,19 @@ POOL_MIME = "application/x-traveljournal-source-ids"
 _CHIP = 22
 _CHIP_GAP = 3
 _COVER_ACTIVE = QColor("#e0b85a")
+_MAP_CHIP_BG = QColor("#2eb8a0")
+_MAP_CHIP_FG = QColor("#06231e")
+_ACT_CHIP_BG = QColor("#5b8def")
+_ACT_CHIP_FG = QColor("#0e1628")
+_IGC_CHIP_BG = QColor("#e07a4a")
+_IGC_CHIP_FG = QColor("#1a1208")
+_MAP_CHIP_EXTRA_W = 22
+_MAP_CHIP_RADIUS = 6
+_TRACK_CHIP_STYLE = {
+    TRACK_BADGE_MAP: ("Map", _MAP_CHIP_BG, _MAP_CHIP_FG, "Map-Track"),
+    TRACK_BADGE_ACT: ("Act", _ACT_CHIP_BG, _ACT_CHIP_FG, "Aktivität"),
+    TRACK_BADGE_IGC: ("igc", _IGC_CHIP_BG, _IGC_CHIP_FG, "IGC-Flug"),
+}
 _RATING_CHIPS = (
     (SORT_FAVORITE, "★"),
     (SORT_RESERVE, "R"),
@@ -144,6 +159,64 @@ def cover_hotspot(cell: QRect, *, chip: int | None = None) -> QRect:
 
     chip_px = _CHIP if chip is None else chip
     return QRect(cell.x() + 10, cell.y() + 10, chip_px, chip_px)
+
+
+def map_track_chip_size(chip: int | None = None) -> QSize:
+    chip_px = _CHIP if chip is None else chip
+    return QSize(chip_px + _MAP_CHIP_EXTRA_W, chip_px)
+
+
+def track_badge_of(item: GalleryItem) -> str | None:
+    if item.track_badge in _TRACK_CHIP_STYLE:
+        return item.track_badge
+    if item.is_map_track:
+        return TRACK_BADGE_MAP
+    return None
+
+
+def paint_track_kind_chip(painter: QPainter, rect: QRect, kind: str) -> None:
+    label, background, foreground, _tip = _TRACK_CHIP_STYLE.get(
+        kind, _TRACK_CHIP_STYLE[TRACK_BADGE_MAP]
+    )
+    painter.setFont(QFont("Segoe UI", 9, QFont.Weight.DemiBold))
+    painter.setBrush(background)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.drawRoundedRect(rect, _MAP_CHIP_RADIUS, _MAP_CHIP_RADIUS)
+    painter.setPen(foreground)
+    painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, label)
+
+
+def paint_map_track_chip(painter: QPainter, rect: QRect) -> None:
+    """Same teal Map pill as on gallery thumbnails."""
+
+    paint_track_kind_chip(painter, rect, TRACK_BADGE_MAP)
+
+
+def map_track_hotspot(cell: QRect, *, chip: int | None = None, below_cover: bool = False) -> QRect:
+    """Label chip for Map/Act/igc files, under the title-image chip when both show."""
+
+    chip_px = _CHIP if chip is None else chip
+    top = cell.y() + 10 + ((chip_px + 4) if below_cover else 0)
+    size = map_track_chip_size(chip_px)
+    return QRect(cell.x() + 10, top, size.width(), size.height())
+
+
+class MapTrackChip(QWidget):
+    """Standalone Map pill for collapsed Timeline headers."""
+
+    def __init__(self, parent: QWidget | None = None, *, chip: int | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("mapTrackChip")
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setToolTip("Map-Track")
+        self.setFixedSize(map_track_chip_size(chip))
+
+    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
+        _ = event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        paint_map_track_chip(painter, self.rect())
 
 
 def hit_cover(cell: QRect, pos: QPoint, *, chip: int | None = None) -> bool:
@@ -321,7 +394,11 @@ class GalleryModel(QAbstractListModel):
     def flags(self, index: QModelIndex) -> Qt.ItemFlag:  # noqa: N802
         if not index.isValid():
             return Qt.ItemFlag.NoItemFlags
-        return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsDragEnabled
+        item = self._items[index.row()]
+        flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+        if not item.is_map_track:
+            flags |= Qt.ItemFlag.ItemIsDragEnabled
+        return flags
 
     def mimeTypes(self) -> list[str]:  # noqa: N802
         return [POOL_MIME]
@@ -331,7 +408,7 @@ class GalleryModel(QAbstractListModel):
         seen: set[int] = set()
         for index in indexes:
             item = self.item_at(index)
-            if item is None or item.source_file_id in seen:
+            if item is None or item.is_map_track or item.source_file_id in seen:
                 continue
             seen.add(item.source_file_id)
             ids.append(item.source_file_id)
@@ -411,6 +488,12 @@ class GalleryDelegate(QStyledItemDelegate):
             painter.drawRoundedRect(chip, 6, 6)
             painter.setPen(QColor("#06231e") if active else QColor("#c5cddb"))
             painter.drawText(chip, Qt.AlignmentFlag.AlignCenter, "T")
+        badge = track_badge_of(item)
+        if badge is not None:
+            chip = map_track_hotspot(
+                rect, chip=self._chip, below_cover=self.show_cover and can_be_cover(item)
+            )
+            paint_track_kind_chip(painter, chip, badge)
         if item.quality_light:
             color = quality_light_color(item.quality_light)
             if color is not None:

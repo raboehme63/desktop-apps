@@ -1,7 +1,7 @@
 [project]
 name = "travel-journal-workspace"
 version = "0.1.0"
-description = "Monorepo for the Travel Journal desktop app and the reusable travelcore library."
+description = "Monorepo for the Travel Journal desktop app, travelcore, and fitnesscore."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
@@ -13,16 +13,18 @@ dev = [
 ]
 
 [tool.uv.workspace]
-members = ["packages/travelcore", "apps/traveljournal"]
+members = ["packages/travelcore", "packages/fitnesscore", "apps/traveljournal"]
 
 [tool.pytest.ini_options]
 testpaths = [
     "packages/travelcore/tests",
+    "packages/fitnesscore/tests",
     "tests",
 ]
 pythonpath = [
     "packages/travelcore/src",
     "packages/travelcore/tests",
+    "packages/fitnesscore/src",
     "apps/traveljournal/src",
 ]
 addopts = "-q"
@@ -30,7 +32,7 @@ addopts = "-q"
 [tool.ruff]
 target-version = "py312"
 line-length = 110
-src = ["packages/travelcore/src", "apps/traveljournal/src"]
+src = ["packages/travelcore/src", "packages/fitnesscore/src", "apps/traveljournal/src"]
 exclude = [
     "packages/travelcore/src/travelcore/database/migrations/versions",
     "packages/travelcore/src/travelcore/database/migrations/script.py.mako",
@@ -45,6 +47,6 @@ quote-style = "double"
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "basic"
-include = ["packages/travelcore/src", "apps/traveljournal/src"]
+include = ["packages/travelcore/src", "packages/fitnesscore/src", "apps/traveljournal/src"]
 venvPath = "."
 venv = ".venv"

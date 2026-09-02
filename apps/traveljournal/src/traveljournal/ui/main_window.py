@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QThreadPool, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 from travelcore.exceptions import ProjectError
 from traveljournal.__about__ import app_window_title
 from traveljournal.services.edit_history import redo_focused_text, undo_focused_text
+from traveljournal.services.workers import ThumbnailRunnable
 from traveljournal.services.workspace import Workspace
 from traveljournal.ui.sidebar import Sidebar
 from traveljournal.views.export_view import ExportView
@@ -77,6 +78,7 @@ class MainWindow(QMainWindow):
         self._load_progress.hide()
         status.addPermanentWidget(self._load_progress)
         self._set_status("Kein Projekt geöffnet")
+        self._thumbs_refreshing = False
         self._build_menu()
 
         self.sidebar.page_changed.connect(self._show_page)
@@ -261,6 +263,7 @@ class MainWindow(QMainWindow):
             return
         self.project_view.clear_load_progress("Index geladen")
         self._set_status("Projekt geladen")
+        self._refresh_track_thumbnails()
         self.map_view.prepare_in_background()
         key = self.sidebar.current_key()
         if key == "photos":
@@ -269,6 +272,29 @@ class MainWindow(QMainWindow):
             self.map_view.refresh()
         elif key == "timeline":
             self.timeline_view.refresh()
+
+    def _refresh_track_thumbnails(self) -> None:
+        if self.workspace.current is None or self._thumbs_refreshing:
+            return
+        self._thumbs_refreshing = True
+        worker = ThumbnailRunnable(self.workspace.current)
+        worker.signals.finished.connect(self._on_track_thumbs_done)
+        worker.signals.failed.connect(self._on_track_thumbs_failed)
+        QThreadPool.globalInstance().start(worker)
+
+    def _on_track_thumbs_done(self, written: int) -> None:
+        self._thumbs_refreshing = False
+        if written <= 0:
+            return
+        key = self.sidebar.current_key()
+        if key == "timeline":
+            self.timeline_view.refresh()
+        elif key == "photos":
+            self.photos_view.refresh()
+        self._set_status(f"{written} Track-Vorschaubilder mit Karte")
+
+    def _on_track_thumbs_failed(self, _message: str) -> None:
+        self._thumbs_refreshing = False
 
     def _on_quality_progress(self, current: int, total: int, message: str) -> None:
         self._load_progress.show()
@@ -353,6 +379,7 @@ class MainWindow(QMainWindow):
 
     def _on_project_changed(self, name: str) -> None:
         self._sync_menu()
+        self._thumbs_refreshing = False
         if name:
             self.setWindowTitle(app_window_title(name))
             self.timeline_view.clear()

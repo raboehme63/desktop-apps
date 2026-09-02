@@ -39,8 +39,14 @@ from travelcore.maps.scene import (
     MapPolyline,
     MapScene,
     StayLink,
+    apply_map_track_color,
 )
-from travelcore.project_settings import DEFAULT_STAY_LINK_COLOR, normalize_stay_link_color
+from travelcore.project_settings import (
+    DEFAULT_MAP_TRACK_COLOR,
+    DEFAULT_STAY_LINK_COLOR,
+    normalize_map_track_color,
+    normalize_stay_link_color,
+)
 
 
 @runtime_checkable
@@ -71,11 +77,14 @@ class FoliumMapBackend:
         *,
         tiles: str | None = OSM_LATIN_TILES,
         link_color: str = DEFAULT_STAY_LINK_COLOR,
+        map_track_color: str = DEFAULT_MAP_TRACK_COLOR,
     ) -> None:
         self.tiles = tiles
         self.link_color = normalize_stay_link_color(link_color)
+        self.map_track_color = normalize_map_track_color(map_track_color)
 
     def render(self, scene: MapScene, output_html: Path) -> Path:
+        scene = apply_map_track_color(scene, self.map_track_color)
         location = scene.center or (50.0, 10.0)
         zoom = 6 if scene.center is not None else 4
         fmap = _folium_map(location=location, zoom=zoom, tiles=self.tiles)
@@ -93,18 +102,29 @@ class FoliumMapBackend:
                     interactive=True,
                     group_key=marker.group_key or "",
                 ).add_to(cover_layer)
-            link_layer = _stay_link_layer(scene.stay_links, color=self.link_color)
+            link_layer = _stay_link_layer(
+                scene.stay_links, color=self.link_color, map_track_color=self.map_track_color
+            )
             if link_layer is not None:
                 link_layer.add_to(fmap)
+            # Connection tracks (Map-Track / GPX) already sit in stay_links — a second overlay
+            # would draw the same route twice, once dense and once downsampled.
             cover_layer.add_to(fmap)
             extra = _add_extra_basemaps(fmap) if self.tiles else None
             _photo_stack_cluster(control=False, show=False).add_to(fmap)
-            bounds = _latlng_bounds(covers)
+            bounds = _overview_bounds(covers, scene.polylines)
             if bounds is not None:
                 fmap.fit_bounds(bounds, padding=(56, 56), max_zoom=13)
             fmap.get_root().html.add_child(
                 folium.Element(
-                    config_script(interaction_config(scene, output_html, link_color=self.link_color))
+                    config_script(
+                        interaction_config(
+                            scene,
+                            output_html,
+                            link_color=self.link_color,
+                            map_track_color=self.map_track_color,
+                        )
+                    )
                 )
             )
             fmap.get_root().html.add_child(
@@ -116,6 +136,7 @@ class FoliumMapBackend:
                         link_layer,
                         extra=extra,
                         color=self.link_color,
+                        map_track_color=self.map_track_color,
                     )
                 )
             )
@@ -262,6 +283,20 @@ def _latlng_bounds(markers: list[MapMarker]) -> list[list[float]] | None:
     return [[min(lats), min(lons)], [max(lats), max(lons)]]
 
 
+def _overview_bounds(
+    markers: Sequence[MapMarker], lines: Sequence[MapPolyline]
+) -> list[list[float]] | None:
+    lats = [item.latitude for item in markers]
+    lons = [item.longitude for item in markers]
+    for line in lines:
+        for lat, lon in line.points:
+            lats.append(lat)
+            lons.append(lon)
+    if not lats:
+        return None
+    return [[min(lats), min(lons)], [max(lats), max(lons)]]
+
+
 def _cover_icon(marker: MapMarker, html_path: Path) -> folium.DivIcon:
     thumb = _preview_src(html_path, marker.preview_path, marker.preview_url)
     key = html.escape(marker.group_key or "", quote=True)
@@ -279,7 +314,12 @@ def _cover_icon(marker: MapMarker, html_path: Path) -> folium.DivIcon:
     )
 
 
-def _stay_link_layer(links: Sequence[StayLink], *, color: str) -> folium.FeatureGroup | None:
+def _stay_link_layer(
+    links: Sequence[StayLink],
+    *,
+    color: str,
+    map_track_color: str = DEFAULT_MAP_TRACK_COLOR,
+) -> folium.FeatureGroup | None:
     """Real overlay polylines so connections are visible without extra JS panes."""
 
     if not links:
@@ -290,7 +330,8 @@ def _stay_link_layer(links: Sequence[StayLink], *, color: str) -> folium.Feature
             for segment in link.segments:
                 if len(segment.points) < 2:
                     continue
-                style = stay_link_line_options(segment.dash, color=color)
+                painted = map_track_color if segment.map_track else color
+                style = stay_link_line_options(segment.dash, color=painted)
                 folium.PolyLine(locations=[list(point) for point in segment.points], **style).add_to(group)
             continue
         folium.PolyLine(

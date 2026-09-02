@@ -232,6 +232,7 @@ class TripSection(Base):
     outbound_geometry: Mapped[str | None] = mapped_column(String(16), nullable=True)
     outbound_dash: Mapped[str | None] = mapped_column(String(16), nullable=True)
     outbound_symbol: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    outbound_track_source_file_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     sort_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     origin: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")
 

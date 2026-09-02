@@ -37,7 +37,15 @@ class HelpDialog(QDialog):
             "weißes Piktogramm auf schwarzem Kreis, die Spitze zeigt in Fahrtrichtung. "
             "Am Transfer wählen Sie es je Zeile, an Tag und Aufenthalt unter "
             "„Verbindung zum nächsten Abschnitt“, wenn der nächste Eintrag kein Transfer ist "
-            "(oder „Keine Linie“, dann entfällt die Verbindung). "
+            "(Gerade, Map-Track, Bogenlinie; oder „Keine Linie“, dann entfällt die Verbindung). "
+            "Am Transfer gibt es zusätzlich Track aus den GPX-Mitgliedern des Abschnitts. "
+            "Map-Track: GPX-Datei oder Google-Maps-Routenlink, abgelegt unter .MapTracks im Import-Ordner. "
+            "Fitness- und IGC-Tracks holt man auf der Seite Import "
+            "(Datenbank, Zeitraum überschreibbar, Fortschritt) nach .FitnessTracks bzw. .IGCTracks. "
+            "Unter Tracks trägt jede Spur den Chip Map, Act oder igc; "
+            "die Vorschau liegt auf einem Leaflet-Kartenausschnitt. "
+            "Scan und Synchronisieren nehmen sie mit (normale GPS-Dateien). "
+            "Beim Maps-Link schlägt die App einen Namen vor, den man überschreiben kann. "
             "Gepunktete Systemlücken zwischen Spur, Gelenk und Cover haben kein Symbol."
         )
         intro.setObjectName("pageSubtitle")

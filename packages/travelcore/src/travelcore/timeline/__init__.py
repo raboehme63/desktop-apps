@@ -41,7 +41,7 @@ from travelcore.timeline.links import (
     serialize_leonardo_urls,
     serialize_youtube_urls,
 )
-from travelcore.timeline.outbound import save_outbound_link
+from travelcore.timeline.outbound import LinkDefaults, save_outbound_link
 from travelcore.timeline.ranking import PhotoFeatures, RankingStrategy
 from travelcore.timeline.sections import (
     KIND_DAY,
@@ -57,7 +57,10 @@ from travelcore.timeline.sections import (
     format_section_duration,
     format_section_span,
     format_section_when,
+    insert_dates_after,
+    insert_dates_before,
     insert_dates_between,
+    join_insert_spans,
     move_members,
     park_media,
     parse_modes,
@@ -78,6 +81,7 @@ from travelcore.timeline.sections import (
 from travelcore.timeline.transfer_links import (
     LINK_GEOMETRY_ARC,
     LINK_GEOMETRY_LINE,
+    LINK_GEOMETRY_MAP_TRACK,
     LINK_GEOMETRY_ROUTE,
     LINK_GEOMETRY_TRACK,
     TransferLinkSpec,
@@ -94,6 +98,7 @@ __all__ = [
     "KIND_STAY",
     "LINK_GEOMETRY_ARC",
     "LINK_GEOMETRY_LINE",
+    "LINK_GEOMETRY_MAP_TRACK",
     "LINK_GEOMETRY_ROUTE",
     "LINK_GEOMETRY_TRACK",
     "MOVEMENT_MODES",
@@ -125,7 +130,10 @@ __all__ = [
     "format_section_duration",
     "format_section_span",
     "format_section_when",
+    "insert_dates_after",
+    "insert_dates_before",
     "insert_dates_between",
+    "join_insert_spans",
     "is_igc_filename",
     "links_from_modes",
     "load_timeline",
@@ -150,6 +158,7 @@ __all__ = [
     "save_section_leonardo_urls",
     "save_section_text",
     "save_section_youtube_urls",
+    "LinkDefaults",
     "save_outbound_link",
     "save_transfer_links",
     "clear_transfer_track_refs",

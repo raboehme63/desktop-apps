@@ -69,6 +69,7 @@ def test_schema_contains_core_tables(tmp_path: Path) -> None:
     assert "outbound_geometry" in section_columns
     assert "outbound_dash" in section_columns
     assert "outbound_symbol" in section_columns
+    assert "outbound_track_source_file_id" in section_columns
     assert "hidden" in section_columns
     cluster_columns = {column["name"] for column in inspector.get_columns("similarity_groups")}
     member_columns = {column["name"] for column in inspector.get_columns("similarity_group_members")}

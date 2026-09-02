@@ -11,6 +11,7 @@ from travelcore.project_settings import (
     ProjectSettings,
     ensure_project_settings,
     load_project_settings,
+    normalize_map_track_color,
     normalize_stay_link_color,
     rebase_source_file_paths,
     save_project_settings,
@@ -26,10 +27,16 @@ def test_new_project_writes_settings_file(tmp_path: Path) -> None:
     assert settings.export.default_format == "html"
     assert settings.placeholders.map_provider == "leaflet"
     assert settings.placeholders.map_link_color == "#ffffff"
+    assert settings.placeholders.map_track_color == "#5b8def"
     assert settings.placeholders.map_show_photo_cones is False
     assert settings.placeholders.map_show_reserve is False
     assert settings.placeholders.map_show_sat_labels is False
     assert settings.placeholders.map_show_sat_streets is False
+    assert settings.placeholders.map_show_flights is True
+    assert settings.placeholders.map_show_activities is True
+    assert settings.placeholders.default_link_geometry == "line"
+    assert settings.placeholders.default_link_dash == "solid"
+    assert settings.placeholders.default_link_symbol == ""
 
 
 def test_settings_roundtrip_preserves_values(tmp_path: Path) -> None:
@@ -43,10 +50,16 @@ def test_settings_roundtrip_preserves_values(tmp_path: Path) -> None:
     settings.performance.worker_count = 4
     settings.placeholders.journal_language = "it"
     settings.placeholders.map_link_color = "#aabbcc"
+    settings.placeholders.map_track_color = "#c45c6a"
     settings.placeholders.map_show_photo_cones = True
     settings.placeholders.map_show_reserve = True
     settings.placeholders.map_show_sat_labels = True
     settings.placeholders.map_show_sat_streets = True
+    settings.placeholders.map_show_flights = False
+    settings.placeholders.map_show_activities = False
+    settings.placeholders.default_link_geometry = "arc"
+    settings.placeholders.default_link_dash = "dashed"
+    settings.placeholders.default_link_symbol = "train"
     save_project_settings(directory, settings)
     loaded = load_project_settings(directory)
     assert loaded.export.default_format == "pdf"
@@ -55,10 +68,16 @@ def test_settings_roundtrip_preserves_values(tmp_path: Path) -> None:
     assert loaded.performance.worker_count == 4
     assert loaded.placeholders.journal_language == "it"
     assert loaded.placeholders.map_link_color == "#aabbcc"
+    assert loaded.placeholders.map_track_color == "#c45c6a"
     assert loaded.placeholders.map_show_photo_cones is True
     assert loaded.placeholders.map_show_reserve is True
     assert loaded.placeholders.map_show_sat_labels is True
     assert loaded.placeholders.map_show_sat_streets is True
+    assert loaded.placeholders.map_show_flights is False
+    assert loaded.placeholders.map_show_activities is False
+    assert loaded.placeholders.default_link_geometry == "arc"
+    assert loaded.placeholders.default_link_dash == "dashed"
+    assert loaded.placeholders.default_link_symbol == "train"
     assert loaded.paths.source_root is not None
     assert Path(loaded.paths.source_root) == tmp_path / "fotos"
 
@@ -68,6 +87,29 @@ def test_normalize_stay_link_color_accepts_hex_and_falls_back() -> None:
     assert normalize_stay_link_color("white") == "#ffffff"
     assert normalize_stay_link_color("nope") == "#ffffff"
     assert normalize_stay_link_color("#00FF00") == "#00ff00"
+
+
+def test_normalize_map_track_color_accepts_hex_and_falls_back() -> None:
+    from travelcore.project_settings import DEFAULT_MAP_TRACK_COLOR
+
+    assert normalize_map_track_color("#ABC") == "#aabbcc"
+    assert normalize_map_track_color("nope") == DEFAULT_MAP_TRACK_COLOR
+    assert normalize_map_track_color("#c45c6a") == "#c45c6a"
+
+
+def test_default_link_settings_reject_unknown_values() -> None:
+    from travelcore.project_settings import (
+        parse_default_link_dash,
+        parse_default_link_geometry,
+        parse_default_link_symbol,
+    )
+
+    assert parse_default_link_geometry("arc") == "arc"
+    assert parse_default_link_geometry("track") == "line"
+    assert parse_default_link_dash("dashed") == "dashed"
+    assert parse_default_link_dash("dotted") == "solid"
+    assert parse_default_link_symbol("train") == "train"
+    assert parse_default_link_symbol("spaceship") == ""
 
 
 def test_corrupt_settings_raise(tmp_path: Path) -> None:

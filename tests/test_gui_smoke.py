@@ -19,7 +19,7 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
 
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
-    assert window.windowTitle() == "Reisetagebuch R3.1.0"
+    assert window.windowTitle() == "Reisetagebuch R3.2.0"
     assert window.stack.count() == 6
     titles = [action.text() for action in window.menuBar().actions()]
     assert "Projekt" in titles
@@ -55,8 +55,20 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     assert "matched" in window.import_view._stat_labels
     assert window.import_view._stat_labels["matched"].text() == "0"
     assert window.import_view._stat_labels["unlocated"].text() == "0"
+    assert window.import_view._stat_labels["map"].text() == "0"
+    assert window.import_view._stat_labels["act"].text() == "0"
+    assert window.import_view._stat_labels["flights"].text() == "0"
+    assert window.import_view._stat_labels["other"].text() == "0"
+    assert "gps" not in window.import_view._stat_labels
     assert window.import_view._preview_image is not None
     assert window.import_view._sync_button.text() == "Synchronisieren"
+    assert window.import_view._fitness_import_button.text() == "Fitnessdaten Importieren"
+    assert window.import_view._igc_import_button.text() == "IGC-Daten Importieren"
+    assert window.import_view.fitness_progress.format() == "Bereit"
+    assert window.import_view.igc_progress.format() == "Bereit"
+    assert window.import_view.fitness_path_edit.placeholderText()
+    assert window.import_view.fitness_from_edit.specialValueText() == "–"
+    assert window.import_view.fitness_to_edit.specialValueText() == "–"
     assert "Mouseover" in window.import_view._preview_meta.text()
     assert window.project_view.name_label.text() == "–"
     assert not window.project_view.name_edit.isEnabled()
@@ -746,9 +758,9 @@ def test_photo_page_canvas_nudge_zoom_and_angle(tmp_path: Path) -> None:
 def test_app_window_title_includes_version() -> None:
     from traveljournal.__about__ import app_window_title
 
-    assert app_window_title() == "Reisetagebuch R3.1.0"
-    assert app_window_title("Alpen 2025") == "Reisetagebuch R3.1.0 - Alpen 2025"
-    assert app_window_title("  ") == "Reisetagebuch R3.1.0"
+    assert app_window_title() == "Reisetagebuch R3.2.0"
+    assert app_window_title("Alpen 2025") == "Reisetagebuch R3.2.0 - Alpen 2025"
+    assert app_window_title("  ") == "Reisetagebuch R3.2.0"
 
 
 def test_new_project_dialog_preview_and_values(tmp_path: Path) -> None:
@@ -924,6 +936,46 @@ def test_import_view_thumb_zoom_scales_preview(tmp_path: Path, monkeypatch) -> N
     assert view._preview_image.minimumHeight() == import_preview_size(200)
     assert view._preview_card.maximumWidth() > 380
     assert workspace.import_thumb_zoom() == 200
+    _ = app
+
+
+def test_import_view_fitness_span_prefilled_and_overridable(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import date
+
+    from PySide6.QtCore import QDate
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.database.project_store import ProjectStore
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.import_view import ImportView, _date_from_edit
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    app = QApplication.instance() or QApplication([])
+    opened = ProjectStore().create(tmp_path / "reise", "Fitness")
+    workspace = Workspace()
+    workspace.current = opened
+    workspace.save_trip_span(date(2026, 8, 1), date(2026, 9, 2))
+    workspace.set_fitness_db_path(str(tmp_path / "Fitness"))
+    workspace.set_igc_db_path(str(tmp_path / "IGC"))
+    view = ImportView(workspace)
+    view.refresh_summary()
+    assert view.fitness_path_edit.text() == str(tmp_path / "Fitness")
+    assert view.igc_path_edit.text() == str(tmp_path / "IGC")
+    assert view._fitness_import_button.text() == "Fitnessdaten Importieren"
+    assert view._igc_import_button.text() == "IGC-Daten Importieren"
+    assert view.fitness_progress.format() == "Bereit"
+    assert view.igc_progress.format() == "Bereit"
+    assert _date_from_edit(view.fitness_from_edit) == date(2026, 8, 1)
+    assert _date_from_edit(view.fitness_to_edit) == date(2026, 9, 2)
+    assert _date_from_edit(view.igc_from_edit) == date(2026, 8, 1)
+    assert _date_from_edit(view.igc_to_edit) == date(2026, 9, 2)
+    view.fitness_from_edit.setDate(QDate(2026, 7, 15))
+    view.refresh_summary()
+    assert _date_from_edit(view.fitness_from_edit) == date(2026, 7, 15)
+    assert _date_from_edit(view.fitness_to_edit) == date(2026, 9, 2)
+    assert _date_from_edit(view.igc_from_edit) == date(2026, 8, 1)
     _ = app
 
 
@@ -1677,6 +1729,234 @@ def test_entry_widget_separates_tracks_from_media() -> None:
     assert widget._kind_combo.currentData() == "day"
     assert not widget._cover_thumb.isHidden()
     assert widget._cover_thumb.pixmap() is None or widget._cover_thumb.pixmap().isNull()
+    _ = app
+
+
+def test_entry_widget_folds_media_and_tracks() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, datetime
+    from pathlib import Path
+
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelinePhoto
+    from traveljournal.views.timeline_view import EntryWidget
+
+    app = QApplication.instance() or QApplication([])
+    stamp = datetime(2025, 5, 15, 8, 0, tzinfo=UTC)
+    photo = TimelinePhoto(
+        source_file_id=1,
+        filename="foto.jpg",
+        path="foto.jpg",
+        thumbnail_path=Path("."),
+        captured_at=stamp,
+        used_in_journal=False,
+        is_cover=False,
+        is_favorite=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        file_kind="photo",
+    )
+    track = TimelinePhoto(
+        source_file_id=2,
+        filename="spur.gpx",
+        path="spur.gpx",
+        thumbnail_path=Path("."),
+        captured_at=stamp,
+        used_in_journal=False,
+        is_cover=False,
+        is_favorite=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        file_kind="gps",
+    )
+    day = TimelineDay(
+        id=1,
+        day_index=0,
+        date=stamp.date(),
+        title=None,
+        notes="Notiz",
+        origin="auto",
+        photos=(photo, track),
+    )
+    widget = EntryWidget(TimelineEntry(started_at=stamp, leftover_day=day))
+    widget.show()
+    app.processEvents()
+    assert not widget.gallery.isHidden()
+    assert not widget.track_gallery.isHidden()
+    assert not widget.notes_edit.isHidden()
+    widget._media_header.set_collapsed(True)
+    widget._track_header.set_collapsed(True)
+    app.processEvents()
+    assert widget.gallery.isHidden()
+    assert widget.track_gallery.isHidden()
+    assert widget._media_tabs.isHidden()
+    assert widget._track_tabs.isHidden()
+    assert not widget._media_header.isHidden()
+    assert not widget._track_header.isHidden()
+    assert not widget.notes_edit.isHidden()
+    assert widget.galleries_are_collapsed()
+    widget.set_galleries_collapsed(False)
+    app.processEvents()
+    assert not widget.gallery.isHidden()
+    assert not widget.track_gallery.isHidden()
+    _ = app
+
+
+def test_entry_widget_marks_map_track_on_track_header() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, datetime
+    from pathlib import Path
+
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelinePhoto
+    from traveljournal.views.timeline_view import EntryWidget
+    from traveljournal.widgets.gallery import MapTrackChip, map_track_chip_size
+
+    app = QApplication.instance() or QApplication([])
+    stamp = datetime(2025, 5, 15, 8, 0, tzinfo=UTC)
+    track = TimelinePhoto(
+        source_file_id=4,
+        filename="Map-Track.gpx",
+        path=str(Path("D:/fotos/.MapTracks/Map-Track.gpx")),
+        thumbnail_path=Path("."),
+        captured_at=stamp,
+        used_in_journal=False,
+        is_cover=False,
+        is_favorite=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        file_kind="gps",
+    )
+    day = TimelineDay(
+        id=2,
+        day_index=0,
+        date=stamp.date(),
+        title=None,
+        notes=None,
+        origin="auto",
+        photos=(track,),
+    )
+    widget = EntryWidget(TimelineEntry(started_at=stamp, leftover_day=day))
+    widget.show()
+    app.processEvents()
+    tracks = widget.inspectable_tracks()
+    assert tracks[0].track_badge == "map"
+    assert widget._track_header._badge.isVisible()
+    assert isinstance(widget._track_header._badge, MapTrackChip)
+    assert widget._track_header._badge.size() == map_track_chip_size()
+    widget.set_galleries_collapsed(True)
+    app.processEvents()
+    assert widget._track_header._badge.isVisible()
+    assert not widget._track_header.isHidden()
+    assert widget.track_gallery.isHidden()
+    _ = app
+
+
+def test_entry_widget_track_chips_map_act_igc() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, datetime
+    from pathlib import Path
+
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelinePhoto
+    from traveljournal.views.timeline_view import EntryWidget
+
+    app = QApplication.instance() or QApplication([])
+    stamp = datetime(2025, 5, 15, 8, 0, tzinfo=UTC)
+
+    def track(source_id: int, filename: str, path: str) -> TimelinePhoto:
+        return TimelinePhoto(
+            source_file_id=source_id,
+            filename=filename,
+            path=path,
+            thumbnail_path=Path("."),
+            captured_at=stamp,
+            used_in_journal=False,
+            is_cover=False,
+            is_favorite=False,
+            gps_latitude=None,
+            gps_longitude=None,
+            file_kind="gps",
+        )
+
+    day = TimelineDay(
+        id=2,
+        day_index=0,
+        date=stamp.date(),
+        title=None,
+        notes=None,
+        origin="auto",
+        photos=(
+            track(1, "Map-Track.gpx", "D:/fotos/.MapTracks/Map-Track.gpx"),
+            track(2, "ride.gpx", "D:/fotos/.FitnessTracks/ride.gpx"),
+            track(3, "flug.igc", "D:/fotos/.IGCTracks/flug.igc"),
+        ),
+    )
+    widget = EntryWidget(TimelineEntry(started_at=stamp, leftover_day=day))
+    widget.show()
+    app.processEvents()
+    badges = {item.filename: item.track_badge for item in widget.inspectable_tracks()}
+    assert badges == {"Map-Track.gpx": "map", "ride.gpx": "act", "flug.igc": "igc"}
+    _ = app
+
+
+def test_timeline_fold_all_galleries(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from datetime import UTC, datetime
+    from pathlib import Path
+
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelinePhoto
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.timeline_view import EntryWidget, TimelineView
+
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    app = QApplication.instance() or QApplication([])
+    stamp = datetime(2025, 5, 15, 8, 0, tzinfo=UTC)
+    photo = TimelinePhoto(
+        source_file_id=1,
+        filename="foto.jpg",
+        path="foto.jpg",
+        thumbnail_path=Path("."),
+        captured_at=stamp,
+        used_in_journal=False,
+        is_cover=False,
+        is_favorite=False,
+        gps_latitude=None,
+        gps_longitude=None,
+        file_kind="photo",
+    )
+    day = TimelineDay(
+        id=1,
+        day_index=0,
+        date=stamp.date(),
+        title=None,
+        notes=None,
+        origin="auto",
+        photos=(photo,),
+    )
+    workspace = Workspace()
+    view = TimelineView(workspace)
+    first = EntryWidget(TimelineEntry(started_at=stamp, leftover_day=day), parent=view)
+    second = EntryWidget(TimelineEntry(started_at=stamp, leftover_day=day), parent=view)
+    view._blocks = [first, second]
+    view._sync_fold_button()
+    assert view._fold_button.text() == "Alles einklappen"
+    view._toggle_all_galleries()
+    assert first.galleries_are_collapsed()
+    assert second.galleries_are_collapsed()
+    assert first.gallery.isHidden()
+    assert view._fold_button.text() == "Alles ausklappen"
+    assert workspace.timeline_galleries_collapsed() is True
+    view._toggle_all_galleries()
+    assert not first.galleries_are_collapsed()
+    assert not first.gallery.isHidden()
+    assert view._fold_button.text() == "Alles einklappen"
     _ = app
 
 
@@ -3700,6 +3980,7 @@ def test_timeline_card_combos_ignore_hover_wheel() -> None:
     from PySide6.QtGui import QWheelEvent
     from PySide6.QtWidgets import QApplication
 
+    from travelcore.timeline.outbound import LinkDefaults
     from travelcore.timeline.transfer_links import LINK_DASH_SOLID, LINK_GEOMETRY_LINE
     from travelcore.timeline.types import TimelineLink
     from traveljournal.views.timeline_view import SectionKindCombo
@@ -3727,6 +4008,8 @@ def test_timeline_card_combos_ignore_hover_wheel() -> None:
     row = TransferLinkRow(
         TimelineLink(id=0, sort_index=0, geometry=LINK_GEOMETRY_LINE, dash=LINK_DASH_SOLID),
         [],
+        [],
+        LinkDefaults(),
     )
     before = row.geometry.currentIndex()
     row.geometry.wheelEvent(wheel)
@@ -3992,7 +4275,7 @@ def test_timeline_join_is_wide_downward_connector() -> None:
 def test_entry_span_dates_feeds_join_insert() -> None:
     from datetime import UTC, date, datetime
 
-    from travelcore.timeline.sections import KIND_STAY, insert_dates_between
+    from travelcore.timeline.sections import KIND_STAY, insert_dates_between, join_insert_spans
     from travelcore.timeline.types import TimelineDay, TimelineEntry, TimelineSection
     from traveljournal.views.timeline_view import _entry_span_dates
 
@@ -4030,6 +4313,11 @@ def test_entry_span_dates_feeds_join_insert() -> None:
         date(2025, 5, 15),
         date(2025, 5, 19),
     )
+    assert join_insert_spans([_entry_span_dates(tag), _entry_span_dates(stay)]) == [
+        (date(2025, 5, 13), date(2025, 5, 13)),
+        (date(2025, 5, 15), date(2025, 5, 19)),
+        (date(2025, 5, 26), date(2025, 5, 26)),
+    ]
 
 
 def test_span_index_at_mid_contains_then_nearest() -> None:
@@ -5312,6 +5600,8 @@ def test_map_timeline_strip_centers_first_card() -> None:
                 latitude=None,
                 longitude=None,
                 card_kind=KIND_STAY,
+                started_at=datetime(2025, 5, 9, tzinfo=UTC),
+                ended_at=datetime(2025, 5, 9, tzinfo=UTC),
             ),
         )
     )
@@ -5359,14 +5649,15 @@ def test_map_timeline_strip_centers_first_card() -> None:
     assert strip._widgets[0].width() == idle_w
     assert strip._widgets[0].height() == idle_h
     lines = [child for child in strip._inner.children() if child.objectName() == "mapTimelineJoin"]
-    assert len(lines) == 3
+    assert len(lines) == 5
     added: list[object] = []
     strip.add_between.connect(added.append)
     lines[0]._plus.clicked.emit()
-    assert len(added) == 1
-    start, end = added[0]
-    assert start == date(2025, 5, 2)
-    assert end == date(2025, 5, 9)
+    assert added[-1] == (date(2025, 4, 30), date(2025, 4, 30))
+    lines[1]._plus.clicked.emit()
+    assert added[-1] == (date(2025, 5, 2), date(2025, 5, 9))
+    lines[-1]._plus.clicked.emit()
+    assert added[-1] == (date(2025, 5, 10), date(2025, 5, 10))
     again = len(focused)
     strip.center_on("section:2")
     app.processEvents()
@@ -5414,6 +5705,7 @@ def test_transfer_link_row_keeps_dashed() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication
 
+    from travelcore.timeline.outbound import LinkDefaults
     from travelcore.timeline.transfer_links import LINK_DASH_DASHED, LINK_GEOMETRY_LINE
     from travelcore.timeline.types import TimelineLink
     from traveljournal.widgets.transfer_links import TransferLinkRow
@@ -5422,6 +5714,8 @@ def test_transfer_link_row_keeps_dashed() -> None:
     row = TransferLinkRow(
         TimelineLink(id=3, sort_index=0, geometry=LINK_GEOMETRY_LINE, dash=LINK_DASH_DASHED),
         [],
+        [],
+        LinkDefaults(),
     )
     assert row.dash.currentData() == LINK_DASH_DASHED
     assert row.to_link(0).dash == LINK_DASH_DASHED
