@@ -2,9 +2,9 @@
 
 | Feld | Inhalt |
 | --- | --- |
-| Version | 3.2 |
+| Version | 3.3 |
 | Stand | 2. September 2026 |
-| Bezugsversion Software | Phase 7 plus Medien-Pipeline, Software **R3.2.0** |
+| Bezugsversion Software | Phase 7 plus Medien-Pipeline, Software **R3.3.0** |
 | Bezug | [pflichtenheft.md](pflichtenheft.md), [konzept.md](konzept.md), [packaging/README.md](../packaging/README.md) |
 
 Diese Dokumentation beschreibt **Teststrategie, Automatisierung, manuelle Prüfung und Abdeckungslücken**. Sie ist die Testdoku zum Pflichtenheft, kein Ersatz für pytest-Ausgaben.
@@ -24,9 +24,9 @@ Diese Dokumentation beschreibt **Teststrategie, Automatisierung, manuelle Prüfu
 
 | Stufe | Ort | Werkzeug | Was |
 | --- | --- | --- | --- |
-| Unit | `packages/travelcore/tests/`, `packages/fitnesscore/tests/` | pytest | Typen, Hash, Zeit, GPS, Provider, HEIC-Container, GPX/IGC/KML, Interpolation, ExifTool-JSON, Thumbnails, Orientierung, Timeline, Abschnitte, History-Snapshots, Länderkatalog, Travelbook-PDF, CEWE-`.mcf`; Fitness-Import, GPX- und IGC-Export |
+| Unit | `packages/travelcore/tests/`, `packages/fitnesscore/tests/` | pytest | Typen, Hash, Zeit, GPS, Provider, HEIC-Container, GPX/IGC/KML, Interpolation, ExifTool-JSON, Thumbnails, Orientierung, Timeline, Abschnitte, History-Snapshots, Länderkatalog, Travelbook-PDF, CEWE-`.mcf`, interaktiver HTML-Ordner; Fitness-Import, GPX- und IGC-Export |
 | Integration | `packages/travelcore/tests/test_indexer.py`, `test_database.py`, `test_timeline.py`; `tests/integration/`; `tests/test_edit_history.py` | pytest | Projektordner, Schema, Index → SQLite, Timeline-Sync, Re-Open, Workspace-Undo |
-| GUI-Rauch | `tests/test_gui_smoke.py` | pytest + Qt offscreen | Hauptfenster, sechs Seiten, Menü **Bearbeiten**, Inspektor, Register, Titel mit Version R3.2.0, Timeline-Speichern nur bei Abschnitten/Texten/Reisetitel/YouTube, Sichtbarkeits-Schalter, Verlassen-Dialog, Karten-Refresh ohne Live-Reuse, **Filtern**, Thumbnail-Schieber inkl. Import, Ampel-Hover, Länderauswahl und Reise von–bis, Fitness-/IGC-Importfelder |
+| GUI-Rauch | `tests/test_gui_smoke.py` | pytest + Qt offscreen | Hauptfenster, sechs Seiten, Menü **Bearbeiten**, Inspektor, Register, Titel mit Version R3.3.0, Timeline-Speichern nur bei Abschnitten/Texten/Reisetitel/YouTube, Sichtbarkeits-Schalter, Verlassen-Dialog, Karten-Refresh ohne Live-Reuse, **Filtern**, Thumbnail-Schieber inkl. Import, Ampel-Hover, Länderauswahl und Reise von–bis, Fitness-/IGC-Importfelder, interaktiver HTML-Zielordner |
 | Paketierung | `packaging/` | manuell nach `build.ps1` | Frozen-EXE startet, Alembic/Karte, kein Python nötig (MT-22) |
 | Manuell | dieses Dokument, Abschnitt 7 | Windows-Desktop | Import echter HEIC/JPEG, Liste, Timeline, Abschnitte, Karte, Inspektor, Undo/Redo |
 | Statisch | Repository-Wurzel | Ruff, später pyright | Stil, Imports, grundlegende Typen |
@@ -285,7 +285,15 @@ Stand nach `pytest --collect-only`: **578 Tests** (2. September 2026). Neue Test
 | `test_first_path_is_travelbook_html` | `test_export_catalog.py` | Katalog: erster Pfad Travelbook × HTML |
 | `test_travelbook_is_static_book_with_page_turn` | `test_export_catalog.py` | Travelbook: Blätterbuch, Karte als Bild, Chronik-Intro, Editor |
 | `test_travelbook_page_layouts_are_one_to_eight_photos_and_journal` | `test_export_catalog.py` | Seiten-Templates photos_1–8 und journal; Media-Slots Foto/Video/Track |
-| `test_interactive_is_readonly_map_website` | `test_export_catalog.py` | Interaktiv: Read-only-Karte, nur HTML, kein Buch |
+| `test_interactive_is_readonly_map_website` | `test_export_catalog.py` | Interaktiv: Read-only-Karte, nur HTML, Foto-Vorschau und Thumbnail-Schieber |
+| `test_export_interactive_dirname_and_unique_dir` | `test_export_html.py` | Ordnername aus Titel, Kollision `-2` |
+| `test_leaflet_payload_read_only_omits_rating` | `test_export_html.py` | Read-only-Popup ohne Bewertungsleiste |
+| `test_write_viewer_jpeg_keeps_aspect` | `test_thumbnails.py` | Export-Vorschau-JPEG behält Seitenverhältnis, Original unberührt |
+| `test_interactive_html_writes_portable_map` | `test_export_html.py` | HTML-Ordner: index.html, Leaflet lokal, Thumbs, Lightbox, Zoom-Schieber, Leiste/Journal/YouTube-Chrome, Originale unberührt |
+| `test_interactive_html_omits_hidden_section` | `test_export_html.py` | Ausgeblendeter Abschnitt fehlt im HTML-Paket |
+| `test_interactive_html_includes_journal_and_youtube` | `test_export_html.py` | Leiste, Tagebuchtext und YouTube-Link im HTML-Paket |
+| `test_interactive_html_rejects_empty_map` | `test_export_html.py` | Ohne GPS kein Exportordner |
+| `test_interactive_html_rejects_occupied_destination` | `test_export_html.py` | Belegter Zielordner wird nicht überschrieben |
 | `test_yearbook_is_planned_and_print_capable` | `test_export_catalog.py` | Jahrbuch geplant, ohne Video |
 | `test_trip_summary_counts_days_sections_media_and_flights` | `test_export_stats.py` | Reiseübersicht: Tage, Abschnitte, Fotos, YouTube, IGC |
 | `test_trip_summary_omits_zero_metrics` | `test_export_stats.py` | Kennzahl 0 (z. B. YouTube) fehlt in der Übersicht |
@@ -310,7 +318,8 @@ Stand nach `pytest --collect-only`: **578 Tests** (2. September 2026). Neue Test
 | `test_catalog_files_live_next_to_module` | `test_country_catalog.py` | `catalog.json`, NOTICE, `flags/de.svg`, `shapes/de.svg` |
 | `test_country_at_uses_silhouette_outline` | `test_country_catalog.py` | Hochries/München → DE trotz AT in der Reise; Wien → AT; Vaduz → LI; Kapstadt → ZA; Mailand → IT |
 | `test_protocols_are_importable` | `test_interfaces.py` | `MetadataProvider`, `RankingStrategy`, `MapBackend` |
-| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R3.2.0, Menü **Bearbeiten** mit Strg+Z/Strg+Y, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren**, Export ohne Kopfzeile, Modus Vorschau/Editiermodus, einklappbare Auswahl, Blättern mit Pfeilen links/rechts, Cover dann Titelseite dann Seitenzahlen ab Reiseübersicht 1–2/n, Seitenformat DIN A4 Hochformat, Dateiformat erst im Export-Dialog (HTML/PDF/CEWE; CEWE-Hinweis, Qualität nur bei PDF), Länderauswahl und Reise von–bis deaktiviert ohne Projekt |
+| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R3.3.0, Menü **Bearbeiten** mit Strg+Z/Strg+Y, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren**, Export ohne Kopfzeile, Modus Vorschau/Editiermodus, einklappbare Auswahl, Blättern mit Pfeilen links/rechts, Cover dann Titelseite dann Seitenzahlen ab Reiseübersicht 1–2/n, Seitenformat DIN A4 Hochformat, Dateiformat erst im Export-Dialog (HTML/PDF/CEWE; CEWE-Hinweis, Qualität nur bei PDF), Länderauswahl und Reise von–bis deaktiviert ohne Projekt |
+| `test_pdf_export_asks_save_as_path` | `tests/test_gui_smoke.py` | PDF- und interaktiver HTML-Zielpfad; `.html` wird zum Ordner |
 | `test_country_picker_adds_flag_and_shape` | `tests/test_gui_smoke.py` | Länderauswahl: Italien und Slowenien mit Flagge und Umriss |
 | `test_project_span_edits_update_duration` | `tests/test_gui_smoke.py` | Projektseite: von–bis setzt Dauer (2 Tage) |
 | `test_summary_countries_stack_evenly_with_flag_in_outline` | `tests/test_gui_smoke.py` | Reiseübersicht: Umriss, Name in Versalien, kleine Flagge hinter dem Namen |
@@ -617,7 +626,7 @@ Stand nach `pytest --collect-only`: **578 Tests** (2. September 2026). Neue Test
 
 | Test | Datei | Prüft |
 | --- | --- | --- |
-| `test_app_window_title_includes_version` | `tests/test_gui_smoke.py` | `Reisetagebuch R3.2.0` |
+| `test_app_window_title_includes_version` | `tests/test_gui_smoke.py` | `Reisetagebuch R3.3.0` |
 | `test_source_sync_dialog_defaults_to_timeline` | `tests/test_gui_smoke.py` | Sync-Dialog: Timeline vorausgewählt, Pool wählbar |
 | `test_source_sync_dialog_hides_destination_without_new_files` | `tests/test_gui_smoke.py` | ohne neue Dateien keine Timeline/Pool-Wahl |
 | `test_entry_widget_separates_tracks_from_media` | `tests/test_gui_smoke.py` | getrennte Galerien |
@@ -777,7 +786,7 @@ Stand nach `pytest --collect-only`: **578 Tests** (2. September 2026). Neue Test
 
 ## 5. Abdeckung gegen das Pflichtenheft
 
-### 5.1 Gut abgedeckt (Phase 7 plus Medien-Pipeline, R3.2.0)
+### 5.1 Gut abgedeckt (Phase 7 plus Medien-Pipeline, R3.3.0)
 
 - Dateiklassifikation und rekursiver Scan
 - SHA-256 und Skip unveränderter Dateien
@@ -805,12 +814,13 @@ Stand nach `pytest --collect-only`: **578 Tests** (2. September 2026). Neue Test
 - Reiseabschnitte, Pending-Vorschau, Eintrags-Titelbild (Foto und Track, YouTube-Fallback)
 - YouTube- und DHV-Leonardo-URL-Normalisierung
 - Anzeigedrehung (Index, Cachepfad, Re-Import, Inspektor ohne Originalschreiben)
-- GUI-Rauch: Fenstertitel mit Version R3.2.0, Menü **Bearbeiten** (Strg+Z/Strg+Y), Pipeline Import→Medien→Timeline, Pool-Spalte, getrennte Medien/Tracks, Register nur per Klick (auch Tracks), Inspektor Blättern/Zoom/Drehen/Pool/Zur Karte (letzter Klick, geladene Karte ohne Neuaufbau), Sichtbarkeits-Schalter, Speichern/Verlassen, Thumbnail-Schieber, Länderauswahl und Reise von–bis ohne Projekt deaktiviert
+- GUI-Rauch: Fenstertitel mit Version R3.3.0, Menü **Bearbeiten** (Strg+Z/Strg+Y), Pipeline Import→Medien→Timeline, Pool-Spalte, getrennte Medien/Tracks, Register nur per Klick (auch Tracks), Inspektor Blättern/Zoom/Drehen/Pool/Zur Karte (letzter Klick, geladene Karte ohne Neuaufbau), Sichtbarkeits-Schalter, Speichern/Verlassen, Thumbnail-Schieber, Länderauswahl und Reise von–bis ohne Projekt deaktiviert
+- Travelbook (interaktiv): portabler HTML-Ordner (`index.html`, vendored Leaflet, Thumbs, 1920-px-Viewer-JPEGs), Leiste/Journal/YouTube, Lightbox, Zoom-Schieber, ausgeblendete Abschnitte fehlen, Originale unberührt
 - Medien-Cluster: SHA-256-Stapel, 30-s-Szenengruppen, manuelle Gruppen ohne Schlüssel, Overlay blendet Nicht-Schlüssel aus, Galerie-Kennzeichen G/×n, Inspektor-Blättern (Links/rechts Schlüssel, hoch/runter Gruppe, Leertaste, Aussortierte-Checkbox), Statistikleiste
 - Qualitätsampel: `technical_quality` in `photo_analyses`, Pillow-Analyse ohne Originalschreiben, Ampel in der Galerie, Knopf **Qualität prüfen**, Hover mit ausschlaggebenden Einzelwerten (`quality_tooltip`)
 - Medien-**Filtern**: Qualität, Zeitraum Von–Bis, Bewertung (Mehrfachauswahl) für Galerie und Pool
 - Thumbnail-Schieber auf Timeline, Medien, Karte und Import (`import_thumb_zoom`)
-- Export- und Provider-*Verträge* existieren; Travelbook-PDF rasterisiert; CEWE-Projekt (`.mcf` + Bilderordner, Hybrid, nur A4 hoch)
+- Export- und Provider-*Verträge* existieren; Travelbook-PDF rasterisiert; CEWE-Projekt (`.mcf` + Bilderordner, Hybrid, nur A4 hoch); Travelbook (interaktiv) als HTML-Ordner
 - Länderkatalog: 200+ ISO-2 mit DE/EN-Namen, Flagge und Umriss (inkl. Südafrika); Projektseite-Auswahl; Reiseübersicht Umriss + Name + Flagge; Reise von–bis und Kennzahl Tage; Gleitschirmflüge/IGC inkl. Pool und Pilotenzahl in Klammern
 
 ### 5.2 Bewusst noch ohne Automatisierung
@@ -822,7 +832,7 @@ Stand nach `pytest --collect-only`: **578 Tests** (2. September 2026). Neue Test
 | Windows-Endnutzerpaket | FA-140–FA-144 | kein pytest; manuell MT-22 nach `packaging/build.ps1` |
 | Galeriefilter in der UI | FA-101 | Logik der Liste und **Filtern**-Panel automatisiert; visuell MT-09 |
 | Zuletzt verwendete Projekte in der UI | FA-091 | `recent.json` ohne Oberfläche; manuell nicht zwingend |
-| HTML-/PDF-/LaTeX-/CEWE-Ausgabe | FA-121–FA-127 | HTML und LaTeX offen; Travelbook-PDF rasterisiert (`test_export_pdf.py`); CEWE-`.mcf` Hybrid (`test_export_cewe.py`); Jahrbuch und `.mcfx` offen |
+| HTML-/PDF-/LaTeX-/CEWE-Ausgabe | FA-121–FA-127 | Buch-HTML und LaTeX offen; Travelbook interaktiv als HTML-Ordner (`test_export_html.py`); Travelbook-PDF rasterisiert (`test_export_pdf.py`); CEWE-`.mcf` Hybrid (`test_export_cewe.py`); Jahrbuch und `.mcfx` offen |
 | pHash/dHash, unechte Dubletten | FA-071 | SHA-256-Stapel und Zeitszenen automatisiert; visuelle Near-Duplicates Phase 10 |
 | Importliste „alle Dateien“ (kein 250er-Limit) | FA-025 | nur manuell / GUI, kein Unit-Test der Qt-Tabelle |
 | Originale unverändert | FA-023 | implizit (nur Lese-APIs); Thumbnail- und Inspektor-Tests prüfen mtime |
@@ -855,7 +865,7 @@ Schweregrade für manuelle Funde:
 
 ---
 
-## 7. Manuelle Testfälle (Phase 3 bis 7 plus Medien-Pipeline, Software R3.2.0, inkl. Windows-Paket und Undo/Redo)
+## 7. Manuelle Testfälle (Phase 3 bis 7 plus Medien-Pipeline, Software R3.3.0, inkl. Windows-Paket und Undo/Redo)
 
 Voraussetzung: App starten mit
 
@@ -1124,8 +1134,8 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| App ohne Projekt | Titelleiste `Reisetagebuch R3.2.0` |
-| Projekt öffnen | `Reisetagebuch R3.2.0 - {Projekttitel}` |
+| App ohne Projekt | Titelleiste `Reisetagebuch R3.3.0` |
+| Projekt öffnen | `Reisetagebuch R3.3.0 - {Projekttitel}` |
 
 ### MT-22 Windows-Paket (FA-140–FA-144)
 
@@ -1133,7 +1143,7 @@ Voraussetzung: `packaging/build.ps1` erfolgreich; optional Inno Setup 6 für die
 
 | Schritt | Erwartung |
 | --- | --- |
-| `dist/Reisetagebuch/Reisetagebuch.exe` starten (ohne venv, ohne `python` auf dem PATH) | Fenster `Reisetagebuch R3.2.0`; kein Python-Fehlerdialog |
+| `dist/Reisetagebuch/Reisetagebuch.exe` starten (ohne venv, ohne `python` auf dem PATH) | Fenster `Reisetagebuch R3.3.0`; kein Python-Fehlerdialog |
 | Neues Projekt anlegen, JPEG-Ordner importieren | Index und Thumbnails wie in der Entwicklungsumgebung; Originale unverändert |
 | Seite **Karte** | WebEngine zeigt die Karte (nicht nur den HTML-Pfad) |
 | `%LOCALAPPDATA%\TravelJournal` | `config.json` / `recent.json` wie bisher, nicht im Programmordner |
@@ -1200,6 +1210,20 @@ Voraussetzung: Projekt mit Fotos unterschiedlicher Technik (scharfes Original, k
 | Timeline-Galerie | dieselbe Ampel an denselben Fotos |
 | Videos und Tracks | keine Ampel |
 
+### MT-14 Travelbook (interaktiv)
+
+Voraussetzung: Projekt mit sichtbaren Abschnitten, Fotos mit Ort, optional Tagebuchtext und YouTube.
+
+| Schritt | Erwartung |
+| --- | --- |
+| Export: **Travelbook (interaktiv)**, **Exportieren**, Zielordner wählen | Ordner mit `index.html`, `vendor/leaflet/`, `media/`, `media/full/`; Originale unverändert (mtime) |
+| `index.html` im Browser öffnen (ohne Server) | Karte schwenk- und zoombar; Layer-Menü; keine Bewertungsleiste |
+| Abschnittskarte in der Leiste anklicken | Karte zentriert bzw. Detail; Tagebuchtext rechts; YouTube-Thumbs unten rechts |
+| Leiste mit gedrückter linker Taste ziehen | Karten rutschen nach links/rechts; ohne Ziehen bleibt der Klick |
+| **Zoom** 50–200 % | Leistenkarten und Foto-Popup werden größer/kleiner; Marke bei 100 % |
+| Foto auf der Karte, Doppelklick auf die Popup-Vorschau | Lightbox mit großem JPEG; Esc oder × schließt; Pfeiltasten blättern |
+| Abschnitt in der Timeline ausblenden, neu exportieren | der Abschnitt fehlt in Leiste und Karte |
+
 ---
 
 ## 8. Manuelle Fälle ab Phase 8 (Vorschau)
@@ -1208,8 +1232,8 @@ Diese Fälle werden mit der jeweiligen Phase verbindlich.
 
 | ID | Phase | Kurzbeschreibung |
 | --- | --- | --- |
-| MT-14 | 8 | HTML-Export öffnet sich im Browser, lokale Bilder, kein Server |
-| MT-15 | 8 | Export schreibt nach `exports/` (PDF Travelbook und CEWE `.mcf` + Bilderordner), Originale unverändert |
+| MT-14 | 8 | Travelbook (interaktiv): HTML-Ordner, `index.html` im Browser, lokale Bilder, kein Server; Kacheln online; Leiste ziehen, Zoom-Schieber, Doppelklick-Vorschau |
+| MT-15 | 8 | Export schreibt nach `exports/` (PDF Travelbook, CEWE `.mcf` + Bilderordner, interaktiver HTML-Ordner), Originale unverändert |
 | MT-28 | 8 | CEWE-Projekt im Creator öffnen: Fotos und Texte verschiebbar; Karte/Umriss/Zeitleiste als Bild austauschbar; A4-hoch Travelbook |
 | MT-16 | 9 | erledigt als MT-27 (Ampel, kein Löschen) |
 | MT-17 | 10 | unechte Dubletten per pHash, Originale bleiben (SHA-256 und Zeitszenen: MT-26) |
@@ -1236,6 +1260,7 @@ Diese Fälle werden mit der jeweiligen Phase verbindlich.
 | Qualitätsampel | `packages/travelcore/tests/test_quality.py` (inkl. `test_quality_tooltip_names_decisive_parts`), `tests/test_gui_smoke.py` (Ampel, Hover), manuell MT-27 |
 | Medien-Filtern | `tests/test_media_filter.py`, `tests/test_gui_smoke.py` (`test_photos_view_filter_panel_quality_and_rating`), manuell MT-09 |
 | Travelbook-PDF / CEWE-`.mcf` | `test_export_pdf.py`, `test_export_cewe.py`, Export-Dialog in `tests/test_gui_smoke.py`, manuell MT-15, MT-28 |
+| Travelbook (interaktiv) HTML-Ordner | `test_export_html.py`, `test_thumbnails.py` (`write_viewer_jpeg`), `test_export_catalog.py`, `tests/test_gui_smoke.py` (`test_pdf_export_asks_save_as_path`), manuell MT-14 |
 | Windows-Paket (`packaging/`) | manuell MT-22 (kein pytest) |
 | Thumbnail-Schieber / Import-Vorschau | `tests/test_workspace.py` (`import_thumb_zoom`), `tests/test_gui_smoke.py` (`test_import_view_thumb_zoom_scales_preview`), manuell MT-04 |
 | UI-Importliste | MT-04, MT-23 |
@@ -1249,6 +1274,7 @@ Ein Phasenabschluss ohne grüne Automatisierung gilt als nicht abgenommen.
 
 | Datum | Kommando | Ergebnis |
 | --- | --- | --- |
+| 02.09.2026 | `python -m pytest --collect-only` im Projekt-venv | 651 Tests gesammelt (R3.3.0; Travelbook interaktiv HTML-Ordner, Lightbox, Zoom-Schieber) |
 | 02.09.2026 | `python -m pytest --collect-only -q` im Projekt-venv | 643 Tests gesammelt (R3.2.0; Fitness-/IGC-Import, Track-Chips, Kartendetail Flüge/Aktivitäten) |
 | 02.09.2026 | `python -m pytest --collect-only` im Projekt-venv | 622 Tests gesammelt (Fitness-Tracks unter `.FitnessTracks/`, Scan nimmt sie mit) |
 | 02.09.2026 | `python -m pytest --collect-only` im Projekt-venv | 578 Tests gesammelt (Ausgangslinie Track, `.MapTracks/` im Import-Ordner) |
@@ -1266,4 +1292,4 @@ Ein Phasenabschluss ohne grüne Automatisierung gilt als nicht abgenommen.
 | 26.08.2026 | `python -m pytest` im Projekt-venv | 222 bestanden |
 | 18.08.2026 | `python -m pytest` im Projekt-venv | 98 bestanden |
 
-Collect-only für R3.2.0 am 02.09.2026 (643 Tests); die nächste vollständige `pytest`-Fahrt hier fortschreiben.
+Collect-only für R3.3.0 am 02.09.2026 (651 Tests); die nächste vollständige `pytest`-Fahrt hier fortschreiben.

@@ -22,7 +22,13 @@
       "fit_trip",
       "layers",
       "cover_click",
-      "photo_popup"
+      "photo_popup",
+      "photo_preview",
+      "thumb_zoom",
+      "timeline",
+      "journal",
+      "youtube",
+      "overview"
     ],
     "forbidden": [
       "edit",
@@ -58,7 +64,7 @@
         "title": { "bind": "trip.title" },
         "scene": { "bind": "map.scene" }
       },
-      "note": "Read-only-Klon der Kartenseite: Übersicht, Detail, Foto-Popup. Zahnrad nur für Anzeige (Fotokegel, Layer), nicht für Redaktion."
+      "note": "Read-only-Klon der Kartenseite: Übersicht, Detail, Foto-Popup, Leiste, Tagebuch, YouTube. Zahnrad nur für Anzeige (Fotokegel, Layer), nicht für Redaktion."
     }
   ]
 }

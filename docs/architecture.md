@@ -2,7 +2,7 @@
 
 Produktanforderungen: [pflichtenheft.md](pflichtenheft.md). Leitkonzept: [konzept.md](konzept.md). Tests: [testdokumentation.md](testdokumentation.md). Windows-Paket: [packaging/README.md](../packaging/README.md).
 
-Stand: **Phase 7** plus Medien-Pipeline, Software **R3.2.0** (2. September 2026). Journal-Modell nach Design-Review; Verbindungslinien; Sichtbarkeits-Schalter (`trip_sections.hidden`); **Speichern** grau außer Dirty-Stand mit Undo/Redo und Verlassen-Dialog; Karten-Popup, Cover-Zoom, Track-Bewertung; Detail-Checkboxen Flüge/Aktivitäten; **Zur Karte** ohne Neuaufbau der geladenen Karte; Sichtbarkeitswechsel setzt `_live_stale` und übernimmt `_pending_result` statt Live-Reuse; SHA-256-Stapel, Szenen- und manuelle Gruppen, Statistikleiste Medien; Qualitätsampel mit Hover-Begründung; **Filtern** auf Medien; Thumbnail-Schieber inkl. Import; Fitness-/IGC-Import mit gemerkter DB; Track-Chips **Map** / **Act** / **igc**.
+Stand: **Phase 7** plus Medien-Pipeline, Software **R3.3.0** (2. September 2026). Journal-Modell nach Design-Review; Verbindungslinien; Sichtbarkeits-Schalter (`trip_sections.hidden`); **Speichern** grau außer Dirty-Stand mit Undo/Redo und Verlassen-Dialog; Karten-Popup, Cover-Zoom, Track-Bewertung; Detail-Checkboxen Flüge/Aktivitäten; **Zur Karte** ohne Neuaufbau der geladenen Karte; Sichtbarkeitswechsel setzt `_live_stale` und übernimmt `_pending_result` statt Live-Reuse; SHA-256-Stapel, Szenen- und manuelle Gruppen, Statistikleiste Medien; Qualitätsampel mit Hover-Begründung; **Filtern** auf Medien; Thumbnail-Schieber inkl. Import; Fitness-/IGC-Import mit gemerkter DB; Track-Chips **Map** / **Act** / **igc**; Travelbook (interaktiv) als HTML-Ordner (Leiste, Lightbox, Zoom-Schieber).
 
 ## Prinzip
 
@@ -59,7 +59,7 @@ in `trips.countries`. Aufruf und Quellen: [README.md](../README.md).
 | Use Cases | `travelcore.media`, `gps`, `timeline`, `geolocation`, `maps`, `similarity`, `export` | Import, Zuordnung, Timeline, Karte, Cluster, Export |
 | Persistenz | `travelcore.database` | SQLAlchemy-Modelle, Alembic, Projektordner |
 
-## Module in travelcore (Phase 7 plus Medien-Pipeline, R3.0.0–R3.2.0)
+## Module in travelcore (Phase 7 plus Medien-Pipeline, R3.0.0–R3.3.0)
 
 | Paket | Inhalt |
 | --- | --- |
@@ -125,7 +125,7 @@ Originaldateien nicht.
 
 Zuletzt geöffnete Projekte stehen unter
 `%LOCALAPPDATA%\TravelJournal\recent.json` (max. 10). Die Oberfläche listet
-sie in R3.2.0 noch nicht. Der Fenstertitel lautet `Reisetagebuch R{Version}`
+sie in R3.3.0 noch nicht. Der Fenstertitel lautet `Reisetagebuch R{Version}`
 bzw. `Reisetagebuch R{Version} - {Projekttitel}`. Das Medienregister
 (Timeline und Medienseite) steht in `%LOCALAPPDATA%\TravelJournal\config.json` (`timeline_media_tab`),
 die gemerkten Fitness- und IGC-Datenbankordner (`fitness_db_path`, `igc_db_path`),
@@ -434,7 +434,7 @@ Bereits in Phase 1 angelegt, schrittweise gefüllt:
 - Anzeigedrehung in `travelcore.media.orientation` – nach EXIF-Transpose,
   Cachepfad enthält `_r90` bei nicht-null `rotation_degrees`
 - `VideoMetadataProvider` – ffprobe-Adapter (noch nicht aktiv)
-- `Exporter` – HTML, PDF, LaTeX, CEWE. Ausgabetyp ist ein JSON-Template unter `travelcore/export/templates/products/`. **Travelbook** und **Jahrbuch** sind Blätterbücher (Karten als Bild). Travelbook hat einen Editiermodus (`travelbook.json` im Projekt): erste Doppelseite je Abschnitt, weitere Spreads mit Seiten-Layouts `photos_1`–`photos_8` und `journal`; Medienleiste des Abschnitts (Foto/Video/Track-Thumbs) per Drag-and-drop auf Media-Slots. **Travelbook (interaktiv)** ist die Read-only-Kartenwebsite (schwenken, zoomen), nur HTML. Katalog: `templates/catalog.json`. Erster Pfad: Travelbook × HTML. PDF: Raster-`PdfRenderer` (Pillow-Seiten, JPEG-PDF), kein PyMuPDF. CEWE: `export_travelbook_mcf` schreibt klassisches `.mcf` plus `Name_mcf-Dateien` (Fotos/Text nativ, Grafikinseln gerastert; Produkt ALB82, nur `a4-portrait`). `load_product` / `load_page_layout`; `supports(typ, format)` prüft die Matrix.
+- `Exporter` – HTML, PDF, LaTeX, CEWE. Ausgabetyp ist ein JSON-Template unter `travelcore/export/templates/products/`. **Travelbook** und **Jahrbuch** sind Blätterbücher (Karten als Bild). Travelbook hat einen Editiermodus (`travelbook.json` im Projekt): erste Doppelseite je Abschnitt, weitere Spreads mit Seiten-Layouts `photos_1`–`photos_8` und `journal`; Medienleiste des Abschnitts (Foto/Video/Track-Thumbs) per Drag-and-drop auf Media-Slots. **Travelbook (interaktiv)** ist die Read-only-Kartenwebsite (schwenken, zoomen), nur HTML: `export_travelbook_interactive` schreibt einen Ordner (`index.html`, `media/`, vendored Leaflet), Cover-Klick nutzt eingebettete Details ohne Qt; Leiste (ziehen, Zoom-Schieber), Tagebuch, YouTube und Foto-Lightbox (1920-px-JPEG, Originale unberührt) liegen als HTML-Chrome um die Folium-Karte. Katalog: `templates/catalog.json`. Erster Pfad: Travelbook × HTML. PDF: Raster-`PdfRenderer` (Pillow-Seiten, JPEG-PDF), kein PyMuPDF. CEWE: `export_travelbook_mcf` schreibt klassisches `.mcf` plus `Name_mcf-Dateien` (Fotos/Text nativ, Grafikinseln gerastert; Produkt ALB82, nur `a4-portrait`). `load_product` / `load_page_layout`; `supports(typ, format)` prüft die Matrix.
 - Länderkatalog in `travelcore.geo` – ISO-2, Namen DE/EN, Flaggen- und Umriss-SVG; Auswahl auf der Projektseite (`trips.countries`); Abschnittsseite ermittelt das Land aus Pin/GPS über den Silhouette-Umriss (`country_at`: Punkt im Polygon und Abstand zur Grenze; bei Grenzüberlappung das größere Land)
 - `MapBackend` – Folium/Leaflet, Übersicht als Titelbild-Kreise je Tag/Transfer/Aufenthalt, Layer-Menü Straßenkarte/Topo/Satellit, Fit-Reise, Zahnrad für Fotokegel, Reserve, Satelliten-Ortsnamen und Satelliten-Straßen (in `settings.toml`; Fotokegel am Stapel und nach der Auswahl, nicht im Fächer; überlappende Marker ab Zoom 17 per Klick zum Fächer, Klick in die Karte stellt den Stapel wieder her), Detail mit Checkboxen **Flüge anzeigen** und **Aktivitäten anzeigen** (Map-Tracks bleiben),
   Verbindungslinien zwischen Tag- und Aufenthaltskreisen (Richtungsmarker, Zoom-Überdeckung, Transfer-Kreis per dünner Linie am Symbol),
@@ -521,10 +521,11 @@ macOS ist kein Ziel (WIC-Vorschauen, AppData-Pfade).
     Track-Vorschauen, Cover-Zoom, Foto-Popup, Anzeigedrehung,
     Rückgängig/Wiederherstellen)
    Windows-Endnutzerpaket: `packaging/` (keine eigene Fachphase)
-8. HTML-Export
+8. HTML-Export  ← R3.3.0 teilweise (Travelbook interaktiv als HTML-Ordner;
+    Buch-HTML offen)
 9. Qualitätsanalyse  ← Ampel umgesetzt (`PillowQualityAnalyzer`, Knopf
     **Qualität prüfen**, Hover mit Einzelwerten; Ranking-Gewichte weiter Schnittstelle)
 10. Dublettenerkennung  ← R3.0.0 teilweise (SHA-256-Stapel, 30-s-Gruppen,
     manuelle Gruppen, Statistik; keine pHash/Embeddings)
 
-Aktueller Stand: Phase 7 erledigt plus Medien-Pipeline, Qualitätsampel, Filtern und Import-Zoom, Sichtbarkeit/Speichern/Verlassen, Fitness-/IGC-Import, Kartendetail Flüge/Aktivitäten, Software R3.2.0.
+Aktueller Stand: Phase 7 erledigt plus Medien-Pipeline, Qualitätsampel, Filtern und Import-Zoom, Sichtbarkeit/Speichern/Verlassen, Fitness-/IGC-Import, Kartendetail Flüge/Aktivitäten, Travelbook (interaktiv) als HTML-Ordner, Software R3.3.0.

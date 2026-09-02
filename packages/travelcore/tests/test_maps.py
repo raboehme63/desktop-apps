@@ -234,6 +234,8 @@ def test_folium_overview_cover_uses_expand_url(tmp_path: Path) -> None:
     assert "traveljournalFocusMedia" in text
     assert "covers.eachLayer" in text
     assert "window.traveljournalExpand(key)" in text
+    assert "packed[key]" in text
+    assert "traveljournalConfig.details" in text
     assert "traveljournalCoverActivate" in text
     assert "traveljournalCenterCover" in text
     assert "traveljournalFitCoverPack" in text

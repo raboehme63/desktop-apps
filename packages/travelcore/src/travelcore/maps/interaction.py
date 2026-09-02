@@ -30,6 +30,7 @@ from travelcore.project_settings import (
     normalize_map_track_color,
     normalize_stay_link_color,
 )
+from travelcore.timeline.links import youtube_thumbnail_url
 from travelcore.timeline.symbols import stay_symbol_svg_js
 
 OSM_LATIN_TILES = "https://tile.openstreetmap.de/{z}/{x}/{y}.png"
@@ -1334,7 +1335,7 @@ def _standalone_settings_script(fmap: Any) -> str:
 """
 
 
-def leaflet_payload(scene: MapScene, html_path: Path) -> dict[str, Any]:
+def leaflet_payload(scene: MapScene, html_path: Path, *, read_only: bool = False) -> dict[str, Any]:
     """JSON for ``traveljournalShowDetail`` in the overview HTML."""
 
     markers = [
@@ -1343,7 +1344,7 @@ def leaflet_payload(scene: MapScene, html_path: Path) -> dict[str, Any]:
             "longitude": marker.longitude,
             "kind": marker.kind,
             "label": marker.label,
-            "popup_html": _popup_body(marker, html_path),
+            "popup_html": _popup_body(marker, html_path, read_only=read_only),
             "preview": _preview_src(html_path, marker.preview_path, marker.preview_url) or "",
             "source_file_id": marker.source_file_id,
             "sort_status": marker.sort_status,
@@ -1365,7 +1366,7 @@ def leaflet_payload(scene: MapScene, html_path: Path) -> dict[str, Any]:
             "sort_status": line.sort_status,
             "source_file_id": line.source_file_id,
             "map_track": bool(line.map_track),
-            "popup_html": _polyline_popup_html(line),
+            "popup_html": _polyline_popup_html(line, read_only=read_only),
         }
         for line in scene.polylines
     ]
@@ -1386,6 +1387,17 @@ def timeline_js_cards(
             "cover": _preview_src(html_path, card.cover_path, card.cover_url) or "",
             "lat": card.latitude,
             "lon": card.longitude,
+            "kind": card.card_kind,
+            "needs_pin": card.needs_pin,
+            "notes": card.notes or "",
+            "youtube": [
+                {"url": url, "thumb": youtube_thumbnail_url(url) or ""}
+                for url in card.youtube_urls
+            ],
+            "photos": card.photo_count,
+            "tracks": card.track_count,
+            "igc": card.igc_count,
+            "youtube_count": card.youtube_count,
         }
         for card in cards
     ]
@@ -2238,6 +2250,11 @@ def _overview_script(
         return;
       }}
       enableDrag();
+      var packed = (window.traveljournalConfig && window.traveljournalConfig.details) || {{}};
+      if (packed[key] && window.traveljournalShowDetail) {{
+        window.traveljournalShowDetail(packed[key]);
+        return;
+      }}
       if (window.tjBridge && window.tjBridge.expand) {{
         window.tjBridge.expand(key);
       }}
@@ -2421,6 +2438,10 @@ def _overview_script(
       }}
       if (window.tjBridge && window.tjBridge.openMedia) {{
         window.tjBridge.openMedia(id);
+        return;
+      }}
+      if (typeof window.traveljournalShowOriginal === 'function') {{
+        window.traveljournalShowOriginal(id);
         return;
       }}
       console.info('traveljournal:media:' + id);
@@ -3352,7 +3373,7 @@ def _overview_script(
 """
 
 
-def _popup_body(marker: MapMarker, html_path: Path) -> str:
+def _popup_body(marker: MapMarker, html_path: Path, *, read_only: bool = False) -> str:
     title = html.escape(marker.label)
     parts = [f"<strong>{title}</strong>"]
     if marker.subtitle:
@@ -3372,11 +3393,12 @@ def _popup_body(marker: MapMarker, html_path: Path) -> str:
             '<button type="button" class="tj-popup-arrow tj-popup-next" title="Nächstes">›</button>'
             "</div>"
         )
-    parts.append(_rating_bar_html(marker))
+    if not read_only:
+        parts.append(_rating_bar_html(marker))
     return '<div class="tj-popup">' + "".join(parts) + "</div>"
 
 
-def _polyline_popup_html(line: MapPolyline) -> str:
+def _polyline_popup_html(line: MapPolyline, *, read_only: bool = False) -> str:
     parts: list[str] = []
     if line.name:
         parts.append(f"<strong>{html.escape(line.name)}</strong>")
@@ -3385,9 +3407,10 @@ def _polyline_popup_html(line: MapPolyline) -> str:
     if line.external_url:
         href = html.escape(line.external_url, quote=True)
         parts.append(f'<div><a href="{href}" target="_blank" rel="noopener">DHV-Leonardo</a></div>')
-    rating = _rating_bar_html_for(line.source_file_id, line.sort_status, kind=line.kind)
-    if rating:
-        parts.append(rating)
+    if not read_only:
+        rating = _rating_bar_html_for(line.source_file_id, line.sort_status, kind=line.kind)
+        if rating:
+            parts.append(rating)
     if not parts:
         return ""
     return '<div style="min-width:180px">' + "".join(parts) + "</div>"

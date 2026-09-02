@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from travelcore.config import AppSettings
 from travelcore.exceptions import ExportError
 from travelcore.export.book import export_rotations, export_sources
 from travelcore.export.catalog import (
@@ -56,10 +57,19 @@ from travelcore.export.document import (
     replace_spread,
     save_document,
 )
+from travelcore.export.html import (
+    export_interactive_dirname,
+    normalize_html_dir,
+    unique_export_dir,
+)
 from travelcore.export.pdf import export_filename, normalize_pdf_save_path, unique_export_path
 from travelcore.export.photo_layouts import layout_from_frames, save_user_layout
 from travelcore.export.quality import DEFAULT_QUALITY_ID, list_pdf_qualities
-from traveljournal.services.workers import ExportMcfRunnable, ExportPdfRunnable
+from traveljournal.services.workers import (
+    ExportInteractiveRunnable,
+    ExportMcfRunnable,
+    ExportPdfRunnable,
+)
 from traveljournal.services.workspace import Workspace
 from traveljournal.views.photo_templates_dialog import (
     PhotoTemplateDialog,
@@ -686,7 +696,8 @@ class ExportView(QWidget):
             self._other_hint.hide()
         elif self._product_id == "travelbook-interactive":
             self._other_hint.setText(
-                "Vorschau der Karten-Website folgt. Nach dem Export: schwenken und zoomen, nur lesen."
+                "Exportiert die Karte als HTML-Ordner. index.html im Browser öffnen: "
+                "Karte, Leiste, Tagebuch und YouTube — nur lesen."
             )
             self._other_hint.show()
         else:
@@ -801,6 +812,18 @@ class ExportView(QWidget):
             return None
         return normalize_mcf_save_path(chosen)
 
+    def _choose_html_destination(self, suggested: Path) -> Path | None:
+        suggested.parent.mkdir(parents=True, exist_ok=True)
+        chosen, _filter = QFileDialog.getSaveFileName(
+            self,
+            "HTML-Paket speichern unter",
+            str(suggested),
+            "HTML-Paket (*)",
+        )
+        if not chosen.strip():
+            return None
+        return normalize_html_dir(chosen)
+
     def _export(self) -> None:
         if self.workspace.current is None:
             QMessageBox.information(self, "Export", "Bitte zuerst ein Projekt öffnen.")
@@ -812,6 +835,9 @@ class ExportView(QWidget):
             return
         self._pdf_quality_id = dialog.selected_quality()
         format_id = dialog.selected_format()
+        if format_id == "html" and self._product_id == "travelbook-interactive":
+            self._export_interactive()
+            return
         if format_id not in {"pdf", "cewe"}:
             chosen = _format_caption(format_id)
             QMessageBox.information(
@@ -874,6 +900,61 @@ class ExportView(QWidget):
         self.export_progress.emit(0, 0, "PDF wird geschrieben…")
         self._pool.start(worker)
 
+    def _export_interactive(self) -> None:
+        if self.workspace.current is None:
+            QMessageBox.information(self, "Export", "Bitte zuerst ein Projekt öffnen.")
+            return
+        snapshot = self.workspace.load_timeline()
+        title = snapshot.title if snapshot is not None else ""
+        exports = self.workspace.current.directory / "exports"
+        suggested = unique_export_dir(exports, export_interactive_dirname(title))
+        destination = self._choose_html_destination(suggested)
+        if destination is None:
+            return
+        worker = ExportInteractiveRunnable(
+            self.workspace.current,
+            destination,
+            title=title or "Reise",
+            size=AppSettings().default_thumbnail_size,
+            map_provider=self.workspace.map_provider(),
+            map_link_color=self.workspace.map_link_color(),
+            map_track_color=self.workspace.map_track_color(),
+            host=self,
+        )
+        worker.signals.progress.connect(self._on_html_progress)
+        worker.signals.finished.connect(self._on_html_finished)
+        worker.signals.failed.connect(self._on_html_failed)
+        self._exporting = True
+        self._export_button.setEnabled(False)
+        self.export_progress.emit(0, 0, "Karten-Website wird geschrieben…")
+        self._pool.start(worker)
+
+    def _on_html_progress(self, current: int, total: int) -> None:
+        self.export_progress.emit(current, total, f"HTML {current}/{total}")
+
+    def _on_html_finished(self, result: object) -> None:
+        self._exporting = False
+        self._export_button.setEnabled(self.workspace.current is not None)
+        self.export_finished.emit()
+        path = getattr(result, "output_path", None)
+        QMessageBox.information(
+            self,
+            "Export",
+            (
+                f"Karten-Website geschrieben:\n{path}\n\n"
+                "Ordner so lassen und index.html im Browser öffnen. "
+                "Kartenkacheln brauchen eine Internetverbindung."
+            )
+            if path is not None
+            else "Karten-Website geschrieben.",
+        )
+
+    def _on_html_failed(self, message: str) -> None:
+        self._exporting = False
+        self._export_button.setEnabled(self.workspace.current is not None)
+        self.export_finished.emit()
+        QMessageBox.warning(self, "Export", message or "HTML-Export fehlgeschlagen.")
+
     def _on_export_progress(self, current: int, total: int) -> None:
         self.export_progress.emit(current, total, f"PDF {current}/{total}")
 
@@ -905,10 +986,7 @@ class ExportView(QWidget):
         QMessageBox.information(
             self,
             "Export",
-            (
-                f"CEWE-Projekt geschrieben:\n{path}\n\n"
-                "Im CEWE Creator öffnen und den Feinschliff dort machen."
-            )
+            (f"CEWE-Projekt geschrieben:\n{path}\n\nIm CEWE Creator öffnen und den Feinschliff dort machen.")
             if path is not None
             else "CEWE-Projekt geschrieben.",
         )

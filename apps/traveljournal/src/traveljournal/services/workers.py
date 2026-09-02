@@ -197,6 +197,12 @@ class IndexLoadRunnable(QRunnable):
             self.signals.failed.emit(str(exc))
 
 
+class ExportInteractiveSignals(QObject):
+    progress = Signal(int, int)
+    finished = Signal(object)
+    failed = Signal(str)
+
+
 class ExportPdfSignals(QObject):
     progress = Signal(int, int)
     finished = Signal(object)
@@ -207,6 +213,58 @@ class ExportMcfSignals(QObject):
     progress = Signal(int, int)
     finished = Signal(object)
     failed = Signal(str)
+
+
+class ExportInteractiveRunnable(QRunnable):
+    """Write a read-only map HTML directory off the GUI thread."""
+
+    def __init__(
+        self,
+        open_project: OpenProject,
+        destination: Path,
+        *,
+        title: str,
+        size: int,
+        map_provider: str,
+        map_link_color: str,
+        map_track_color: str,
+        host: QObject | None = None,
+    ) -> None:
+        super().__init__()
+        self.open_project = open_project
+        self.destination = destination
+        self.title = title
+        self.size = size
+        self.map_provider = map_provider
+        self.map_link_color = map_link_color
+        self.map_track_color = map_track_color
+        self.signals = ExportInteractiveSignals(host)
+        self.setAutoDelete(True)
+
+    def run(self) -> None:
+        try:
+            from travelcore.export.html import export_travelbook_interactive
+
+            def on_progress(current: int, total: int) -> None:
+                self.signals.progress.emit(current, total)
+
+            thumbs = self.open_project.directory / "thumbnails"
+            with self.open_project.session_factory() as session:
+                result = export_travelbook_interactive(
+                    session,
+                    self.open_project.project_id,
+                    thumbs,
+                    self.destination,
+                    size=self.size,
+                    map_provider=self.map_provider,
+                    map_track_color=self.map_track_color,
+                    map_link_color=self.map_link_color,
+                    title=self.title,
+                    progress=on_progress,
+                )
+            self.signals.finished.emit(result)
+        except Exception as exc:  # noqa: BLE001 - surface export failures to the UI
+            self.signals.failed.emit(str(exc))
 
 
 class ExportMcfRunnable(QRunnable):

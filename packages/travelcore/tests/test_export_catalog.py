@@ -150,6 +150,8 @@ def test_interactive_is_readonly_map_website() -> None:
     assert product["viewer"]["read_only"] is True
     assert "pan" in product["viewer"]["features"]
     assert "zoom" in product["viewer"]["features"]
+    assert "photo_preview" in product["viewer"]["features"]
+    assert "thumb_zoom" in product["viewer"]["features"]
     assert "edit" in product["viewer"]["forbidden"]
     pages = product["pages"]
     assert [page["kind"] for page in pages] == ["map_site"]

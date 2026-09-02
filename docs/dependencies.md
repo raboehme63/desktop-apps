@@ -1,6 +1,6 @@
 # Direkte Abhängigkeiten
 
-Stand: Phase 7 plus Medien-Pipeline, Software R3.2.0. Es werden **keine** Platzhalter-Bibliotheken installiert,
+Stand: Phase 7 plus Medien-Pipeline, Software R3.3.0. Es werden **keine** Platzhalter-Bibliotheken installiert,
 die der aktuelle Code nicht verwendet.
 
 Lizenzangaben stammen aus den veröffentlichten Projektdaten der jeweiligen
@@ -21,6 +21,8 @@ Installierte Versionen beziehen sich auf die aktuelle Entwicklungsumgebung
 | Pillow | 12.3.0 | HPND-sell-variant | EXIF/XMP, Bildgröße, JPEG-Thumbnails |
 | gpxpy | 1.6.2 | Apache-2.0 | GPX-Parsing |
 | Folium | 0.20.0 | MIT | Karten-HTML (Leaflet, MarkerCluster) |
+
+Leaflet 1.9.3 (BSD-2-Clause) und Leaflet.markercluster 1.1.0 (MIT) liegen für den interaktiven HTML-Export unter `travelcore/export/static/leaflet/` und werden ins Paket kopiert.
 
 Transitiv durch die oben genannten Pakete: `greenlet`, `Mako`, `MarkupSafe`,
 `annotated-types`, `pydantic-core`, `typing-extensions`, `typing-inspection`,

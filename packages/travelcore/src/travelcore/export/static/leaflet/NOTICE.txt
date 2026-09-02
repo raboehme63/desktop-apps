@@ -1,0 +1,5 @@
+Leaflet 1.9.3 — BSD-2-Clause
+https://github.com/Leaflet/Leaflet
+
+Leaflet.markercluster 1.1.0 — MIT
+https://github.com/Leaflet/Leaflet.markercluster

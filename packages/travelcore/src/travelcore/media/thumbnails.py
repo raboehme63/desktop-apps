@@ -37,6 +37,7 @@ _HEIC_SUFFIXES = {".heic", ".heif"}
 _RAW_SUFFIXES = PHOTO_EXTENSIONS - _PILLOW_SUFFIXES - _HEIC_SUFFIXES
 _JPEG_SOI = b"\xff\xd8\xff"
 _THUMB_FILL = (18, 21, 28)
+VIEWER_MAX_EDGE = 1920
 # Full-size decode above this is too expensive. JPEG still uses Image.draft first.
 _MAX_THUMB_SOURCE_PIXELS = 40_000_000
 _MAX_TRACK_POINTS = 800
@@ -153,6 +154,33 @@ def ensure_thumbnail(
         fitted.save(destination, format="JPEG", quality=85, optimize=True)
     except (OSError, ValueError, SyntaxError, Image.DecompressionBombError) as exc:
         logger.warning("Thumbnail failed for %s: %s", source.name, exc)
+        return None
+    finally:
+        image.close()
+    return destination if destination.is_file() else None
+
+
+def write_viewer_jpeg(
+    source: Path,
+    destination: Path,
+    *,
+    max_edge: int = VIEWER_MAX_EDGE,
+    rotation_degrees: int | None = 0,
+) -> Path | None:
+    """Write a JPEG that fits in ``max_edge``. Does not write the original."""
+
+    image = _open_preview(source, size=max_edge)
+    if image is None:
+        return None
+    try:
+        transposed = ImageOps.exif_transpose(image)
+        working = transposed if transposed is not None else image
+        working = apply_display_rotation(working, rotation_degrees)
+        fitted = _fit_max_edge(working, max_edge)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        fitted.save(destination, format="JPEG", quality=88, optimize=True)
+    except (OSError, ValueError, SyntaxError, Image.DecompressionBombError) as exc:
+        logger.warning("Viewer JPEG failed for %s: %s", source.name, exc)
         return None
     finally:
         image.close()
@@ -644,6 +672,16 @@ def _fit_square(image: Image.Image, size: int) -> Image.Image:
     top = (size - rgb.height) // 2
     canvas.paste(rgb, (left, top))
     return canvas
+
+
+def _fit_max_edge(image: Image.Image, edge: int) -> Image.Image:
+    rgb = image.convert("RGB")
+    width, height = rgb.size
+    if width <= 0 or height <= 0 or max(width, height) <= edge:
+        return rgb
+    scale = edge / max(width, height)
+    size = (max(1, round(width * scale)), max(1, round(height * scale)))
+    return rgb.resize(size, Image.Resampling.LANCZOS)
 
 
 def _jpeg_end(data: bytes, start: int) -> int | None:

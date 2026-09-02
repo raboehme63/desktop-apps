@@ -1,4 +1,4 @@
-"""Export backends. HTML is still abstract; PDF rasterizes the Travelbook.
+"""Export backends. Interactive HTML writes a read-only map site; the book HTML is later.
 
 Ausgabetyp (Travelbook, Jahrbuch, …) ist ein JSON-Template.
 Ausgabeformat (HTML, PDF, …) ist der Renderer. Nicht jede Zelle der Matrix
@@ -16,7 +16,7 @@ from travelcore.export.document import (
     save_document,
     sync_document,
 )
-from travelcore.export.html import HtmlExporter
+from travelcore.export.html import HtmlExporter, export_travelbook_interactive
 from travelcore.export.latex import LatexExporter
 from travelcore.export.pdf import PdfExporter, PdfRenderer, export_travelbook_pdf
 from travelcore.export.quality import DEFAULT_QUALITY_ID, list_pdf_qualities, pdf_quality
@@ -32,6 +32,7 @@ __all__ = [
     "PdfExporter",
     "PdfRenderer",
     "TravelbookDocument",
+    "export_travelbook_interactive",
     "export_travelbook_mcf",
     "export_travelbook_pdf",
     "first_path",

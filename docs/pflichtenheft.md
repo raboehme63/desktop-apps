@@ -3,9 +3,9 @@
 | Feld | Inhalt |
 | --- | --- |
 | Produkt | Reisetagebuch (Windows-Desktop) |
-| Version | 3.2 (Software **R3.2.0**) |
+| Version | 3.3 (Software **R3.3.0**) |
 | Stand | 2. September 2026 |
-| Status | verbindlich für die Umsetzung; Phase 7 plus Medien-Pipeline, Software R3.2.0 |
+| Status | verbindlich für die Umsetzung; Phase 7 plus Medien-Pipeline, Software R3.3.0 |
 | Bezug | Auftraggeber-Prompt „Reise-Tagebuch-Anwendung für Windows“ |
 | Begleitdokumente | [konzept.md](konzept.md), [architecture.md](architecture.md), [testdokumentation.md](testdokumentation.md), [dependencies.md](dependencies.md), [packaging/README.md](../packaging/README.md) |
 
@@ -24,6 +24,8 @@ Dieses Pflichtenheft beschreibt **was** das System leisten muss. Das **wie** ste
 **R3.1.0** ergänzt die Journal-Redaktion: Sichtbarkeits-Schalter auf der Timeline-Karte (ein = auf Karte und im Export, aus = nur in der Timeline; `trip_sections.hidden`, Alembic `019_section_hidden`). **Speichern** ist sonst grau; Undo/Redo der ungespeicherten Edits schaltet ihn mit. Verlassen der Timeline (Seitenwechsel oder Fenster schließen) fragt **Speichern / Verwerfen / Abbrechen**. Die Karte übernimmt den Sichtbarkeitswechsel ohne alle Timeline-Karten neu aufzubauen. Das bisherige ⋯ ist der Knopf **Menü**.
 
 **R3.2.0** holt Fitness-GPX und IGC auf der Seite **Import** (eigene Karten unter der Quellenanalyse, Fortschritt, Zeitraum aus Reise von–bis überschreibbar). Die Datenbankordner bleiben in `config.json` (`fitness_db_path`, `igc_db_path`). Die Importstatistik trennt Tracks in **MAP**, **Activity**, **Flüge** und **Sonstige**. Timeline-Tracks tragen die Chips **Map** / **Act** / **igc** (sonstige GPX ohne Chip). Track-Vorschauen nutzen denselben Leaflet-Kartenausschnitt. In der Kartendetailansicht schalten **Flüge anzeigen** und **Aktivitäten anzeigen** IGC- bzw. Aktivitätslinien (Map-Tracks bleiben; `map_show_flights` / `map_show_activities` in `settings.toml`, Standard ein).
+
+**R3.3.0** liefert **Travelbook (interaktiv)** als portablen HTML-Ordner: dieselbe veröffentlichte Karte wie in der App, nur lesen. `index.html` plus `media/` (Thumbs und 1920-px-Vorschau-JPEGs) und vendored Leaflet; Basemap-Kacheln bleiben online. Leiste mit Ziehen und Zoom-Schieber (50–200 %), Tagebuchtext, YouTube-Thumbs, Cover-Klick, Foto-Popup; Doppelklick öffnet die Lightbox (kein Original). Ausgeblendete Abschnitte fehlen. Buch-HTML bleibt Phase 8.
 
 Prioritäten:
 
@@ -57,7 +59,7 @@ Konkret muss das System:
 
 Die Geschäftslogik muss in der GUI-freien Bibliothek `travelcore` liegen, damit dieselbe Analyse später von **PhotoInspector** wiederverwendet werden kann.
 
-Punkt 5 ist für **manuelle Reiseabschnitte** (Tag / Aufenthalt / Transfer) in der Timeline und als Titelbilder auf der Karte umgesetzt. Automatische Abschnittsvorschläge (über die GPS-Ortscluster hinaus) fehlen noch. Punkt 8 ist in R3.0.0 teilweise (exakte Dubletten und Zeitszenen; keine pHash-Near-Duplicates). Punkt 10: Travelbook-PDF und CEWE-Projekt (`.mcf`) sind da; HTML und LaTeX bleiben Phase 8.
+Punkt 5 ist für **manuelle Reiseabschnitte** (Tag / Aufenthalt / Transfer) in der Timeline und als Titelbilder auf der Karte umgesetzt. Automatische Abschnittsvorschläge (über die GPS-Ortscluster hinaus) fehlen noch. Punkt 8 ist in R3.0.0 teilweise (exakte Dubletten und Zeitszenen; keine pHash-Near-Duplicates). Punkt 10: Travelbook-PDF, CEWE-Projekt (`.mcf`) und Travelbook (interaktiv) als HTML-Ordner sind da; Buch-HTML und LaTeX bleiben Phase 8.
 
 ### 1.2 Wunschkriterien
 
@@ -246,7 +248,7 @@ Auswahlmodell in der Timeline und auf der Medienseite: erster und letzter Klick 
 
 | ID | Prio | Anforderung | Stand |
 | --- | --- | --- | --- |
-| FA-090 | Muss | Moderne Windows-UI mit PySide6, Navigation links. Fenstertitel: `Reisetagebuch R{Version}` bzw. `Reisetagebuch R{Version} - {Projekttitel}`. | umgesetzt (Rahmen; Version **R3.2.0**; linke Pipeline mit Symbolen, einklappbar nur Icons, ausgeklappt inhaltsbreit; Zustand in `config.json`) |
+| FA-090 | Muss | Moderne Windows-UI mit PySide6, Navigation links. Fenstertitel: `Reisetagebuch R{Version}` bzw. `Reisetagebuch R{Version} - {Projekttitel}`. | umgesetzt (Rahmen; Version **R3.3.0**; linke Pipeline mit Symbolen, einklappbar nur Icons, ausgeklappt inhaltsbreit; Zustand in `config.json`) |
 | FA-091 | Muss | Bereich Projekt: neu, öffnen, speichern; **Reise von–bis** aus den indexierten Daten vorbefüllt und editierbar (daraus inklusiv die Reisedauer); **bereiste Länder** aus dem eingebetteten Katalog (ISO-2, deutscher Name, Flagge, Umriss — kein Freitext); Menü **Projekt → Einstellungen** (Dialog mit vertikalem Schieber). | teilweise (neu/öffnen/speichern/von–bis/Länderkatalog/Einstellungen; zuletzt verwendete Projekte intern in `recent.json`, noch ohne UI-Liste; Projekte-Stammordner in `config.json`) |
 | FA-092 | Muss | Bereich Import: Ordner, Analyse, **Synchronisieren**, Fortschritt, Dateiliste mit Zeit/GPS/Kamera. Klick/Mouseover zeigt Vorschau und Metadaten. Die Liste wird während des Einlesens periodisch aktualisiert, erneut nach GPS-Abgleich, und vor den Vorschaubildern. | umgesetzt (Kamera/Pilot; DHV-Leonardo per Doppelklick auf IGC; Vorschau auch für Video/Track; Sync mit Timeline/Pool; unter der Quellenkarte Fitness- und IGC-Import mit Fortschritt und gemerktem DB-Pfad; Zähler Fotos, Videos, MAP, Activity, Flüge, Sonstige) |
 | FA-093 | Muss | Bereiche Medien, Timeline, Karte, Export. | teilweise (Medien, Timeline, Karte umgesetzt; Export: Vorschau/Editiermodus, Travelbook-PDF und CEWE-`.mcf`; HTML folgt) |
@@ -283,7 +285,7 @@ Auswahlmodell in der Timeline und auf der Medienseite: erster und letzter Klick 
 | FA-122 | Soll | PDF über austauschbares Backend; **kein** PyMuPDF als Zwangsabhängigkeit. Nur für Buch-Ausgabetypen (Travelbook, Jahrbuch). Erster Renderer: Rasterseiten (Pillow) → JPEG-PDF. Qualität im Export-Dialog (Bildschirm 150 dpi / Druck 250 dpi / Beste Qualität 300 dpi 4:4:4). HTML-Druck und LaTeX später hinter `PdfRenderer`. | teilweise (Travelbook Raster-PDF; Jahrbuch folgt) |
 | FA-123 | Soll | LaTeX: kompilierbares `main.tex`, Kapitel, Bilderverzeichnis; PDF-Lauf optional. | geplant |
 | FA-124 | Kann | Travelbook als CEWE-Projekt zum Feinschliff im Creator: klassisches `.mcf` plus `Name_mcf-Dateien`. **Editierbarer Hybrid:** Fotos und Texte als native Flächen; Länderumriss, Flagge, Intro-Zeitleiste und Übersichtskarte als austauschbare Bilder. Nur **DIN A4 Hochformat** (CEWE Fotobuch Groß, Produktcode ALB82, Innenmaß ca. 21×28 cm). Innenseiten 26–202 (`4k+2`). Kein offizielles SDK, keine stillen Bestellung. Originale nur lesen. | teilweise (Travelbook A4; Jahrbuch, andere Maße, `.mcfx` offen) |
-| FA-125 | Muss | Ausgabetyp und Ausgabeformat sind getrennt. Ein Typ ist ein JSON-Template unter `travelcore/export/templates/` (neuer Typ = neue Datei). Nicht jede Kombination ist erlaubt (Katalog-Matrix). **Travelbook (interaktiv)** ist die Read-only-Kartenwebsite (schwenken, zoomen), nur HTML, kein Buch. | teilweise (Templates + Katalog; Renderer Phase 8) |
+| FA-125 | Muss | Ausgabetyp und Ausgabeformat sind getrennt. Ein Typ ist ein JSON-Template unter `travelcore/export/templates/` (neuer Typ = neue Datei). Nicht jede Kombination ist erlaubt (Katalog-Matrix). **Travelbook (interaktiv)** ist die Read-only-Kartenwebsite (schwenken, zoomen, Leiste, Tagebuch, YouTube, Foto-Lightbox, Thumbnail-Schieber), nur HTML, kein Buch. | teilweise (Katalog; Travelbook interaktiv als HTML-Ordner R3.3.0; Buch-HTML Phase 8) |
 | FA-126 | Kann | EPUB (feste Doppelseiten eines Buches) und Video (linearer Durchlauf eines Buches). | geplant |
 | FA-127 | Muss | Travelbook-Editiermodus vor dem Export: Komposition in `travelbook.json` im Projektordner. Erste Doppelseite je Abschnitt vorgegeben (linke Abschnittsseite gesperrt). Doppelseiten hinzufügen/entfernen, Seiten-Layout wechseln. Medien und Tracks des Abschnitts als Thumbnails; Befüllen der Slots per Drag-and-drop. Originale und Timeline unverändert. | geplant (Phase 8) |
 
@@ -348,14 +350,14 @@ Mindestens zu speichernde Informationen — Details im Datenbankschema:
 
 ## 7. Benutzeroberfläche — Muss-Inhalte je Bereich
 
-| Bereich | R3.2.0 (Phase 7 plus Medien-Pipeline) | Erste vollständige Version |
+| Bereich | R3.3.0 (Phase 7 plus Medien-Pipeline) | Erste vollständige Version |
 | --- | --- | --- |
-| Projekt | Name, Ordnerpfad, Anlegen, Öffnen, Speichern, Einstellungen (`settings.toml`, Dialog mit Schieber); Fenstertitel mit Version R3.2.0 | plus zuletzt verwendete Projekte in der UI |
+| Projekt | Name, Ordnerpfad, Anlegen, Öffnen, Speichern, Einstellungen (`settings.toml`, Dialog mit Schieber); Fenstertitel mit Version R3.3.0 | plus zuletzt verwendete Projekte in der UI |
 | Import | Pfadwahl, Analyse, Synchronisieren (fehlende entfernen, neue in Timeline oder Pool), Fortschritt, Zähler (Fotos, Videos, MAP, Activity, Flüge, Sonstige, Ort, Texte, Fehler), gemerkte Fitness-/IGC-DB, vollständige Dateitabelle, Vorschau aller Galerie-Typen außer Text, Thumbnail-Schieber | unverändert |
 | Medien | Galerie links, Medienpool rechts (ein-/ausklappbar), Register Alle/Favoriten/Reserve/Aussortiert je Bereich, Filter (Jahr/Ort/Typ inkl. Video/Tracks/nicht im Tagebuch), **Filtern** (Qualität, Zeitraum, Bewertung), Bewertungen, Inspektor, Drag in den Pool und zurück, **Dubletten stapeln** / **Ähnliche gruppieren** / **Auswahl gruppieren**, Kennzeichen G/×n, **Qualität prüfen** (Ampel unten links, Hover mit Einzelwerten), Statistikleiste | plus unechte Dubletten (pHash) |
 | Timeline | Reisetitel oben, Tage/Transfers/Aufenthalte als Abschnitte mit Mitgliedern, Typ je Karte, Titel/Text, Mehrfachauswahl, Anlegen/Auflösen/Löschen (Löschen → Pool), schlanke Verbindung mit **+** (auch vor der ersten und nach der letzten Karte), Drag & Drop Karte↔Karte und Pool (Auto-Scroll am Rand), Journal-Zeit/Originalzeit, Medien vs. Tracks (Galerien an der Kopfzeile ein-/ausklappbar, Chip **Map** / **Act** / **igc**, Kopfzeile **Map** bei Map-Track, **Alles ein-/ausklappen**), Register nur per Klick (auch für Tracks), Bewertungen für Fotos und Tracks, Thumbnail-Schieber, T-Titelbild (Foto und Track), Transfer-Verbindungslinien (Liste, Symbol vor dem Namen) und Ausgangslinie an Tag/Aufenthalt, Sichtbarkeits-Schalter (ein = Karte/Export, aus = nur Timeline), **Menü** YouTube/DHV-Leonardo, Hilfe Verkehrsmittelsymbole, **Speichern** nur bei ungespeicherten Abschnitten/Texten/Reisetitel/YouTube (sonst grau; Undo/Redo schaltet mit), beim Verlassen Speichern/Verwerfen/Abbrechen, Medieninspektor (Blättern, Zoom, Drehen, Pool, Track-Bewertung) | plus verdichtete Timeline-Karten auf der Timeline-Seite, Ereignis-Reihenfolge |
 | Karte | Runde Titelbild-Kreise (Cover-Fallback: Foto, Track, YouTube), Verbindungslinien zwischen Tag- und Aufenthaltskreisen (Transfer-Liste oder Ausgangslinie, Verkehrssymbol in Fahrtrichtung bzw. Richtungspfeil, ausgeblendet bei überdeckenden Kreisen), Transfer-Kreis per dünner Linie am Verkehrssymbol, Layer-Menü Straßenkarte/Topo/Satellit, Zahnrad (Fotokegel, Reserve, Ortsnamen und Straßen auf Satellit), Fit-Reise zwischen Zoom und Zahnrad, Detail: **Flüge anzeigen** / **Aktivitäten anzeigen**, Leiste darunter mit **+** vor, zwischen und nach den Karten, Tagebuchtext rechts, YouTube-Thumbs unten rechts auf der Karte, Einfachklick Leistenkarte → Übersicht ohne Zoomänderung / andere Karte im Detail schließt und zoomt auf den Abschnitt, Doppelklick → Timeline, Cover-Klick → ZoomToCover (Überlappung zuerst einpassen) bzw. Detail, Foto-Popup mit Blättern/Bewertung/Schieber-Zoom dann Inspektor, **Zur Karte** aus Inspektor/Thumbnail (letzter Klick: Detail, Foto, Leistenkarte; geladene Karte ohne Neuaufbau), Platzieren/Verschieben hält Zoom, offline ohne OSM | unverändert |
-| Export | Ausgabetyp, Modus **Vorschau** / **Editiermodus**, blätterbare Travelbook-Vorschau; Format erst beim Exportieren; Travelbook-PDF und CEWE-Projekt (`.mcf` + Bilderordner) nach `exports/` | HTML-Schreiben, Drag-and-drop, LaTeX, Jahrbuch-PDF, CEWE für andere Maße |
+| Export | Ausgabetyp, Modus **Vorschau** / **Editiermodus**, blätterbare Travelbook-Vorschau; Format erst beim Exportieren; Travelbook-PDF, CEWE-Projekt (`.mcf` + Bilderordner) und Travelbook (interaktiv) als HTML-Ordner nach `exports/` (Leiste ziehen, Zoom-Schieber, Lightbox, Tagebuch, YouTube; Originale unberührt) | Buch-HTML, Drag-and-drop, LaTeX, Jahrbuch-PDF, CEWE für andere Maße |
 
 ---
 
@@ -381,7 +383,7 @@ Das MVP ist erfüllt, wenn alle folgenden Punkte demonstrabel sind:
 16. Das Projekt kann geschlossen und wieder geöffnet werden.
 17. Ein einfacher HTML-Reisebericht kann exportiert werden.
 
-**Aktueller Abnahmestand (Phase 7 plus Medien-Pipeline, Software R3.2.0):** Punkte 1–16 plus Journal-Modell nach Design-Review (Tag/Aufenthalt/Transfer als Abschnitte, Medienpool, Journal-Zeit), Sichtbarkeits-Schalter (Karte/Export), **Speichern** grau außer bei Dirty-Stand mit Undo/Redo und Verlassen-Dialog, Bewertungen für Fotos und Tracks, Eintrags-Titelbild (Foto, Track, YouTube-Fallback), Medieninspektor mit Blättern/Zoom/Drehen, Schlüsselfotos und **Zur Karte** (letzter Klick: Detail, Foto, Leistenkarte; geladene Karte ohne Neuaufbau), Track-Vorschauen (Leaflet-Ausschnitt), Karten-Leiste und Kreis-Detail mit **Flüge anzeigen** / **Aktivitäten anzeigen**, Cover-Zoom und Fit-Reise, Foto-Popup mit Vorab-Zentrierung und Blättern, Verbindungslinien (Transfer-Liste und Ausgangslinie) mit Verkehrssymbolen, Drag & Drop mit Auto-Scroll, SHA-256-Stapel, Szenen- und manuelle Gruppen, Qualitätsampel mit Hover-Begründung, **Filtern** auf Medien, Thumbnail-Schieber inkl. Import-Vorschau, Import-Zähler MAP/Activity/Flüge/Sonstige, Fitness-/IGC-Import mit gemerkter DB, Track-Chips **Map** / **Act** / **igc**, Statistikleiste Medien, Fenstertitel mit Version. Windows-Endnutzerpaket (onedir/Zip) ist baubar (FA-140); die Setup-EXE braucht Inno Setup 6 auf dem Build-Rechner (FA-141). Punkt 17 folgt in Phase 8.
+**Aktueller Abnahmestand (Phase 7 plus Medien-Pipeline, Software R3.3.0):** Punkte 1–16 plus Journal-Modell nach Design-Review (Tag/Aufenthalt/Transfer als Abschnitte, Medienpool, Journal-Zeit), Sichtbarkeits-Schalter (Karte/Export), **Speichern** grau außer bei Dirty-Stand mit Undo/Redo und Verlassen-Dialog, Bewertungen für Fotos und Tracks, Eintrags-Titelbild (Foto, Track, YouTube-Fallback), Medieninspektor mit Blättern/Zoom/Drehen, Schlüsselfotos und **Zur Karte** (letzter Klick: Detail, Foto, Leistenkarte; geladene Karte ohne Neuaufbau), Track-Vorschauen (Leaflet-Ausschnitt), Karten-Leiste und Kreis-Detail mit **Flüge anzeigen** / **Aktivitäten anzeigen**, Cover-Zoom und Fit-Reise, Foto-Popup mit Vorab-Zentrierung und Blättern, Verbindungslinien (Transfer-Liste und Ausgangslinie) mit Verkehrssymbolen, Drag & Drop mit Auto-Scroll, SHA-256-Stapel, Szenen- und manuelle Gruppen, Qualitätsampel mit Hover-Begründung, **Filtern** auf Medien, Thumbnail-Schieber inkl. Import-Vorschau, Import-Zähler MAP/Activity/Flüge/Sonstige, Fitness-/IGC-Import mit gemerkter DB, Track-Chips **Map** / **Act** / **igc**, Statistikleiste Medien, Fenstertitel mit Version, Travelbook (interaktiv) als HTML-Ordner (Leiste, Tagebuch, YouTube, Lightbox, Zoom-Schieber). Windows-Endnutzerpaket (onedir/Zip) ist baubar (FA-140); die Setup-EXE braucht Inno Setup 6 auf dem Build-Rechner (FA-141). Punkt 17 (Buch-HTML) folgt in Phase 8.
 
 ---
 
@@ -398,11 +400,11 @@ Nach jeder Phase: Anwendung startbar, bestehende Tests grün, keine ungenutzten 
 | 5 | Thumbnail-Galerie | erledigt |
 | 6 | Karte | erledigt |
 | 7 | Timeline und manuelle Bearbeitung: Tag/Aufenthalt/Transfer als Abschnitte, Medienpool, Journal-Zeit, Bewertungen, Inspektor, Track-Vorschauen, Karten-Leiste, Verbindungslinien und Verkehrssymbole, Design-Review-UI, Rückgängig/Wiederherstellen | erledigt (HTML-Export nicht enthalten) |
-| 8 | HTML-Export | offen |
+| 8 | HTML-Export | teilweise (R3.3.0: Travelbook interaktiv als HTML-Ordner; Buch-HTML offen) |
 | 9 | Qualitätsanalyse | erledigt (Ampel, Hover mit Einzelwerten; Ranking-Gewichte FA-073 weiter Schnittstelle) |
 | 10 | Dublettenerkennung | teilweise (R3.0.0: SHA-256-Stapel, 30-s-Szenengruppen, manuelle Gruppen, Statistik; keine pHash/Embeddings) |
 
-Windows-Paketierung (`packaging/`) ist **keine eigene Fachphase**. Sie liefert die aktuelle Software (R3.2.0) als EXE/Zip (und optional Setup) an Endnutzer, ohne die Phasenfolge zu ändern. Build-Anleitung: [packaging/README.md](../packaging/README.md).
+Windows-Paketierung (`packaging/`) ist **keine eigene Fachphase**. Sie liefert die aktuelle Software (R3.3.0) als EXE/Zip (und optional Setup) an Endnutzer, ohne die Phasenfolge zu ändern. Build-Anleitung: [packaging/README.md](../packaging/README.md).
 
 ---
 

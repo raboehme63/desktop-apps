@@ -15,6 +15,7 @@ from travelcore.media.thumbnails import (
     cached_thumbnail_path,
     ensure_thumbnail,
     extract_largest_embedded_jpeg,
+    write_viewer_jpeg,
 )
 
 
@@ -25,6 +26,18 @@ def test_default_thumbnail_size_covers_double_zoom() -> None:
         Path("thumbs"), source_file_id=1, sha256="abc", size=DEFAULT_THUMBNAIL_SIZE
     )
     assert path.name == f"abc_{DEFAULT_THUMBNAIL_SIZE}.jpg"
+
+
+def test_write_viewer_jpeg_keeps_aspect(tmp_path: Path) -> None:
+    source = write_plain_jpeg(tmp_path / "foto.jpg", size=(800, 400))
+    before = source.stat().st_mtime
+    dest = tmp_path / "full" / "0001.jpg"
+    written = write_viewer_jpeg(source, dest, max_edge=200)
+    assert written == dest
+    with Image.open(dest) as image:
+        assert image.size == (200, 100)
+        assert image.format == "JPEG"
+    assert source.stat().st_mtime == before
 
 
 def test_ensure_thumbnail_writes_square_jpeg(tmp_path: Path) -> None:

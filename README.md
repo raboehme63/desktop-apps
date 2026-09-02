@@ -8,8 +8,8 @@ PySide6-Oberfläche `traveljournal` orchestriert nur Import, Bearbeitung und
 Export. Dieselbe Bibliothek ist für eine spätere Anwendung `PhotoInspector`
 vorgesehen (Dublettensuche, Qualitätsbewertung).
 
-Aktueller Stand: **Phase 7** plus Medien-Pipeline, Software **R3.2.0**
-(`Reisetagebuch R3.2.0` in der Titelleiste). Abschnitte lassen sich in der
+Aktueller Stand: **Phase 7** plus Medien-Pipeline, Software **R3.3.0**
+(`Reisetagebuch R3.3.0` in der Titelleiste). Abschnitte lassen sich in der
 Timeline für Karte und Export ausblenden; **Speichern** ist sonst grau.
 Auf der Projektseite wählt man bereiste Länder aus dem Katalog und setzt
 Reise von–bis (vorbefüllt aus den Daten, danach editierbar).
@@ -27,7 +27,9 @@ Statistikleiste zählt den Bestand. Der Thumbnail-Schieber gilt auch auf Import.
 Medieninspektor (Schlüsselfotos,
 **Zur Karte**), Bewertungen für Fotos und Tracks, Anzeigedrehung, Drag & Drop,
 Track-Vorschauen und Rückgängig/Wiederherstellen (Strg+Z / Strg+Y) gehören dazu.
-Travelbook-PDF und CEWE-Projekt (`.mcf`, zum Feinschliff im Creator) sind da; HTML-Export folgt in Phase 8. Unechte Dubletten (pHash) bleiben offen.
+Travelbook-PDF, CEWE-Projekt (`.mcf`, zum Feinschliff im Creator) und
+Travelbook (interaktiv) als HTML-Ordner sind da; Buch-HTML folgt in Phase 8.
+Unechte Dubletten (pHash) bleiben offen.
 
 ## Voraussetzungen
 
