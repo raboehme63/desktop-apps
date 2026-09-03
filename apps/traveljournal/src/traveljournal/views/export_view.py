@@ -29,7 +29,8 @@ from PySide6.QtWidgets import (
 )
 
 from travelcore.config import AppSettings
-from travelcore.exceptions import ExportError
+from travelcore.exceptions import ExportError, ProjectError
+from traveljournal.ui.errors import report_exception
 from travelcore.export.book import export_rotations, export_sources
 from travelcore.export.catalog import (
     default_page_size_id,
@@ -827,6 +828,11 @@ class ExportView(QWidget):
     def _export(self) -> None:
         if self.workspace.current is None:
             QMessageBox.information(self, "Export", "Bitte zuerst ein Projekt öffnen.")
+            return
+        try:
+            self.workspace.require_writable()
+        except ProjectError as exc:
+            report_exception(self, "Export", exc)
             return
         if self._exporting:
             return

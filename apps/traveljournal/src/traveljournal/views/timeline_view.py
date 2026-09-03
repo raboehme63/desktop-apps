@@ -60,6 +60,7 @@ from PySide6.QtWidgets import (
 )
 
 from travelcore.exceptions import ProjectError
+from traveljournal.ui.errors import report_exception
 from travelcore.gps.maptracks import is_map_track_path, map_track_name_suggestion
 from travelcore.gps.track_badge import track_badge_for
 from travelcore.maps.groups import parse_group_key
@@ -549,7 +550,7 @@ class TimelineView(QWidget):
                 if snapshot is None:
                     snapshot = self.workspace.sync_timeline()
         except ProjectError as exc:
-            QMessageBox.warning(self, "Timeline", str(exc))
+            report_exception(self, "Timeline", exc)
             return
         self._base_snapshot = snapshot
         self._apply_pending_view(sync=commit)
@@ -1063,7 +1064,7 @@ class TimelineView(QWidget):
         try:
             self.workspace.dissolve_section(section_id)
         except ProjectError as exc:
-            QMessageBox.warning(self, "Timeline", str(exc))
+            report_exception(self, "Timeline", exc)
             return False
         self.refresh()
         self.timeline_changed.emit()
@@ -1096,7 +1097,7 @@ class TimelineView(QWidget):
         try:
             self.workspace.delete_section(section_id)
         except ProjectError as exc:
-            QMessageBox.warning(self, "Timeline", str(exc))
+            report_exception(self, "Timeline", exc)
             return False
         self.refresh()
         self.timeline_changed.emit()
@@ -1131,7 +1132,7 @@ class TimelineView(QWidget):
         try:
             self.workspace.set_section_span(section_id, started, ended)
         except ProjectError as exc:
-            QMessageBox.warning(self, "Timeline", str(exc))
+            report_exception(self, "Timeline", exc)
             return
         self.refresh()
         self.timeline_changed.emit()
@@ -1158,7 +1159,7 @@ class TimelineView(QWidget):
         try:
             self.workspace.park_media(ids)
         except ProjectError as exc:
-            QMessageBox.warning(self, "Timeline", str(exc))
+            report_exception(self, "Timeline", exc)
             return
         self.refresh()
         self.timeline_changed.emit()
@@ -1172,7 +1173,7 @@ class TimelineView(QWidget):
         try:
             self.workspace.unpark_media(ids)
         except ProjectError as exc:
-            QMessageBox.warning(self, "Timeline", str(exc))
+            report_exception(self, "Timeline", exc)
             return
         self.refresh()
         self.timeline_changed.emit()
@@ -1207,7 +1208,7 @@ class TimelineView(QWidget):
         try:
             self.workspace.move_members(block.entity_id(), ids, keep_gps=keep_gps)
         except ProjectError as exc:
-            QMessageBox.warning(self, "Timeline", str(exc))
+            report_exception(self, "Timeline", exc)
             return
         self.refresh()
         self.timeline_changed.emit()
@@ -1284,7 +1285,7 @@ class TimelineView(QWidget):
         try:
             self.workspace.set_journal_at([item.source_file_id for item in items], dialog.value())
         except ProjectError as exc:
-            QMessageBox.warning(self, "Timeline", str(exc))
+            report_exception(self, "Timeline", exc)
             return
         self.refresh()
         self.timeline_changed.emit()
@@ -1297,7 +1298,7 @@ class TimelineView(QWidget):
         try:
             self.workspace.reset_journal(ids)
         except ProjectError as exc:
-            QMessageBox.warning(self, "Timeline", str(exc))
+            report_exception(self, "Timeline", exc)
             return
         self.refresh()
         self.timeline_changed.emit()
@@ -1372,7 +1373,7 @@ class TimelineView(QWidget):
                 if not self._dissolve_section(block.entity_id()):
                     block.reset_kind_combo()
                 return
-            QMessageBox.warning(self, "Timeline", str(exc))
+            report_exception(self, "Timeline", exc)
             block.reset_kind_combo()
             return
         self.refresh()
@@ -1395,7 +1396,7 @@ class TimelineView(QWidget):
         try:
             self.workspace.set_section_hidden(section_id, hidden)
         except ProjectError as exc:
-            QMessageBox.warning(self, "Timeline", str(exc))
+            report_exception(self, "Timeline", exc)
             block.set_hidden(not hidden, emit=False)
             return
         self._base_snapshot = _snapshot_with_hidden(self._base_snapshot, section_id, hidden)
@@ -1638,7 +1639,7 @@ class TimelineView(QWidget):
         try:
             self.workspace.save_trip_title(snapshot.trip_id, cleaned)
         except ProjectError as exc:
-            QMessageBox.warning(self, "Timeline", str(exc))
+            report_exception(self, "Timeline", exc)
             return False
         self._loaded_trip_title = cleaned
         return True
@@ -1791,7 +1792,7 @@ class TimelineView(QWidget):
             for index, spec in enumerate(specs):
                 self._persist_one_pending(spec, index)
         except ProjectError as exc:
-            QMessageBox.warning(self, "Timeline", str(exc))
+            report_exception(self, "Timeline", exc)
             return False
         self._pending.clear()
         return True
@@ -1879,7 +1880,7 @@ class TimelineView(QWidget):
                     self.workspace.save_day_text(entity_id, title=title, notes=notes)
                 block.mark_clean()
         except ProjectError as exc:
-            QMessageBox.warning(self, "Timeline", str(exc))
+            report_exception(self, "Timeline", exc)
             return False
         self._update_save_button()
         return True
@@ -2852,7 +2853,7 @@ class EntryWidget(QFrame):
         try:
             self.workspace.sort_members_by_journal(self._entity_id)
         except ProjectError as exc:
-            QMessageBox.warning(self, "Timeline", str(exc))
+            report_exception(self, "Timeline", exc)
             return
         self.journal_changed.emit()
 

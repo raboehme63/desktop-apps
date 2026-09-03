@@ -252,3 +252,61 @@ def test_inspector_show_rejected_persists(tmp_path: Path, monkeypatch) -> None: 
     assert workspace.inspector_show_rejected() is True
     workspace.set_inspector_show_rejected(False)
     assert workspace.inspector_show_rejected() is False
+
+
+def test_list_known_projects_merges_root_and_recents(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    import json
+
+    from travelcore.database.project_store import ProjectStore
+    from traveljournal.services import workspace as workspace_mod
+
+    monkeypatch.setattr(workspace_mod, "_CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    root = tmp_path / "reisen"
+    outside = tmp_path / "anders" / "Norwegen"
+    missing = tmp_path / "weg" / "Island"
+    root.mkdir()
+    ProjectStore().create(root / "Italien", "Italien")
+    ProjectStore().create(outside, "Norwegen")
+    missing.mkdir(parents=True)
+    workspace = Workspace()
+    workspace.remember_projects_root(root)
+    (tmp_path / "recent.json").write_text(
+        json.dumps([str(outside), str(missing)]),
+        encoding="utf-8",
+    )
+    names = [row.name for row in workspace.list_known_projects()]
+    assert names == ["Italien", "Norwegen", "Island"]
+    workspace.set_project_catalog_sort("date")
+    assert workspace.project_catalog_sort() == "date"
+    workspace.set_project_catalog_sort("nope")
+    assert workspace.project_catalog_sort() == "name"
+    assert workspace.project_catalog_collapsed() is True
+    workspace.set_project_catalog_collapsed(False)
+    assert workspace.project_catalog_collapsed() is False
+    workspace.set_project_catalog_collapsed(True)
+    assert workspace.project_catalog_collapsed() is True
+
+
+def test_open_project_defaults_to_read_only(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    import pytest
+
+    from travelcore.database.project_store import ProjectStore
+    from travelcore.exceptions import ReadOnlyProjectError
+    from traveljournal.services import workspace as workspace_mod
+
+    monkeypatch.setattr(workspace_mod, "_CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    directory = tmp_path / "alpen"
+    ProjectStore().create(directory, "Alpen 2025")
+    workspace = Workspace()
+    opened = workspace.open_project(directory)
+    assert opened.read_only is True
+    assert workspace.is_read_only() is True
+    with pytest.raises(ReadOnlyProjectError, match="schreibgeschützt"):
+        workspace.rename("Neu")
+    writable = workspace.open_project(directory, read_only=False)
+    assert writable.read_only is False
+    workspace.rename("Bearbeitet")
+    assert workspace.current is not None
+    assert workspace.current.name == "Bearbeitet"

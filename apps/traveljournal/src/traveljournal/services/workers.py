@@ -10,9 +10,9 @@ from PySide6.QtCore import QObject, QRunnable, Signal
 
 from travelcore.config import AppSettings
 from travelcore.database.models import Project
-from travelcore.database.project_store import OpenProject
+from travelcore.database.project_store import OpenProject, project_cache_dir
 from travelcore.database.session import session_scope
-from travelcore.exceptions import ProjectError
+from travelcore.exceptions import ProjectError, ReadOnlyProjectError
 from travelcore.export.quality import DEFAULT_QUALITY_ID
 from travelcore.maps import ensure_map_cache
 from travelcore.media.indexer import FileIndexer, IndexProgress, IndexResult
@@ -55,6 +55,8 @@ class IndexRunnable(QRunnable):
 
     def run(self) -> None:
         try:
+            if self.open_project.read_only:
+                raise ReadOnlyProjectError()
             settings = AppSettings()
             with WorkerPool(max_workers=settings.worker_count) as pool:
                 indexer = FileIndexer(compute_hash=True, pool=pool)
@@ -124,6 +126,8 @@ class QualityRunnable(QRunnable):
 
     def run(self) -> None:
         try:
+            if self.open_project.read_only:
+                raise ReadOnlyProjectError()
             from travelcore.image_analysis import analyze_project_photos
 
             settings = AppSettings()
@@ -157,6 +161,9 @@ class ThumbnailRunnable(QRunnable):
 
     def run(self) -> None:
         try:
+            if self.open_project.read_only:
+                self.signals.finished.emit(0)
+                return
             settings = AppSettings()
             with session_scope(self.open_project.session_factory) as session:
                 project = session.get(Project, self.open_project.project_id)
@@ -386,11 +393,12 @@ class MapRenderRunnable(QRunnable):
                 link_color = DEFAULT_STAY_LINK_COLOR
                 track_color = DEFAULT_MAP_TRACK_COLOR
             thumbs = self.open_project.directory / "thumbnails"
-            thumbs.mkdir(parents=True, exist_ok=True)
+            if not self.open_project.read_only:
+                thumbs.mkdir(parents=True, exist_ok=True)
             result = ensure_map_cache(
                 self.open_project.session_factory,
                 self.open_project.project_id,
-                self.open_project.directory,
+                project_cache_dir(self.open_project),
                 thumbs,
                 db_path=self.open_project.db_path,
                 size=settings.default_thumbnail_size,

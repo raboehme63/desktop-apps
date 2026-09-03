@@ -138,7 +138,7 @@ meine_reise/
 
 Die Datenbank speichert nur **Referenzen** auf Originaldateien. Originale werden nicht kopiert, sofern der Benutzer das nicht ausdrücklich wünscht.
 
-Oberflächen-Einstellungen (zuletzt verwendeter Projekte-Ordner, Medienregister, Inspektor-Fenstergröße) liegen unter `%LOCALAPPDATA%\TravelJournal\config.json`. Zuletzt geöffnete Projekte stehen in `recent.json` (max. 10); die Oberfläche listet sie noch nicht.
+Oberflächen-Einstellungen (zuletzt verwendeter Projekte-Ordner, Medienregister, Inspektor-Fenstergröße) liegen unter `%LOCALAPPDATA%\TravelJournal\config.json`. Zuletzt geöffnete Projekte stehen in `recent.json` (max. 10). Die Projektseite listet den Stammordner (direkte Unterordner mit `project.sqlite`) plus diese Recents; fehlende Ordner sind als „fehlt“ gekennzeichnet.
 
 ---
 
@@ -249,7 +249,7 @@ Auswahlmodell in der Timeline und auf der Medienseite: erster und letzter Klick 
 | ID | Prio | Anforderung | Stand |
 | --- | --- | --- | --- |
 | FA-090 | Muss | Moderne Windows-UI mit PySide6, Navigation links. Fenstertitel: `Reisetagebuch R{Version}` bzw. `Reisetagebuch R{Version} - {Projekttitel}`. | umgesetzt (Rahmen; Version **R3.3.0**; linke Pipeline mit Symbolen, einklappbar nur Icons, ausgeklappt inhaltsbreit; Zustand in `config.json`) |
-| FA-091 | Muss | Bereich Projekt: neu, öffnen, speichern; **Reise von–bis** aus den indexierten Daten vorbefüllt und editierbar (daraus inklusiv die Reisedauer); **bereiste Länder** aus dem eingebetteten Katalog (ISO-2, deutscher Name, Flagge, Umriss — kein Freitext); Menü **Projekt → Einstellungen** (Dialog mit vertikalem Schieber). | teilweise (neu/öffnen/speichern/von–bis/Länderkatalog/Einstellungen; zuletzt verwendete Projekte intern in `recent.json`, noch ohne UI-Liste; Projekte-Stammordner in `config.json`) |
+| FA-091 | Muss | Bereich Projekt: neu, öffnen, speichern; **Reise von–bis** aus den indexierten Daten vorbefüllt und editierbar (daraus inklusiv die Reisedauer); **bereiste Länder** aus dem eingebetteten Katalog (ISO-2, deutscher Name, Flagge, Umriss — kein Freitext); Menü **Projekt → Einstellungen** (Dialog mit vertikalem Schieber). | umgesetzt (neu/öffnen/speichern/von–bis/Länderkatalog/Einstellungen; Übersicht Stammordner plus `recent.json`; **Projekt öffnen** fragt bei Auswahl ausgewähltes vs. anderes Projekt, anderes öffnet den Ordnerdialog; Öffnen standardmäßig **Nur lesen**; Menü **Zuletzt geöffnet**; Projekte-Stammordner in `config.json`) |
 | FA-092 | Muss | Bereich Import: Ordner, Analyse, **Synchronisieren**, Fortschritt, Dateiliste mit Zeit/GPS/Kamera. Klick/Mouseover zeigt Vorschau und Metadaten. Die Liste wird während des Einlesens periodisch aktualisiert, erneut nach GPS-Abgleich, und vor den Vorschaubildern. | umgesetzt (Kamera/Pilot; DHV-Leonardo per Doppelklick auf IGC; Vorschau auch für Video/Track; Sync mit Timeline/Pool; unter der Quellenkarte Fitness- und IGC-Import mit Fortschritt und gemerktem DB-Pfad; Zähler Fotos, Videos, MAP, Activity, Flüge, Sonstige) |
 | FA-093 | Muss | Bereiche Medien, Timeline, Karte, Export. | teilweise (Medien, Timeline, Karte umgesetzt; Export: Vorschau/Editiermodus, Travelbook-PDF und CEWE-`.mcf`; HTML folgt) |
 | FA-094 | Muss | Lange Aufgaben laufen über `QThreadPool`/`QRunnable`; die GUI bleibt bedienbar. | umgesetzt (Import) |
@@ -352,7 +352,7 @@ Mindestens zu speichernde Informationen — Details im Datenbankschema:
 
 | Bereich | R3.3.0 (Phase 7 plus Medien-Pipeline) | Erste vollständige Version |
 | --- | --- | --- |
-| Projekt | Name, Ordnerpfad, Anlegen, Öffnen, Speichern, Einstellungen (`settings.toml`, Dialog mit Schieber); Fenstertitel mit Version R3.3.0 | plus zuletzt verwendete Projekte in der UI |
+| Projekt | Name, Ordnerpfad, Anlegen, Öffnen (bei Auswahl: ausgewähltes oder anderes Projekt, sonst Ordnerdialog; standardmäßig Nur lesen), Speichern, Einstellungen (`settings.toml`, Dialog mit Schieber); Fenstertitel mit Version R3.3.0; Übersicht Stammordner plus zuletzt geöffnete (`recent.json`); Menü **Zuletzt geöffnet** | unverändert |
 | Import | Pfadwahl, Analyse, Synchronisieren (fehlende entfernen, neue in Timeline oder Pool), Fortschritt, Zähler (Fotos, Videos, MAP, Activity, Flüge, Sonstige, Ort, Texte, Fehler), gemerkte Fitness-/IGC-DB, vollständige Dateitabelle, Vorschau aller Galerie-Typen außer Text, Thumbnail-Schieber | unverändert |
 | Medien | Galerie links, Medienpool rechts (ein-/ausklappbar), Register Alle/Favoriten/Reserve/Aussortiert je Bereich, Filter (Jahr/Ort/Typ inkl. Video/Tracks/nicht im Tagebuch), **Filtern** (Qualität, Zeitraum, Bewertung), Bewertungen, Inspektor, Drag in den Pool und zurück, **Dubletten stapeln** / **Ähnliche gruppieren** / **Auswahl gruppieren**, Kennzeichen G/×n, **Qualität prüfen** (Ampel unten links, Hover mit Einzelwerten), Statistikleiste | plus unechte Dubletten (pHash) |
 | Timeline | Reisetitel oben, Tage/Transfers/Aufenthalte als Abschnitte mit Mitgliedern, Typ je Karte, Titel/Text, Mehrfachauswahl, Anlegen/Auflösen/Löschen (Löschen → Pool), schlanke Verbindung mit **+** (auch vor der ersten und nach der letzten Karte), Drag & Drop Karte↔Karte und Pool (Auto-Scroll am Rand), Journal-Zeit/Originalzeit, Medien vs. Tracks (Galerien an der Kopfzeile ein-/ausklappbar, Chip **Map** / **Act** / **igc**, Kopfzeile **Map** bei Map-Track, **Alles ein-/ausklappen**), Register nur per Klick (auch für Tracks), Bewertungen für Fotos und Tracks, Thumbnail-Schieber, T-Titelbild (Foto und Track), Transfer-Verbindungslinien (Liste, Symbol vor dem Namen) und Ausgangslinie an Tag/Aufenthalt, Sichtbarkeits-Schalter (ein = Karte/Export, aus = nur Timeline), **Menü** YouTube/DHV-Leonardo, Hilfe Verkehrsmittelsymbole, **Speichern** nur bei ungespeicherten Abschnitten/Texten/Reisetitel/YouTube (sonst grau; Undo/Redo schaltet mit), beim Verlassen Speichern/Verwerfen/Abbrechen, Medieninspektor (Blättern, Zoom, Drehen, Pool, Track-Bewertung) | plus verdichtete Timeline-Karten auf der Timeline-Seite, Ereignis-Reihenfolge |
@@ -417,7 +417,7 @@ Windows-Paketierung (`packaging/`) ist **keine eigene Fachphase**. Sie liefert d
 | OP-03 | PDF-Renderer | entschieden: erster Pfad Raster (Pillow-Seiten → JPEG-PDF) hinter `PdfRenderer`; HTML-Druckengine und LaTeX-Lauf bleiben spätere Backends |
 | OP-04 | PhotoInspector | Eigener Zeitplan nach Phase 10 |
 | OP-05 | Abbruch laufender Imports | Noch nicht spezifiziert als UI-Muss |
-| OP-06 | Zuletzt verwendete Projekte | `recent.json` existiert; UI-Liste offen |
+| OP-06 | Zuletzt verwendete Projekte | umgesetzt (Projektseite-Übersicht: Stammordner-Scan plus `recent.json`; **Projekt öffnen** mit Auswahl-Dialog; Menü **Zuletzt geöffnet**) |
 | OP-07 | Foto einem anderen Tag zuordnen | umgesetzt (R2): Journal-Zeit und Drag & Drop; `captured_at` bleibt Original |
 | OP-08 | KML/GeoJSON-Ingest | Parser und Thumbnails da; Zuordnung und Kartenlinie bewusst nicht |
 | OP-09 | Reiseabschnitte auf der Karte | umgesetzt (Kreis-Übersicht, Detail per Klick, Leiste unter der Karte) |

@@ -29,6 +29,7 @@ from travelcore.similarity.types import ClusterType
 from travelcore.timeline.sections import expand_range_selection
 from traveljournal.services.workers import QualityRunnable, ThumbnailRunnable
 from traveljournal.services.workspace import Workspace
+from traveljournal.ui.errors import report_exception
 from traveljournal.views.import_view import progress_bar_format
 from traveljournal.widgets.gallery import GalleryView
 from traveljournal.widgets.media_filter import (
@@ -426,7 +427,7 @@ class PhotosView(QWidget):
         try:
             self.workspace.set_sort_status(item.source_file_id, next_status)
         except Exception as error:  # noqa: BLE001
-            QMessageBox.warning(self, "Medien", str(error))
+            report_exception(self, "Medien", error)
             return
         self._apply_item_rating(
             replace(item, sort_status=next_status, is_favorite=next_status == SORT_FAVORITE)
@@ -470,7 +471,7 @@ class PhotosView(QWidget):
         try:
             self.workspace.park_media(ids)
         except Exception as error:  # noqa: BLE001
-            QMessageBox.warning(self, "Medien", str(error))
+            report_exception(self, "Medien", error)
             return
         parked = {item.source_file_id: item for item in self._items}
         self.refresh()
@@ -483,7 +484,7 @@ class PhotosView(QWidget):
         try:
             self.workspace.unpark_media(ids)
         except Exception as error:  # noqa: BLE001
-            QMessageBox.warning(self, "Medien", str(error))
+            report_exception(self, "Medien", error)
             return
         parked = {item.source_file_id: item for item in self._items}
         self.refresh()
@@ -548,7 +549,7 @@ class PhotosView(QWidget):
         try:
             self.workspace.set_sort_status(item.source_file_id, next_status)
         except Exception as error:  # noqa: BLE001
-            QMessageBox.warning(self, "Medien", str(error))
+            report_exception(self, "Medien", error)
             return
         self._apply_item_rating(
             replace(item, sort_status=next_status, is_favorite=next_status == SORT_FAVORITE)
@@ -569,7 +570,7 @@ class PhotosView(QWidget):
         try:
             count = self.workspace.accept_exact_stacks()
         except Exception as error:  # noqa: BLE001
-            QMessageBox.warning(self, "Medien", str(error))
+            report_exception(self, "Medien", error)
             return
         self.refresh()
         self.status_message.emit(
@@ -588,7 +589,7 @@ class PhotosView(QWidget):
         try:
             self.workspace.create_manual_group(ids)
         except Exception as error:  # noqa: BLE001
-            QMessageBox.warning(self, "Medien", str(error))
+            report_exception(self, "Medien", error)
             return
         self.refresh()
         self.status_message.emit(
@@ -601,7 +602,7 @@ class PhotosView(QWidget):
         try:
             self.workspace.dissolve_group(item.group_id)
         except Exception as error:  # noqa: BLE001
-            QMessageBox.warning(self, "Medien", str(error))
+            report_exception(self, "Medien", error)
             return
         self.refresh()
         self.status_message.emit("Gruppe aufgelöst.")
@@ -613,7 +614,7 @@ class PhotosView(QWidget):
         try:
             count = self.workspace.propose_scene_groups()
         except Exception as error:  # noqa: BLE001
-            QMessageBox.warning(self, "Medien", str(error))
+            report_exception(self, "Medien", error)
             return
         self.refresh()
         self.status_message.emit(
@@ -637,7 +638,7 @@ class PhotosView(QWidget):
                 self.workspace, item, cluster_type, self, gallery_items=sequence
             )
         except Exception as error:  # noqa: BLE001
-            QMessageBox.warning(self, "Medien", str(error))
+            report_exception(self, "Medien", error)
             return
         if window is None:
             return
@@ -697,6 +698,11 @@ class PhotosView(QWidget):
     def _analyze_quality(self) -> None:
         if self.workspace.current is None:
             QMessageBox.information(self, "Medien", "Bitte zuerst ein Projekt öffnen.")
+            return
+        try:
+            self.workspace.require_writable()
+        except ProjectError as exc:
+            report_exception(self, "Medien", exc)
             return
         if self._busy:
             return

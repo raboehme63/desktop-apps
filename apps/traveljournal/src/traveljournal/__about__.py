@@ -4,11 +4,13 @@ __version__ = "3.3.0"
 APP_NAME = "Reisetagebuch"
 
 
-def app_window_title(project_name: str | None = None) -> str:
+def app_window_title(project_name: str | None = None, *, read_only: bool = False) -> str:
     """Title bar: ``Reisetagebuch R3.3.0`` or ``Reisetagebuch R3.3.0 - Titel``."""
 
     base = f"{APP_NAME} R{__version__}"
     title = (project_name or "").strip()
+    if title and read_only:
+        return f"{base} - {title} (Nur lesen)"
     if title:
         return f"{base} - {title}"
     return base

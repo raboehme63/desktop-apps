@@ -266,6 +266,7 @@ Stand nach `pytest --collect-only`: **578 Tests** (2. September 2026). Neue Test
 | --- | --- | --- |
 | `test_create_project_layout_and_row` | `test_database.py` | Ordnerlayout + Projektzeile + `settings.toml` |
 | `test_open_existing_project` | `test_database.py` | Öffnen bestehender DB |
+| `test_open_read_only_sqlite_rejects_writes` | `test_database.py` | Nur-lesen: SQLite `mode=ro`, `settings.toml` unberührt |
 | `test_schema_contains_core_tables` | `test_database.py` | Kern-Tabellen inkl. `source_files`, `trips`, `trip_sections`, `photo_analyses`, `similarity_groups`; Spalten `rotation_degrees`, `sort_status`, Cover- und URL-Felder, Cluster `cluster_type`/`status`/`origin`/`is_key`, `trip_sections.hidden` |
 | `test_folder_name_from_project_name_strips_invalid_chars` | `test_database.py` | ungültige Ordnerzeichen entfernt |
 | `test_create_under_uses_name_as_subdirectory` | `test_database.py` | Anlegen unter Stammordner |
@@ -273,6 +274,16 @@ Stand nach `pytest --collect-only`: **578 Tests** (2. September 2026). Neue Test
 | `test_create_under_rejects_existing_project` | `test_database.py` | bestehendes Projekt nicht überschreiben |
 | `test_create_under_rejects_empty_name` | `test_database.py` | leerer Name abgelehnt |
 | `test_sqlite_waits_when_busy` | `test_database.py` | Busy-Timeout statt sofortigem Fehler |
+| `test_scan_projects_root_one_level_only` | `test_project_catalog.py` | nur direkte Kinder mit `project.sqlite` |
+| `test_describe_project_reads_name_span_and_countries` | `test_project_catalog.py` | Name, von–bis, Länder ohne Alembic-Open |
+| `test_describe_project_infers_span_from_media_when_trip_dates_empty` | `test_project_catalog.py` | Übersicht von–bis aus Aufnahmezeiten, wenn `trips` leer |
+| `test_describe_project_infers_span_from_trip_days` | `test_project_catalog.py` | Übersicht von–bis aus Timeline-Tagen |
+| `test_describe_project_saved_span_overrides_inferred_media` | `test_project_catalog.py` | gespeicherte Reise von–bis hat Vorrang |
+| `test_describe_project_marks_missing_folder` | `test_project_catalog.py` | fehlender Ordner `missing` |
+| `test_list_project_catalog_merges_root_and_recents` | `test_project_catalog.py` | Stammordner plus Recents, Duplikate weg |
+| `test_catalog_does_not_require_alembic_version` | `test_project_catalog.py` | Read-only auch ohne Migrationsstand |
+| `test_filter_project_catalog_supports_wildcards` | `test_project_catalog.py` | Suche ohne Wildcard als Teilstring, `*` und `?` |
+| `test_sort_project_catalog_by_name_and_date` | `test_project_catalog.py` | Sortierung Name bzw. Datum (neueste zuerst) |
 | `test_new_project_writes_settings_file` | `test_project_settings.py` | Default-`settings.toml` inkl. Standard-Verbindung Gerade/Pfeil |
 | `test_default_link_settings_reject_unknown_values` | `test_project_settings.py` | Unbekannter Linientyp/Strich/Symbol fällt auf Gerade, durchgezogen, Pfeil |
 | `test_normalize_stay_link_color_accepts_hex_and_falls_back` | `test_project_settings.py` | Linienfarbe Hex / Fallback weiß |
@@ -318,10 +329,12 @@ Stand nach `pytest --collect-only`: **578 Tests** (2. September 2026). Neue Test
 | `test_catalog_files_live_next_to_module` | `test_country_catalog.py` | `catalog.json`, NOTICE, `flags/de.svg`, `shapes/de.svg` |
 | `test_country_at_uses_silhouette_outline` | `test_country_catalog.py` | Hochries/München → DE trotz AT in der Reise; Wien → AT; Vaduz → LI; Kapstadt → ZA; Mailand → IT |
 | `test_protocols_are_importable` | `test_interfaces.py` | `MetadataProvider`, `RankingStrategy`, `MapBackend` |
-| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R3.3.0, Menü **Bearbeiten** mit Strg+Z/Strg+Y, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren**, Export ohne Kopfzeile, Modus Vorschau/Editiermodus, einklappbare Auswahl, Blättern mit Pfeilen links/rechts, Cover dann Titelseite dann Seitenzahlen ab Reiseübersicht 1–2/n, Seitenformat DIN A4 Hochformat, Dateiformat erst im Export-Dialog (HTML/PDF/CEWE; CEWE-Hinweis, Qualität nur bei PDF), Länderauswahl und Reise von–bis deaktiviert ohne Projekt |
+| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R3.3.0, Menü **Bearbeiten** mit Strg+Z/Strg+Y, **Projekt → Zuletzt geöffnet**, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren**, Export ohne Kopfzeile, Modus Vorschau/Editiermodus, einklappbare Auswahl, Blättern mit Pfeilen links/rechts, Cover dann Titelseite dann Seitenzahlen ab Reiseübersicht 1–2/n, Seitenformat DIN A4 Hochformat, Dateiformat erst im Export-Dialog (HTML/PDF/CEWE; CEWE-Hinweis, Qualität nur bei PDF), Länderauswahl und Reise von–bis deaktiviert ohne Projekt, leere Projektübersicht |
 | `test_pdf_export_asks_save_as_path` | `tests/test_gui_smoke.py` | PDF- und interaktiver HTML-Zielpfad; `.html` wird zum Ordner |
 | `test_country_picker_adds_flag_and_shape` | `tests/test_gui_smoke.py` | Länderauswahl: Italien und Slowenien mit Flagge und Umriss |
 | `test_project_span_edits_update_duration` | `tests/test_gui_smoke.py` | Projektseite: von–bis setzt Dauer (2 Tage) |
+| `test_project_catalog_lists_root_and_recent` | `tests/test_gui_smoke.py` | Ausgewählt zuletzt geöffnet; Liste Standard eingeklappt; Klick wählt und klappt zu; Suche sichtbar; eine Zeile Titel/Datum/Verzeichnis |
+| `test_project_catalog_scrolls_after_five` | `tests/test_gui_smoke.py` | Projektliste scrollbar ab dem sechsten Eintrag, fünf sichtbare Zeilen |
 | `test_summary_countries_stack_evenly_with_flag_in_outline` | `tests/test_gui_smoke.py` | Reiseübersicht: Umriss, Name in Versalien, kleine Flagge hinter dem Namen |
 | `test_section_intro_shows_country_journal_and_dates` | `tests/test_gui_smoke.py` | Abschnittsseite: Block Umriss/Flagge/Land, Titelbild rechts im Bildformat, Titel, Datum 01.01.1900 bzw. … bis …, graue Tagebuchbox, Zeitleiste, Fotos rechts, Seitenzahlen ab Übersicht |
 
@@ -728,6 +741,8 @@ Stand nach `pytest --collect-only`: **578 Tests** (2. September 2026). Neue Test
 | `test_pool_media_tab_persists` | `tests/test_workspace.py` | `config.json` hält das Pool-Bewertungsregister |
 | `test_show_rejected_in_all_persists` | `tests/test_workspace.py` | `config.json` hält „Aussortierte anzeigen“ |
 | `test_inspector_show_rejected_persists` | `tests/test_workspace.py` | `config.json` hält Inspektor „Aussortierte anzeigen“ |
+| `test_list_known_projects_merges_root_and_recents` | `tests/test_workspace.py` | Stammordner plus `recent.json`, tote Pfade bleiben sichtbar |
+| `test_open_project_defaults_to_read_only` | `tests/test_workspace.py` | Öffnen standardmäßig Nur lesen, Speichern erst nach bewusst Schreibzugriff |
 | `test_map_display_flags_persist_in_project` | `tests/test_workspace.py` | Zahnrad- und Detail-Optionen in `settings.toml` |
 
 ### 4.16 Rückgängig und Wiederherstellen — FA-085
@@ -831,7 +846,7 @@ Stand nach `pytest --collect-only`: **578 Tests** (2. September 2026). Neue Test
 | Timeline-Bedienung | FA-060–FA-069, FA-080, FA-084, FA-085 | Logik in `test_timeline*.py` und `test_edit_history.py`; Speichern-Button, Schieber-Datum und Menü Bearbeiten `test_gui_smoke.py`; visuell MT-13, MT-18–MT-21, MT-24, MT-25 |
 | Windows-Endnutzerpaket | FA-140–FA-144 | kein pytest; manuell MT-22 nach `packaging/build.ps1` |
 | Galeriefilter in der UI | FA-101 | Logik der Liste und **Filtern**-Panel automatisiert; visuell MT-09 |
-| Zuletzt verwendete Projekte in der UI | FA-091 | `recent.json` ohne Oberfläche; manuell nicht zwingend |
+| Zuletzt verwendete Projekte in der UI | FA-091 | Stammordner-Scan plus `recent.json`; Nur-lesen-Öffnen; `test_project_catalog.py`, `test_list_known_projects_merges_root_and_recents`, `test_open_project_defaults_to_read_only`, `test_project_catalog_lists_root_and_recent`, `test_open_project_choice_dialog_buttons`, `test_open_project_uses_selected_or_folder_dialog` |
 | HTML-/PDF-/LaTeX-/CEWE-Ausgabe | FA-121–FA-127 | Buch-HTML und LaTeX offen; Travelbook interaktiv als HTML-Ordner (`test_export_html.py`); Travelbook-PDF rasterisiert (`test_export_pdf.py`); CEWE-`.mcf` Hybrid (`test_export_cewe.py`); Jahrbuch und `.mcfx` offen |
 | pHash/dHash, unechte Dubletten | FA-071 | SHA-256-Stapel und Zeitszenen automatisiert; visuelle Near-Duplicates Phase 10 |
 | Importliste „alle Dateien“ (kein 250er-Limit) | FA-025 | nur manuell / GUI, kein Unit-Test der Qt-Tabelle |

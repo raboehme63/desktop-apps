@@ -569,6 +569,36 @@ QFrame#card {
     border-radius: 12px;
 }
 
+QFrame#projectCatalogFold,
+QWidget#projectCatalogFold {
+    background-color: #3a4860;
+    border: 1px solid #8fa0bb;
+    border-radius: 12px;
+}
+
+QLabel#projectCatalogCurrent {
+    background-color: transparent;
+    font-weight: 600;
+}
+
+QListWidget#projectCatalogList {
+    background-color: #171b26;
+    alternate-background-color: #1c2230;
+    border: 1px solid #2a3144;
+    border-radius: 10px;
+    padding: 4px;
+}
+
+QListWidget#projectCatalogList::item {
+    padding: 6px 8px;
+    border-radius: 8px;
+}
+
+QListWidget#projectCatalogList::item:selected {
+    background-color: #243b3a;
+    color: #7eebcf;
+}
+
 QFrame#card[tripHidden="true"] {
     background-color: #252a38;
     border: 1px dashed #6b7385;

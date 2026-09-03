@@ -29,6 +29,25 @@ def test_open_existing_project(tmp_path: Path) -> None:
     ProjectStore().create(directory, "Alpen 2025")
     reopened = ProjectStore().open(directory)
     assert reopened.name == "Alpen 2025"
+    assert reopened.read_only is False
+
+
+def test_open_read_only_sqlite_rejects_writes(tmp_path: Path) -> None:
+    from sqlalchemy.exc import OperationalError
+
+    directory = tmp_path / "alpen"
+    ProjectStore().create(directory, "Alpen 2025")
+    settings = directory / "settings.toml"
+    stamp = settings.stat().st_mtime_ns
+    opened = ProjectStore().open(directory, read_only=True)
+    assert opened.read_only is True
+    assert settings.stat().st_mtime_ns == stamp
+    with pytest.raises(OperationalError):
+        with opened.session_factory() as session:
+            project = session.scalar(select(Project))
+            assert project is not None
+            project.name = "Schreibversuch"
+            session.commit()
 
 
 def test_schema_contains_core_tables(tmp_path: Path) -> None:

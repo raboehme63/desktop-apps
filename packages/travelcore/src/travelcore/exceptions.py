@@ -9,6 +9,19 @@ class ProjectError(TravelCoreError):
     """Raised when a travel project cannot be created or opened."""
 
 
+class ReadOnlyProjectError(ProjectError):
+    """Raised when a write is attempted on a project opened as read-only."""
+
+    TITLE = "Nur lesen"
+
+    def __init__(self, message: str | None = None) -> None:
+        super().__init__(
+            message
+            or "Das Projekt ist schreibgeschützt (Nur lesen). "
+            "Änderungen können nicht gespeichert werden."
+        )
+
+
 class ImportError_(TravelCoreError):
     """Raised when a source directory cannot be indexed.
 

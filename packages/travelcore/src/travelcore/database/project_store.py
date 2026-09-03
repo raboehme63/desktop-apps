@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -63,6 +65,18 @@ class OpenProject:
     session_factory: sessionmaker[Session]
     project_id: int
     name: str
+    read_only: bool = False
+
+
+def project_cache_dir(opened: OpenProject) -> Path:
+    """Project folder, or a temp stand-in so read-only opens never write there."""
+
+    if not opened.read_only:
+        return opened.directory
+    key = hashlib.sha1(str(opened.directory).encode("utf-8")).hexdigest()[:16]
+    path = Path(tempfile.gettempdir()) / "TravelJournal" / "readonly-cache" / key
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 class ProjectStore:
@@ -117,33 +131,37 @@ class ProjectStore:
             session_factory=factory,
             project_id=project_id,
             name=name,
+            read_only=False,
         )
 
-    def open(self, directory: Path) -> OpenProject:
+    def open(self, directory: Path, *, read_only: bool = False) -> OpenProject:
         directory = directory.expanduser().resolve()
         db_path = directory / PROJECT_DB_NAME
         if not db_path.is_file():
             raise ProjectError(f"Kein Projekt gefunden: {db_path}")
 
-        self._ensure_layout(directory)
-        upgrade_database(db_path)
-        engine = create_engine_for_path(db_path)
+        if not read_only:
+            self._ensure_layout(directory)
+            upgrade_database(db_path)
+        engine = create_engine_for_path(db_path, read_only=read_only)
         factory = create_session_factory(engine)
         with factory() as session:
             project = session.scalar(select(Project).order_by(Project.id.asc()))
             if project is None:
                 raise ProjectError("Projektdatenbank enthält keinen Projekteintrag.")
-            ensure_project_settings(
-                directory,
-                source_root=project.source_root,
-                default_timezone=project.default_timezone,
-            )
+            if not read_only:
+                ensure_project_settings(
+                    directory,
+                    source_root=project.source_root,
+                    default_timezone=project.default_timezone,
+                )
             return OpenProject(
                 directory=directory,
                 db_path=db_path,
                 session_factory=factory,
                 project_id=project.id,
                 name=project.name,
+                read_only=read_only,
             )
 
     def get_project(self, open_project: OpenProject) -> Project:

@@ -54,6 +54,7 @@ from PySide6.QtWidgets import (
 )
 
 from travelcore.exceptions import ProjectError
+from traveljournal.ui.errors import report_exception
 from travelcore.media.gallery import (
     SORT_FAVORITE,
     SORT_REJECTED,
@@ -962,7 +963,7 @@ class MediaInspectorWindow(QWidget):
             else:
                 self.workspace.park_media([current_item.source_file_id])
         except ProjectError as exc:
-            QMessageBox.warning(self, "Medien", str(exc))
+            report_exception(self, "Medien", exc)
             return
         updated = replace(current_item, parked=not current_item.parked)
         self._store_item(updated)
@@ -1370,7 +1371,7 @@ class MediaInspectorWindow(QWidget):
                 ]
                 self._merge_group_keys_into_items()
         except ProjectError as exc:
-            QMessageBox.warning(self, "Medien", str(exc))
+            report_exception(self, "Medien", exc)
             self._sync_cluster()
             return
         self._show_current()

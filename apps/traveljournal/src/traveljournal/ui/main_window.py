@@ -21,6 +21,7 @@ from traveljournal.__about__ import app_window_title
 from traveljournal.services.edit_history import redo_focused_text, undo_focused_text
 from traveljournal.services.workers import ThumbnailRunnable
 from traveljournal.services.workspace import Workspace
+from traveljournal.ui.errors import report_exception
 from traveljournal.ui.sidebar import Sidebar
 from traveljournal.views.export_view import ExportView
 from traveljournal.views.help_dialog import HelpDialog
@@ -131,6 +132,7 @@ class MainWindow(QMainWindow):
         quit_action.triggered.connect(self.close)
         project_menu.addAction(new_action)
         project_menu.addAction(open_action)
+        self._recent_menu = project_menu.addMenu("Zuletzt geöffnet")
         project_menu.addAction(save_action)
         project_menu.addAction(close_action)
         project_menu.addSeparator()
@@ -157,7 +159,24 @@ class MainWindow(QMainWindow):
 
     def _sync_menu(self) -> None:
         self._settings_action.setEnabled(self.workspace.current is not None)
+        self._rebuild_recent_menu()
         self._sync_edit_menu()
+
+    def _rebuild_recent_menu(self) -> None:
+        self._recent_menu.clear()
+        recents = self.workspace.recent_projects()
+        if not recents:
+            empty = QAction("Keine zuletzt geöffneten Projekte", self)
+            empty.setEnabled(False)
+            self._recent_menu.addAction(empty)
+            return
+        for path in recents:
+            action = QAction(path.name or str(path), self)
+            action.setToolTip(str(path))
+            action.triggered.connect(
+                lambda _checked=False, directory=path: self.project_view.open_project_at(directory)
+            )
+            self._recent_menu.addAction(action)
 
     def _sync_edit_menu(self) -> None:
         history = self.workspace.history
@@ -206,7 +225,7 @@ class MainWindow(QMainWindow):
         try:
             current = self.workspace.project_settings()
         except ProjectError as exc:
-            QMessageBox.warning(self, "Einstellungen", str(exc))
+            report_exception(self, "Einstellungen", exc)
             return
         dialog = SettingsDialog(current, self)
         if dialog.exec() != dialog.DialogCode.Accepted:
@@ -214,7 +233,7 @@ class MainWindow(QMainWindow):
         try:
             rebased = self.workspace.apply_project_settings(dialog.result_settings())
         except ProjectError as exc:
-            QMessageBox.warning(self, "Einstellungen", str(exc))
+            report_exception(self, "Einstellungen", exc)
             return
         self.project_view.refresh()
         self.import_view.refresh()
@@ -275,6 +294,8 @@ class MainWindow(QMainWindow):
 
     def _refresh_track_thumbnails(self) -> None:
         if self.workspace.current is None or self._thumbs_refreshing:
+            return
+        if self.workspace.is_read_only():
             return
         self._thumbs_refreshing = True
         worker = ThumbnailRunnable(self.workspace.current)
@@ -381,12 +402,13 @@ class MainWindow(QMainWindow):
         self._sync_menu()
         self._thumbs_refreshing = False
         if name:
-            self.setWindowTitle(app_window_title(name))
+            self.setWindowTitle(app_window_title(name, read_only=self.workspace.is_read_only()))
             self.timeline_view.clear()
             self.map_view.clear()
             self.photos_view.clear()
             self._show_page("project")
-            self._set_status(f"Projekt geöffnet: {name} — Index wird geladen…")
+            mode = " (Nur lesen)" if self.workspace.is_read_only() else ""
+            self._set_status(f"Projekt geöffnet{mode}: {name} — Index wird geladen…")
             self._load_progress.show()
             self._load_progress.setRange(0, 0)
             self._load_progress.setFormat("Index wird gelesen…")

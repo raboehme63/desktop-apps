@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from travelcore.exceptions import ProjectError
+from traveljournal.ui.errors import report_exception
 from travelcore.maps import MapRenderResult
 from travelcore.maps.groups import parse_group_key
 from travelcore.media.gallery import SORT_FAVORITE, SORT_STATUSES, GalleryItem
@@ -1573,7 +1574,7 @@ class MapView(QWidget):
         try:
             self.workspace.set_section_pin(raw, latitude, longitude)
         except ProjectError as exc:
-            QMessageBox.warning(self, "Karte", str(exc))
+            report_exception(self, "Karte", exc)
             return
         self._placing_key = ""
         self._placing_move = False

@@ -124,8 +124,21 @@ Abschnitte ohne eigene Linie erben diese Werte und können sie überschreiben.
 Originaldateien nicht.
 
 Zuletzt geöffnete Projekte stehen unter
-`%LOCALAPPDATA%\TravelJournal\recent.json` (max. 10). Die Oberfläche listet
-sie in R3.3.0 noch nicht. Der Fenstertitel lautet `Reisetagebuch R{Version}`
+`%LOCALAPPDATA%\TravelJournal\recent.json` (max. 10). Die Projektseite listet
+den Stammordner (`projects_root`, eine Ebene, Ordner mit `project.sqlite`)
+und ergänzt Recents außerhalb dieses Ordners (`travelcore.database.project_catalog`,
+Read-only-SQLite, kein Alembic-Upgrade). Von–bis in der Übersicht folgt gespeicherten
+`trips`-Daten, sonst Aufnahmezeiten, Abschnitten und Tagen wie auf der Projektseite.
+Die Übersicht ist eine Auswahlliste
+mit Suche (`*` und `?`) und Sortierung nach Name oder Datum; jeder Eintrag
+ist eine Zeile (Reisetitel, Datum, Verzeichnis). Mehr als fünf Einträge machen
+die Liste scrollbar (fünf sichtbare Zeilen). Suche und das ausgewählte
+Projekt bleiben sichtbar; nur die Projektliste klappt ein (Standard eingeklappt).
+Initial ist das ausgewählte Projekt das zuletzt geöffnete. Fehlende Pfade erscheinen als „Ordner fehlt“.
+**Projekt öffnen** (Button und Menü) fragt bei Auswahl, ob das ausgewählte oder ein anderes Projekt geöffnet werden soll; anderes öffnet den bisherigen Ordnerdialog. Ein Klick in der Liste wählt aus und klappt die Liste zu.
+Standard ist **Nur lesen** (Schalter beim Öffnen, bewusst abschaltbar für Schreiben). Im Nur-lesen-Modus bleiben `project.sqlite` und die Dateien im Projektordner ungeschrieben; Speichern zeigt den Hinweis „Nur lesen“.
+Das Menü **Projekt → Zuletzt geöffnet** öffnet Einträge aus `recent.json` und fragt denselben Schalter.
+Der Fenstertitel lautet `Reisetagebuch R{Version}`
 bzw. `Reisetagebuch R{Version} - {Projekttitel}`. Das Medienregister
 (Timeline und Medienseite) steht in `%LOCALAPPDATA%\TravelJournal\config.json` (`timeline_media_tab`),
 die gemerkten Fitness- und IGC-Datenbankordner (`fitness_db_path`, `igc_db_path`),
@@ -238,7 +251,7 @@ Anzeigedrehung (`rotation_degrees`) überleben Re-Sync bzw. Re-Import.
 Der Reisetitel (`trips.title`) folgt zuerst dem Projektnamen; nach manueller
 Eingabe in der Timeline (`origin=manual`) überschreibt der Abgleich ihn nicht.
 `trips.start_date` / `trips.end_date` sind Kalendertage (Mitternacht UTC). Die
-Projektseite füllt von–bis aus Aufnahmezeiten, Abschnitten und Tagen, solange
+Projektseite und die Projektübersicht füllen von–bis aus Aufnahmezeiten, Abschnitten und Tagen, solange
 die Felder leer sind; gespeicherte Werte überlebt der Abgleich. Die Kennzahl
 Tage der Reiseübersicht ist inklusiv diese Spanne (sonst Fallback auf
 veröffentlichte Abschnitte).

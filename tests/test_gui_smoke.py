@@ -77,6 +77,16 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     assert not window.project_view.end_edit.isEnabled()
     assert window.project_view.duration_label.text() == "Dauer: –"
     assert window.project_view.load_progress.format() == "Bereit"
+    catalog_labels = [label.text() for label in window.project_view.findChildren(QLabel)]
+    assert any("Noch keine Projekte" in text for text in catalog_labels)
+    assert window.project_view._catalog_search.placeholderText()
+    assert not window.project_view._catalog_search.isHidden()
+    assert window.project_view._catalog_sort.count() == 2
+    assert window.project_view._catalog_list.count() == 0
+    assert window.project_view._catalog_list_box.isHidden()
+    assert window.project_view._catalog_fold._current.text() == "Kein Projekt ausgewählt"
+    project_menu = next(action.menu() for action in window.menuBar().actions() if action.text() == "Projekt")
+    assert "Zuletzt geöffnet" in [action.text() for action in project_menu.actions()]
     assert window._load_progress.isHidden()
     assert not window.import_view.is_loading_index
     assert isinstance(window.timeline_view._scroll, QScrollArea)
@@ -404,14 +414,17 @@ def test_country_picker_adds_flag_and_shape() -> None:
     picker.deleteLater()
 
 
-def test_project_span_edits_update_duration() -> None:
+def test_project_span_edits_update_duration(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtCore import QDate
     from PySide6.QtWidgets import QApplication
 
+    from traveljournal.services import workspace as workspace_mod
     from traveljournal.services.workspace import Workspace
     from traveljournal.views.project_view import ProjectView
 
+    monkeypatch.setattr(workspace_mod, "_CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
     app = QApplication.instance() or QApplication([])
     view = ProjectView(Workspace())
     assert not view.start_edit.isEnabled()
@@ -422,6 +435,241 @@ def test_project_span_edits_update_duration() -> None:
     view.end_edit.setDate(QDate(2025, 5, 16))
     app.processEvents()
     assert view.duration_label.text() == "Dauer: 2 Tage"
+    view.deleteLater()
+
+
+def test_project_catalog_lists_root_and_recent(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.database.project_store import ProjectStore
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.project_view import ProjectView
+
+    monkeypatch.setattr(workspace_mod, "_CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    root = tmp_path / "reisen"
+    outside = tmp_path / "anders" / "Norwegen"
+    root.mkdir()
+    ProjectStore().create(root / "Italien", "Italien 2025")
+    ProjectStore().create(outside, "Norwegen")
+    app = QApplication.instance() or QApplication([])
+    workspace = Workspace()
+    workspace.remember_projects_root(root)
+    workspace._remember(outside)
+    view = ProjectView(workspace)
+    app.processEvents()
+    assert view._catalog_list_box.isHidden()
+    assert not view._catalog_search.isHidden()
+    assert view._catalog_fold._current.text().startswith("Norwegen  ·  ")
+    view._catalog_fold.toggled.emit()
+    app.processEvents()
+    assert not view._catalog_list_box.isHidden()
+    texts = [view._catalog_list.item(index).text() for index in range(view._catalog_list.count())]
+    assert any(text.startswith("Italien 2025  ·  ") for text in texts)
+    assert any(text.startswith("Norwegen  ·  ") for text in texts)
+    norwegen = next(
+        view._catalog_list.item(index)
+        for index in range(view._catalog_list.count())
+        if view._catalog_list.item(index).text().startswith("Norwegen  ·  ")
+    )
+    view._on_catalog_item_clicked(norwegen)
+    app.processEvents()
+    assert view._catalog_list_box.isHidden()
+    assert view._catalog_fold._current.text().startswith("Norwegen  ·  ")
+    assert all("\n" not in text for text in texts)
+    assert all(text.count("  ·  ") >= 2 for text in texts)
+    view._catalog_search.setText("*nor*")
+    app.processEvents()
+    assert view._catalog_list.count() == 1
+    assert view._catalog_list.item(0).text().startswith("Norwegen  ·  ")
+    view._catalog_sort.setCurrentIndex(1)
+    assert workspace.project_catalog_sort() == "date"
+    view._catalog_fold.toggled.emit()
+    app.processEvents()
+    assert view._catalog_list_box.isHidden()
+    assert not view._catalog_search.isHidden()
+    assert view._catalog_fold._current.text().startswith("Norwegen  ·  ")
+    assert workspace.project_catalog_collapsed() is True
+    view.deleteLater()
+
+
+def test_project_catalog_scrolls_after_five(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+
+    from travelcore.database.project_store import ProjectStore
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views.project_view import CATALOG_VISIBLE_ROWS, ProjectView
+
+    monkeypatch.setattr(workspace_mod, "_CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    root = tmp_path / "reisen"
+    root.mkdir()
+    store = ProjectStore()
+    for index in range(CATALOG_VISIBLE_ROWS):
+        store.create(root / f"Reise{index}", f"Reise {index:02d}")
+    app = QApplication.instance() or QApplication([])
+    workspace = Workspace()
+    workspace.remember_projects_root(root)
+    view = ProjectView(workspace)
+    view._set_catalog_collapsed(False, persist=False)
+    app.processEvents()
+    assert view._catalog_list.count() == CATALOG_VISIBLE_ROWS
+    assert view._catalog_list.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    assert view._catalog_list.verticalScrollBar().maximum() == 0
+    height_five = view._catalog_list.height()
+    store.create(root / "Reise5", "Reise 05")
+    view.refresh()
+    view._set_catalog_collapsed(False, persist=False)
+    app.processEvents()
+    assert view._catalog_list.count() == CATALOG_VISIBLE_ROWS + 1
+    assert view._catalog_list.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAsNeeded
+    assert view._catalog_list.height() == height_five
+    view.deleteLater()
+
+
+def test_open_project_choice_dialog_buttons() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QDialog, QLabel
+
+    from traveljournal.views.project_view import OpenProjectChoiceDialog
+
+    app = QApplication.instance() or QApplication([])
+    selected = OpenProjectChoiceDialog(project_label="Norwegen  ·  2024-06-01  ·  C:/reisen/norwegen")
+    assert selected.windowTitle() == "Projekt öffnen"
+    texts = [label.text() for label in selected.findChildren(QLabel)]
+    assert any("ausgewählte Projekt" in text for text in texts)
+    assert any(text.startswith("Norwegen") for text in texts)
+    assert selected.read_only is True
+    selected._readonly_switch.setChecked(False)
+    assert selected.read_only is False
+    selected._readonly_switch.setChecked(True)
+    selected._selected_btn.click()
+    assert selected.choice == OpenProjectChoiceDialog.CHOICE_SELECTED
+    assert selected.result() == QDialog.DialogCode.Accepted
+    other = OpenProjectChoiceDialog(project_label="Italien 2025  ·  –  ·  C:/reisen/italien")
+    other._other_btn.click()
+    assert other.choice == OpenProjectChoiceDialog.CHOICE_OTHER
+    assert other.result() == QDialog.DialogCode.Accepted
+    cancelled = OpenProjectChoiceDialog(project_label="x")
+    cancelled._cancel_btn.click()
+    assert cancelled.choice == ""
+    assert cancelled.result() == QDialog.DialogCode.Rejected
+    cancelled.deleteLater()
+    other.deleteLater()
+    selected.deleteLater()
+    _ = app
+
+
+def test_open_project_uses_selected_or_folder_dialog(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication, QDialog
+
+    from travelcore.database.project_store import ProjectStore
+    from traveljournal.services import workspace as workspace_mod
+    from traveljournal.services.workspace import Workspace
+    from traveljournal.views import project_view as project_view_mod
+    from traveljournal.views.project_view import ProjectView
+
+    monkeypatch.setattr(workspace_mod, "_CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
+    root = tmp_path / "reisen"
+    outside = tmp_path / "anders" / "Norwegen"
+    root.mkdir()
+    ProjectStore().create(root / "Italien", "Italien 2025")
+    ProjectStore().create(outside, "Norwegen")
+    app = QApplication.instance() or QApplication([])
+    workspace = Workspace()
+    workspace.remember_projects_root(root)
+    workspace._remember(outside)
+    view = ProjectView(workspace)
+    app.processEvents()
+    opened: list[Path] = []
+    view.open_project_at = lambda directory, read_only=None: opened.append(Path(directory))
+    folder_calls: list[str] = []
+
+    class SelectedDialog:
+        CHOICE_SELECTED = "selected"
+        CHOICE_OTHER = "other"
+
+        def __init__(self, parent, *, project_label: str) -> None:  # noqa: ANN001
+            self.choice = self.CHOICE_SELECTED
+            self.project_label = project_label
+            self.read_only = True
+
+        def exec(self) -> QDialog.DialogCode:
+            return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(project_view_mod, "OpenProjectChoiceDialog", SelectedDialog)
+    monkeypatch.setattr(
+        project_view_mod.QFileDialog,
+        "getExistingDirectory",
+        lambda *args, **kwargs: folder_calls.append("called") or "",
+    )
+    view.open_project()
+    assert opened == [outside]
+    assert folder_calls == []
+
+    opened.clear()
+
+    class OtherDialog:
+        CHOICE_SELECTED = "selected"
+        CHOICE_OTHER = "other"
+
+        def __init__(self, parent, *, project_label: str) -> None:  # noqa: ANN001
+            self.choice = self.CHOICE_OTHER
+            self.read_only = True
+
+        def exec(self) -> QDialog.DialogCode:
+            return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(project_view_mod, "OpenProjectChoiceDialog", OtherDialog)
+    monkeypatch.setattr(
+        project_view_mod.QFileDialog,
+        "getExistingDirectory",
+        lambda *args, **kwargs: str(root / "Italien"),
+    )
+    view.open_project()
+    assert opened == [root / "Italien"]
+
+    opened.clear()
+    choice_built: list[str] = []
+
+    class TrackingDialog:
+        CHOICE_SELECTED = "selected"
+        CHOICE_OTHER = "other"
+
+        def __init__(self, parent, *, project_label: str) -> None:  # noqa: ANN001
+            choice_built.append(project_label)
+            self.choice = self.CHOICE_SELECTED
+            self.read_only = True
+
+        def exec(self) -> QDialog.DialogCode:
+            return QDialog.DialogCode.Accepted
+
+    view._catalog_selected = None
+    monkeypatch.setattr(project_view_mod, "OpenProjectChoiceDialog", TrackingDialog)
+
+    class ModeDialog:
+        def __init__(self, parent, *, project_label: str) -> None:  # noqa: ANN001
+            self.read_only = True
+
+        def exec(self) -> QDialog.DialogCode:
+            return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(project_view_mod, "OpenModeDialog", ModeDialog)
+    monkeypatch.setattr(
+        project_view_mod.QFileDialog,
+        "getExistingDirectory",
+        lambda *args, **kwargs: str(outside),
+    )
+    view.open_project()
+    assert choice_built == []
+    assert opened == [outside]
     view.deleteLater()
 
 
@@ -769,6 +1017,7 @@ def test_app_window_title_includes_version() -> None:
 
     assert app_window_title() == "Reisetagebuch R3.3.0"
     assert app_window_title("Alpen 2025") == "Reisetagebuch R3.3.0 - Alpen 2025"
+    assert app_window_title("Alpen 2025", read_only=True) == "Reisetagebuch R3.3.0 - Alpen 2025 (Nur lesen)"
     assert app_window_title("  ") == "Reisetagebuch R3.3.0"
 
 

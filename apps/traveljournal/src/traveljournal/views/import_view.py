@@ -43,6 +43,7 @@ from travelcore.media.thumbnails import cached_thumbnail_path
 from travelcore.media.types import FileKind
 from traveljournal.services.workers import IndexLoadRunnable, IndexRunnable, StoreImportRunnable
 from traveljournal.services.workspace import Workspace
+from traveljournal.ui.errors import report_exception
 from traveljournal.widgets.thumb_zoom import (
     ThumbZoomSlider,
     clamp_thumb_zoom,
@@ -739,7 +740,7 @@ class ImportView(QWidget):
         try:
             plan = self.workspace.plan_source_sync(path)
         except ProjectError as exc:
-            QMessageBox.warning(self, "Synchronisieren", str(exc))
+            report_exception(self, "Synchronisieren", exc)
             return
         if plan.new_count == 0 and plan.missing_count == 0:
             QMessageBox.information(
@@ -779,6 +780,11 @@ class ImportView(QWidget):
     ) -> None:
         opened = self.workspace.current
         if opened is None:
+            return
+        try:
+            self.workspace.require_writable()
+        except ProjectError as exc:
+            report_exception(self, "Import", exc)
             return
         self._busy = True
         self._set_store_controls_enabled(False)

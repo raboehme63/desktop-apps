@@ -12,8 +12,9 @@ from sqlalchemy.exc import OperationalError
 
 from travelcore.config import AppSettings
 from travelcore.database.models import Project, SourceFile, Trip
-from travelcore.database.project_store import OpenProject, ProjectStore
-from travelcore.exceptions import ProjectError
+from travelcore.database.project_catalog import ProjectDescriptor, list_project_catalog
+from travelcore.database.project_store import OpenProject, ProjectStore, project_cache_dir
+from travelcore.exceptions import ProjectError, ReadOnlyProjectError
 from travelcore.export.photo_layouts import set_user_layouts_dir
 from travelcore.gps.ingest import set_track_external_url, track_urls_by_source
 from travelcore.image_analysis import QualityRunResult, analyze_project_photos
@@ -49,9 +50,14 @@ from travelcore.timeline import sections as timeline_sections
 from traveljournal.services.edit_history import EditHistory
 
 _CONFIG_DIR = Path.home() / "AppData" / "Local" / "TravelJournal"
-_RECENT_PATH = _CONFIG_DIR / "recent.json"
 _UI_CONFIG_PATH = _CONFIG_DIR / "config.json"
 TIMELINE_MEDIA_TABS = ("all", "favorite", "reserve", "rejected")
+
+
+def _recent_file() -> Path:
+    """Resolve at call time so tests can patch ``_CONFIG_DIR``."""
+
+    return _CONFIG_DIR / "recent.json"
 
 
 def normalize_timeline_media_tab(value: object) -> str:
@@ -96,9 +102,9 @@ class Workspace:
         self.remember_projects_root(parent)
         return opened
 
-    def open_project(self, directory: Path) -> OpenProject:
+    def open_project(self, directory: Path, *, read_only: bool = True) -> OpenProject:
         self.close()
-        self.current = self._store.open(directory)
+        self.current = self._store.open(directory, read_only=read_only)
         self._remember(self.current.directory)
         self.remember_projects_root(self.current.directory.parent)
         return self.current
@@ -108,15 +114,15 @@ class Workspace:
         self.current = None
 
     def rename(self, name: str) -> None:
-        if self.current is None:
-            raise ProjectError("Kein Projekt geöffnet.")
-        self._store.rename(self.current, name)
+        opened = self.require_writable()
+        self._store.rename(opened, name)
         self.current = OpenProject(
-            directory=self.current.directory,
-            db_path=self.current.db_path,
-            session_factory=self.current.session_factory,
-            project_id=self.current.project_id,
+            directory=opened.directory,
+            db_path=opened.db_path,
+            session_factory=opened.session_factory,
+            project_id=opened.project_id,
             name=name,
+            read_only=False,
         )
 
     def project_settings(self) -> ProjectSettings:
@@ -139,6 +145,7 @@ class Workspace:
 
         if self.current is None:
             raise ProjectError("Kein Projekt geöffnet.")
+        self.require_writable()
         self.history.clear()
         previous = load_project_settings(self.current.directory)
         save_project_settings(self.current.directory, settings)
@@ -323,6 +330,7 @@ class Workspace:
             and settings.placeholders.map_show_activities == activities
         ):
             return
+        self.require_writable()
         settings.placeholders.map_show_photo_cones = cones
         settings.placeholders.map_show_reserve = reserve
         settings.placeholders.map_show_sat_labels = labels
@@ -340,13 +348,13 @@ class Workspace:
             thumbnail_size=size,
             map_link_color=self.map_link_color(),
             map_track_color=self.map_track_color(),
-            project_dir=opened.directory,
+            project_dir=self._map_cache_root(),
         )
 
     def load_cached_map(self) -> MapRenderResult | None:
         if self.current is None:
             return None
-        return read_cached_map(self.current.directory, self.map_cache_identity())
+        return read_cached_map(self._map_cache_root(), self.map_cache_identity())
 
     def render_map(self, *, force: bool = False) -> MapRenderResult:
         """Reuse ``cache/map.html`` when the stamp matches, otherwise rebuild."""
@@ -357,7 +365,7 @@ class Workspace:
         return ensure_map_cache(
             opened.session_factory,
             opened.project_id,
-            opened.directory,
+            self._map_cache_root(),
             thumbs,
             db_path=opened.db_path,
             size=size,
@@ -445,7 +453,7 @@ class Workspace:
         return [by_id[item_id] for item_id in source_ids if item_id in by_id]
 
     def analyze_photo_quality(self, *, force: bool = False) -> QualityRunResult:
-        opened = self._require_open()
+        opened = self.require_writable()
 
         with opened.session_factory() as session:
             result = analyze_project_photos(
@@ -458,21 +466,21 @@ class Workspace:
         return result
 
     def accept_exact_stacks(self) -> int:
-        opened = self._require_open()
+        opened = self.require_writable()
         with opened.session_factory() as session:
             count = media_clusters.accept_exact_stacks(session, opened.project_id)
             session.commit()
         return count
 
     def propose_scene_groups(self) -> int:
-        opened = self._require_open()
+        opened = self.require_writable()
         with opened.session_factory() as session:
             count = media_clusters.propose_scene_groups(session, opened.project_id)
             session.commit()
         return count
 
     def create_manual_group(self, source_file_ids: list[int]) -> int:
-        opened = self._require_open()
+        opened = self.require_writable()
         with opened.session_factory() as session:
             cluster_id = media_clusters.create_manual_group(
                 session, opened.project_id, source_file_ids
@@ -514,7 +522,7 @@ class Workspace:
         self._mutate(lambda session: media_clusters.dissolve_group(session, cluster_id))
 
     def sync_timeline(self) -> TimelineSnapshot:
-        opened = self._require_open()
+        opened = self.require_writable()
         thumbs, size = self._thumbs_and_size()
         try:
             with opened.session_factory() as session:
@@ -636,7 +644,7 @@ class Workspace:
         from travelcore.gps.fitnesstracks import fitness_tracks_dir, index_fitness_gpx_file
         from travelcore.gps.maptracks import resolve_source_root
 
-        opened = self._require_open()
+        opened = self.require_writable()
         trip_start, trip_end = self.load_trip_span()
         start = date_from or trip_start
         end = date_to or trip_end
@@ -700,7 +708,7 @@ class Workspace:
         from travelcore.gps.igctracks import igc_tracks_dir, index_igc_file
         from travelcore.gps.maptracks import resolve_source_root
 
-        opened = self._require_open()
+        opened = self.require_writable()
         trip_start, trip_end = self.load_trip_span()
         start = date_from or trip_start
         end = date_to or trip_end
@@ -774,7 +782,7 @@ class Workspace:
     def import_map_track_file(self, source: Path) -> tuple[int, str]:
         from travelcore.gps.maptracks import import_map_track_file
 
-        opened = self._require_open()
+        opened = self.require_writable()
         with opened.session_factory() as session:
             project = session.get(Project, opened.project_id)
             if project is None:
@@ -792,7 +800,7 @@ class Workspace:
     def import_map_track_gpx(self, xml: str, *, stem: str | None = None) -> tuple[int, str]:
         from travelcore.gps.maptracks import import_map_track_gpx
 
-        opened = self._require_open()
+        opened = self.require_writable()
         with opened.session_factory() as session:
             project = session.get(Project, opened.project_id)
             if project is None:
@@ -1109,7 +1117,7 @@ class Workspace:
         return result
 
     def generate_missing_thumbnails(self) -> int:
-        if self.current is None:
+        if self.current is None or self.current.read_only:
             return 0
         settings = AppSettings()
         with self.current.session_factory() as session:
@@ -1132,6 +1140,35 @@ class Workspace:
             stored_root=stored_text,
             recents=self.recent_projects(),
         )
+
+    def project_catalog_sort(self) -> str:
+        from travelcore.database.project_catalog import normalize_catalog_sort
+
+        return normalize_catalog_sort(self._load_ui_config().get("project_catalog_sort"))
+
+    def set_project_catalog_sort(self, key: str) -> None:
+        from travelcore.database.project_catalog import normalize_catalog_sort
+
+        normalized = normalize_catalog_sort(key)
+        data = self._load_ui_config()
+        if data.get("project_catalog_sort") == normalized:
+            return
+        data["project_catalog_sort"] = normalized
+        self._save_ui_config(data)
+
+    def project_catalog_collapsed(self) -> bool:
+        stored = self._load_ui_config().get("project_catalog_collapsed")
+        if stored is None:
+            return True
+        return stored is True
+
+    def set_project_catalog_collapsed(self, collapsed: bool) -> None:
+        flag = bool(collapsed)
+        if self.project_catalog_collapsed() == flag:
+            return
+        data = self._load_ui_config()
+        data["project_catalog_collapsed"] = flag
+        self._save_ui_config(data)
 
     def timeline_media_tab(self) -> str:
         return normalize_timeline_media_tab(self._load_ui_config().get("timeline_media_tab"))
@@ -1344,23 +1381,37 @@ class Workspace:
         data["projects_root"] = str(path)
         self._save_ui_config(data)
 
-    def recent_projects(self) -> list[Path]:
-        if not _RECENT_PATH.is_file():
+    def recent_project_entries(self) -> list[Path]:
+        """Paths from ``recent.json``, including folders that no longer exist."""
+
+        path = _recent_file()
+        if not path.is_file():
             return []
         try:
-            raw = json.loads(_RECENT_PATH.read_text(encoding="utf-8"))
+            raw = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return []
-        paths = [Path(item) for item in raw if isinstance(item, str)]
-        return [path for path in paths if (path / "project.sqlite").is_file()]
+        return [Path(item) for item in raw if isinstance(item, str)]
+
+    def recent_projects(self) -> list[Path]:
+        return [path for path in self.recent_project_entries() if (path / "project.sqlite").is_file()]
+
+    def list_known_projects(self) -> list[ProjectDescriptor]:
+        current = self.current.directory if self.current is not None else None
+        return list_project_catalog(
+            root=self.projects_root(),
+            recents=self.recent_project_entries(),
+            current=current,
+        )
 
     def _remember(self, directory: Path) -> None:
         items = [str(directory)]
         for existing in self.recent_projects():
             if existing.resolve() != directory.resolve():
                 items.append(str(existing))
-        _RECENT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _RECENT_PATH.write_text(json.dumps(items[:10], indent=2), encoding="utf-8")
+        path = _recent_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(items[:10], indent=2), encoding="utf-8")
 
     def _load_ui_config(self) -> dict[str, object]:
         if not _UI_CONFIG_PATH.is_file():
@@ -1380,14 +1431,27 @@ class Workspace:
             raise ProjectError("Kein Projekt geöffnet.")
         return self.current
 
+    def require_writable(self) -> OpenProject:
+        opened = self._require_open()
+        if opened.read_only:
+            raise ReadOnlyProjectError()
+        return opened
+
+    def is_read_only(self) -> bool:
+        return self.current is not None and self.current.read_only
+
+    def _map_cache_root(self) -> Path:
+        return project_cache_dir(self._require_open())
+
     def _thumbs_and_size(self) -> tuple[Path, int]:
         opened = self._require_open()
         thumbs = opened.directory / "thumbnails"
-        thumbs.mkdir(parents=True, exist_ok=True)
+        if not opened.read_only:
+            thumbs.mkdir(parents=True, exist_ok=True)
         return thumbs, AppSettings().default_thumbnail_size
 
     def _mutate(self, action: Callable[..., object]) -> None:
-        opened = self._require_open()
+        opened = self.require_writable()
         with opened.session_factory() as session:
             action(session)
             session.commit()
@@ -1458,7 +1522,7 @@ class Workspace:
         ended_at: datetime | None = None,
         hidden: bool = False,
     ) -> int:
-        opened = self._require_open()
+        opened = self.require_writable()
         with opened.session_factory() as session:
             trip_id = session.scalar(
                 select(Trip.id).where(Trip.project_id == opened.project_id).order_by(Trip.id.asc())
@@ -1513,7 +1577,7 @@ class Workspace:
         self._mutate(lambda session: timeline_build.set_entry_cover(session, kind, entity_id, source_file_id))
 
     def _apply_rotation(self, source_file_id: int, delta_degrees: int) -> tuple[int, Path]:
-        opened = self._require_open()
+        opened = self.require_writable()
         thumbs, size = self._thumbs_and_size()
         with opened.session_factory() as session:
             degrees = timeline_build.add_source_rotation(session, source_file_id, delta_degrees)
