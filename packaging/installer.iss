@@ -2,7 +2,7 @@
 ; Application Python sources are not modified.
 
 #ifndef MyAppVersion
-#define MyAppVersion "3.3.0"
+#define MyAppVersion "3.4.0"
 #endif
 
 #define MyAppName "Reisetagebuch"

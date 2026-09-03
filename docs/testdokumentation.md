@@ -2,9 +2,9 @@
 
 | Feld | Inhalt |
 | --- | --- |
-| Version | 3.3 |
-| Stand | 2. September 2026 |
-| Bezugsversion Software | Phase 7 plus Medien-Pipeline, Software **R3.3.0** |
+| Version | 3.4 |
+| Stand | 3. September 2026 |
+| Bezugsversion Software | Phase 7 plus Medien-Pipeline, Software **R3.4.0** |
 | Bezug | [pflichtenheft.md](pflichtenheft.md), [konzept.md](konzept.md), [packaging/README.md](../packaging/README.md) |
 
 Diese Dokumentation beschreibt **Teststrategie, Automatisierung, manuelle Prüfung und Abdeckungslücken**. Sie ist die Testdoku zum Pflichtenheft, kein Ersatz für pytest-Ausgaben.
@@ -26,7 +26,7 @@ Diese Dokumentation beschreibt **Teststrategie, Automatisierung, manuelle Prüfu
 | --- | --- | --- | --- |
 | Unit | `packages/travelcore/tests/`, `packages/fitnesscore/tests/` | pytest | Typen, Hash, Zeit, GPS, Provider, HEIC-Container, GPX/IGC/KML, Interpolation, ExifTool-JSON, Thumbnails, Orientierung, Timeline, Abschnitte, History-Snapshots, Länderkatalog, Travelbook-PDF, CEWE-`.mcf`, interaktiver HTML-Ordner; Fitness-Import, GPX- und IGC-Export |
 | Integration | `packages/travelcore/tests/test_indexer.py`, `test_database.py`, `test_timeline.py`; `tests/integration/`; `tests/test_edit_history.py` | pytest | Projektordner, Schema, Index → SQLite, Timeline-Sync, Re-Open, Workspace-Undo |
-| GUI-Rauch | `tests/test_gui_smoke.py` | pytest + Qt offscreen | Hauptfenster, sechs Seiten, Menü **Bearbeiten**, Inspektor, Register, Titel mit Version R3.3.0, Timeline-Speichern nur bei Abschnitten/Texten/Reisetitel/YouTube, Sichtbarkeits-Schalter, Verlassen-Dialog, Karten-Refresh ohne Live-Reuse, **Filtern**, Thumbnail-Schieber inkl. Import, Ampel-Hover, Länderauswahl und Reise von–bis, Fitness-/IGC-Importfelder, interaktiver HTML-Zielordner |
+| GUI-Rauch | `tests/test_gui_smoke.py` | pytest + Qt offscreen | Hauptfenster, sechs Seiten, Menü **Bearbeiten**, Inspektor, Register, Titel mit Version R3.4.0, Timeline-Speichern nur bei Abschnitten/Texten/Reisetitel/YouTube, Sichtbarkeits-Schalter, Verlassen-Dialog, Karten-Refresh ohne Live-Reuse, **Filtern**, Thumbnail-Schieber inkl. Import, Ampel-Hover, Länderauswahl und Reise von–bis, Fitness-/IGC-Importfelder, interaktiver HTML-Zielordner |
 | Paketierung | `packaging/` | manuell nach `build.ps1` | Frozen-EXE startet, Alembic/Karte, kein Python nötig (MT-22) |
 | Manuell | dieses Dokument, Abschnitt 7 | Windows-Desktop | Import echter HEIC/JPEG, Liste, Timeline, Abschnitte, Karte, Inspektor, Undo/Redo |
 | Statisch | Repository-Wurzel | Ruff, später pyright | Stil, Imports, grundlegende Typen |
@@ -329,7 +329,7 @@ Stand nach `pytest --collect-only`: **578 Tests** (2. September 2026). Neue Test
 | `test_catalog_files_live_next_to_module` | `test_country_catalog.py` | `catalog.json`, NOTICE, `flags/de.svg`, `shapes/de.svg` |
 | `test_country_at_uses_silhouette_outline` | `test_country_catalog.py` | Hochries/München → DE trotz AT in der Reise; Wien → AT; Vaduz → LI; Kapstadt → ZA; Mailand → IT |
 | `test_protocols_are_importable` | `test_interfaces.py` | `MetadataProvider`, `RankingStrategy`, `MapBackend` |
-| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R3.3.0, Menü **Bearbeiten** mit Strg+Z/Strg+Y, **Projekt → Zuletzt geöffnet**, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren**, Export ohne Kopfzeile, Modus Vorschau/Editiermodus, einklappbare Auswahl, Blättern mit Pfeilen links/rechts, Cover dann Titelseite dann Seitenzahlen ab Reiseübersicht 1–2/n, Seitenformat DIN A4 Hochformat, Dateiformat erst im Export-Dialog (HTML/PDF/CEWE; CEWE-Hinweis, Qualität nur bei PDF), Länderauswahl und Reise von–bis deaktiviert ohne Projekt, leere Projektübersicht |
+| `test_main_window_starts` | `tests/test_gui_smoke.py` | Titel mit Version R3.4.0, Menü **Bearbeiten** mit Strg+Z/Strg+Y, **Projekt → Zuletzt geöffnet**, Pipeline mit Symbolen, eingeklappt nur Icons, ausgeklappt inhaltsbreit, Medienregister, Import **Synchronisieren**, Export ohne Kopfzeile, Modus Vorschau/Editiermodus, einklappbare Auswahl, Blättern mit Pfeilen links/rechts, Cover dann Titelseite dann Seitenzahlen ab Reiseübersicht 1–2/n, Seitenformat DIN A4 Hochformat, Dateiformat erst im Export-Dialog (HTML/PDF/CEWE; CEWE-Hinweis, Qualität nur bei PDF), Länderauswahl und Reise von–bis deaktiviert ohne Projekt, leere Projektübersicht |
 | `test_pdf_export_asks_save_as_path` | `tests/test_gui_smoke.py` | PDF- und interaktiver HTML-Zielpfad; `.html` wird zum Ordner |
 | `test_country_picker_adds_flag_and_shape` | `tests/test_gui_smoke.py` | Länderauswahl: Italien und Slowenien mit Flagge und Umriss |
 | `test_project_span_edits_update_duration` | `tests/test_gui_smoke.py` | Projektseite: von–bis setzt Dauer (2 Tage) |
@@ -645,7 +645,7 @@ Stand nach `pytest --collect-only`: **578 Tests** (2. September 2026). Neue Test
 
 | Test | Datei | Prüft |
 | --- | --- | --- |
-| `test_app_window_title_includes_version` | `tests/test_gui_smoke.py` | `Reisetagebuch R3.3.0` |
+| `test_app_window_title_includes_version` | `tests/test_gui_smoke.py` | `Reisetagebuch R3.4.0` |
 | `test_source_sync_dialog_defaults_to_timeline` | `tests/test_gui_smoke.py` | Sync-Dialog: Timeline vorausgewählt, Pool wählbar |
 | `test_source_sync_dialog_hides_destination_without_new_files` | `tests/test_gui_smoke.py` | ohne neue Dateien keine Timeline/Pool-Wahl |
 | `test_entry_widget_separates_tracks_from_media` | `tests/test_gui_smoke.py` | getrennte Galerien |
@@ -807,7 +807,7 @@ Stand nach `pytest --collect-only`: **578 Tests** (2. September 2026). Neue Test
 
 ## 5. Abdeckung gegen das Pflichtenheft
 
-### 5.1 Gut abgedeckt (Phase 7 plus Medien-Pipeline, R3.3.0)
+### 5.1 Gut abgedeckt (Phase 7 plus Medien-Pipeline, R3.4.0)
 
 - Dateiklassifikation und rekursiver Scan
 - SHA-256 und Skip unveränderter Dateien
@@ -816,8 +816,8 @@ Stand nach `pytest --collect-only`: **578 Tests** (2. September 2026). Neue Test
 - HEIC-GPS/Kamera ohne ExifTool (ISO 6709, eingebettetes TIFF, Apple-Boxen)
 - GPX-Parsing inkl. zeitloser und leerer Tracks, Interpolation, keine Überschreibung von EXIF-GPS
 - Hilfsskript Polar-JSON `routes` → Sibling-GPX (`tests/test_json_routes_to_gpx.py`)
-- Fitness-Datenbank: Import aller JSON/FIT/IGC, optionales `--sports`, GPX- und IGC-Export (`packages/fitnesscore/tests/`); GUI nach `.ActivityTracks/` und `.IGCTracks/` (gemerkte DB-Pfade, eigene Fortschrittsanzeige)
-- Track-Chips **Map** / **Act** / **igc**; Importzähler MAP / Activity / Flüge / Sonstige; Kartendetail **Flüge anzeigen** / **Aktivitäten anzeigen**
+- Fitness-Datenbank: Import aller JSON/FIT/IGC, optionales `--sports`, GPX- und IGC-Export (`packages/fitnesscore/tests/`); GUI nach `.ActivityTracks/` und `.IGCTracks/` (gemerkte DB, eigene Fortschrittsanzeige; **Neu laden** löscht Waisen auf der Platte inkl. Altbestand `.FitnessTracks/`, Index und Karten; Zähler sofort)
+- Track-Chips **Map** / **Act** / **igc**; Importzähler MapTracks / ActivityTracks / Flüge / Sonstige; Kartendetail **Flüge anzeigen** / **Aktivitäten anzeigen**
 - Hilfsskript Google-Maps-Routenlink → GPX (`tests/test_maps_url_to_gpx.py`)
 - Ausgangslinie Map-Track / `.MapTracks/` im Import-Ordner (`packages/travelcore/tests/test_maptracks.py`)
 - IGC-Parsing, Pilot, DHV-Leonardo-Link überlebt Re-Import
@@ -835,7 +835,7 @@ Stand nach `pytest --collect-only`: **578 Tests** (2. September 2026). Neue Test
 - Reiseabschnitte, Pending-Vorschau, Eintrags-Titelbild (Foto und Track, YouTube-Fallback)
 - YouTube- und DHV-Leonardo-URL-Normalisierung
 - Anzeigedrehung (Index, Cachepfad, Re-Import, Inspektor ohne Originalschreiben)
-- GUI-Rauch: Fenstertitel mit Version R3.3.0, Menü **Bearbeiten** (Strg+Z/Strg+Y), Pipeline Import→Medien→Timeline, Pool-Spalte, getrennte Medien/Tracks, Register nur per Klick (auch Tracks), Inspektor Blättern/Zoom/Drehen/Pool/Zur Karte (letzter Klick, geladene Karte ohne Neuaufbau), Sichtbarkeits-Schalter, Speichern/Verlassen, Thumbnail-Schieber, Länderauswahl und Reise von–bis ohne Projekt deaktiviert
+- GUI-Rauch: Fenstertitel mit Version R3.4.0, Menü **Bearbeiten** (Strg+Z/Strg+Y), Pipeline Import→Medien→Timeline, Pool-Spalte, getrennte Medien/Tracks, Register nur per Klick (auch Tracks), Inspektor Blättern/Zoom/Drehen/Pool/Zur Karte (letzter Klick, geladene Karte ohne Neuaufbau), Sichtbarkeits-Schalter, Speichern/Verlassen, Thumbnail-Schieber, Länderauswahl und Reise von–bis ohne Projekt deaktiviert
 - Travelbook (interaktiv): portabler HTML-Ordner (`index.html`, vendored Leaflet, Thumbs, 1920-px-Viewer-JPEGs), Leiste/Journal/YouTube, Lightbox, Zoom-Schieber, ausgeblendete Abschnitte fehlen, Originale unberührt
 - Medien-Cluster: SHA-256-Stapel, 30-s-Szenengruppen, manuelle Gruppen ohne Schlüssel, Overlay blendet Nicht-Schlüssel aus, Galerie-Kennzeichen G/×n, Inspektor-Blättern (Links/rechts Schlüssel, hoch/runter Gruppe, Leertaste, Aussortierte-Checkbox), Statistikleiste
 - Qualitätsampel: `technical_quality` in `photo_analyses`, Pillow-Analyse ohne Originalschreiben, Ampel in der Galerie, Knopf **Qualität prüfen**, Hover mit ausschlaggebenden Einzelwerten (`quality_tooltip`)
@@ -886,7 +886,7 @@ Schweregrade für manuelle Funde:
 
 ---
 
-## 7. Manuelle Testfälle (Phase 3 bis 7 plus Medien-Pipeline, Software R3.3.0, inkl. Windows-Paket und Undo/Redo)
+## 7. Manuelle Testfälle (Phase 3 bis 7 plus Medien-Pipeline, Software R3.4.0, inkl. Windows-Paket und Undo/Redo)
 
 Voraussetzung: App starten mit
 
@@ -928,7 +928,8 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 | Quelle mit mehr als 250 unterstützten Dateien | Tabellenzeilen = indexierte Dateien; Zähler und Fußzeile („N Dateien in der Liste“) stimmen überein; Tracks als **MapTracks**, **ActivityTracks**, **Flüge**, **Sonstige** |
 | Klick oder Mouseover auf eine Fotozeile | Rechts: Vorschaubild (nach Thumbnail-Lauf) und Metadaten inkl. GPS/Kamera |
 | Thumbnail-Schieber auf Import | rechte Vorschau 50–200 %; bleibt in `config.json` als `import_thumb_zoom` |
-| Activity-DB wählen (Dateiname, Standard `activity.sqlite`), **Laden…** (Zeitraum, Checkboxen Activity-Tracks/Flüge), **Neu laden** | GPX unter `{Import}/.ActivityTracks/`, IGC unter `{Import}/.IGCTracks/`; Abgleich entfernt fehlende Spuren aus den Ordnern, dem Index und den Karten; Pfad bleibt in `config.json` |
+| Activity-DB wählen (Dateiname, Standard `activity.sqlite`), **Laden…** (Zeitraum, Checkboxen Activity-Tracks/Flüge), **Neu laden** | GPX unter `{Import}/.ActivityTracks/`, IGC unter `{Import}/.IGCTracks/`; Abgleich entfernt fehlende Spuren aus den Ordnern, dem Index und den Karten; Zähler **MapTracks** / **ActivityTracks** / **Flüge** schon vor dem Hinweisfenster angepasst; Pfad bleibt in `config.json` |
+| Verwaiste GPX in `.ActivityTracks/` oder Altbestand `.FitnessTracks/`, dann **Neu laden** | Datei auf der Platte weg; Chip **Act** und Zähler **ActivityTracks** ohne die Spur |
 | App schließen und neu öffnen, Seite Import | dieselben Fitness- und IGC-Datenbankfelder |
 
 ### MT-23 Quellverzeichnis synchronisieren
@@ -1154,8 +1155,8 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| App ohne Projekt | Titelleiste `Reisetagebuch R3.3.0` |
-| Projekt öffnen | `Reisetagebuch R3.3.0 - {Projekttitel}` |
+| App ohne Projekt | Titelleiste `Reisetagebuch R3.4.0` |
+| Projekt öffnen | `Reisetagebuch R3.4.0 - {Projekttitel}` |
 
 ### MT-22 Windows-Paket (FA-140–FA-144)
 
@@ -1163,7 +1164,7 @@ Voraussetzung: `packaging/build.ps1` erfolgreich; optional Inno Setup 6 für die
 
 | Schritt | Erwartung |
 | --- | --- |
-| `dist/Reisetagebuch/Reisetagebuch.exe` starten (ohne venv, ohne `python` auf dem PATH) | Fenster `Reisetagebuch R3.3.0`; kein Python-Fehlerdialog |
+| `dist/Reisetagebuch/Reisetagebuch.exe` starten (ohne venv, ohne `python` auf dem PATH) | Fenster `Reisetagebuch R3.4.0`; kein Python-Fehlerdialog |
 | Neues Projekt anlegen, JPEG-Ordner importieren | Index und Thumbnails wie in der Entwicklungsumgebung; Originale unverändert |
 | Seite **Karte** | WebEngine zeigt die Karte (nicht nur den HTML-Pfad) |
 | `%LOCALAPPDATA%\TravelJournal` | `config.json` / `recent.json` wie bisher, nicht im Programmordner |
@@ -1270,8 +1271,8 @@ Diese Fälle werden mit der jeweiligen Phase verbindlich.
 | Undo / Redo | `test_timeline_history.py`, `tests/test_edit_history.py`, Menü in `tests/test_gui_smoke.py`, manuell MT-24 |
 | Hilfsskript JSON → GPX | `tests/test_json_routes_to_gpx.py`; Aufruf im README |
 | Fitness-Datenbank CLI | `packages/fitnesscore/tests/`; Aufruf und Parameter im README |
-| Fitness-Tracks im Reisetagebuch | `packages/travelcore/tests/test_fitnesstracks.py`, `tests/test_fitness_tracks.py`, `test_scanner.py`; manuell MT-08 |
-| IGC-Tracks im Reisetagebuch | `packages/travelcore/tests/test_igctracks.py`, `tests/test_igc_tracks.py`, `test_scanner.py`; manuell MT-08 |
+| Fitness-Tracks im Reisetagebuch | `packages/travelcore/tests/test_fitnesstracks.py`, `tests/test_fitness_tracks.py`, `test_scanner.py`; manuell MT-04 |
+| IGC-Tracks im Reisetagebuch | `packages/travelcore/tests/test_igctracks.py`, `tests/test_igc_tracks.py`, `test_scanner.py`; manuell MT-04 |
 | Hilfsskript Maps → GPX | `tests/test_maps_url_to_gpx.py`; Aufruf im README |
 | Karte / Leiste / Kreis-Detail | `test_maps.py`, `tests/test_gui_smoke.py` (Map-Fälle), manuell MT-12 |
 | Verbindungslinien / Symbole | `test_transfer_links.py`, `test_symbols.py`, `test_maps.py` (outbound), `packages/travelcore/tests/test_maptracks.py`, `tests/test_gui_smoke.py` (Transfer-Zeile), manuell MT-12, MT-13, MT-25 |
@@ -1294,6 +1295,7 @@ Ein Phasenabschluss ohne grüne Automatisierung gilt als nicht abgenommen.
 
 | Datum | Kommando | Ergebnis |
 | --- | --- | --- |
+| 03.09.2026 | `python -m pytest --collect-only` im Projekt-venv | 677 Tests gesammelt (R3.4.0; `.ActivityTracks/`, Neu-Laden löscht Ordnerwaisen, Zähler MapTracks/ActivityTracks) |
 | 02.09.2026 | `python -m pytest --collect-only` im Projekt-venv | 651 Tests gesammelt (R3.3.0; Travelbook interaktiv HTML-Ordner, Lightbox, Zoom-Schieber) |
 | 02.09.2026 | `python -m pytest --collect-only -q` im Projekt-venv | 643 Tests gesammelt (R3.2.0; Fitness-/IGC-Import, Track-Chips, Kartendetail Flüge/Aktivitäten) |
 | 02.09.2026 | `python -m pytest --collect-only` im Projekt-venv | 622 Tests gesammelt (Fitness-Tracks unter `.ActivityTracks/`, Scan nimmt sie mit) |
@@ -1312,4 +1314,4 @@ Ein Phasenabschluss ohne grüne Automatisierung gilt als nicht abgenommen.
 | 26.08.2026 | `python -m pytest` im Projekt-venv | 222 bestanden |
 | 18.08.2026 | `python -m pytest` im Projekt-venv | 98 bestanden |
 
-Collect-only für R3.3.0 am 02.09.2026 (651 Tests); die nächste vollständige `pytest`-Fahrt hier fortschreiben.
+Collect-only für R3.4.0 am 03.09.2026 (677 Tests); die nächste vollständige `pytest`-Fahrt hier fortschreiben.

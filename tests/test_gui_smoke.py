@@ -19,7 +19,7 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
 
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
-    assert window.windowTitle() == "Reisetagebuch R3.3.0"
+    assert window.windowTitle() == "Reisetagebuch R3.4.0"
     assert window.stack.count() == 6
     titles = [action.text() for action in window.menuBar().actions()]
     assert "Projekt" in titles
@@ -1017,10 +1017,10 @@ def test_photo_page_canvas_nudge_zoom_and_angle(tmp_path: Path) -> None:
 def test_app_window_title_includes_version() -> None:
     from traveljournal.__about__ import app_window_title
 
-    assert app_window_title() == "Reisetagebuch R3.3.0"
-    assert app_window_title("Alpen 2025") == "Reisetagebuch R3.3.0 - Alpen 2025"
-    assert app_window_title("Alpen 2025", read_only=True) == "Reisetagebuch R3.3.0 - Alpen 2025 (Nur lesen)"
-    assert app_window_title("  ") == "Reisetagebuch R3.3.0"
+    assert app_window_title() == "Reisetagebuch R3.4.0"
+    assert app_window_title("Alpen 2025") == "Reisetagebuch R3.4.0 - Alpen 2025"
+    assert app_window_title("Alpen 2025", read_only=True) == "Reisetagebuch R3.4.0 - Alpen 2025 (Nur lesen)"
+    assert app_window_title("  ") == "Reisetagebuch R3.4.0"
 
 
 def test_new_project_dialog_preview_and_values(tmp_path: Path) -> None:

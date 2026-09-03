@@ -2,7 +2,7 @@
 
 Produktanforderungen: [pflichtenheft.md](pflichtenheft.md). Leitkonzept: [konzept.md](konzept.md). Tests: [testdokumentation.md](testdokumentation.md). Windows-Paket: [packaging/README.md](../packaging/README.md).
 
-Stand: **Phase 7** plus Medien-Pipeline, Software **R3.3.0** (2. September 2026). Journal-Modell nach Design-Review; Verbindungslinien; Sichtbarkeits-Schalter (`trip_sections.hidden`); **Speichern** grau außer Dirty-Stand mit Undo/Redo und Verlassen-Dialog; Karten-Popup, Cover-Zoom, Track-Bewertung; Detail-Checkboxen Flüge/Aktivitäten; **Zur Karte** ohne Neuaufbau der geladenen Karte; Sichtbarkeitswechsel setzt `_live_stale` und übernimmt `_pending_result` statt Live-Reuse; SHA-256-Stapel, Szenen- und manuelle Gruppen, Statistikleiste Medien; Qualitätsampel mit Hover-Begründung; **Filtern** auf Medien; Thumbnail-Schieber inkl. Import; Fitness-/IGC-Import mit gemerkter DB; Track-Chips **Map** / **Act** / **igc**; Travelbook (interaktiv) als HTML-Ordner (Leiste, Lightbox, Zoom-Schieber).
+Stand: **Phase 7** plus Medien-Pipeline, Software **R3.4.0** (3. September 2026). Journal-Modell nach Design-Review; Verbindungslinien; Sichtbarkeits-Schalter (`trip_sections.hidden`); **Speichern** grau außer Dirty-Stand mit Undo/Redo und Verlassen-Dialog; Karten-Popup, Cover-Zoom, Track-Bewertung; Detail-Checkboxen Flüge/Aktivitäten; **Zur Karte** ohne Neuaufbau der geladenen Karte; Sichtbarkeitswechsel setzt `_live_stale` und übernimmt `_pending_result` statt Live-Reuse; SHA-256-Stapel, Szenen- und manuelle Gruppen, Statistikleiste Medien; Qualitätsampel mit Hover-Begründung; **Filtern** auf Medien; Thumbnail-Schieber inkl. Import; Fitness-/IGC-Import nach `.ActivityTracks/` / `.IGCTracks/` (Altbestand `.FitnessTracks/`; **Neu laden** räumt Ordner, Index und Karten); Track-Chips **Map** / **Act** / **igc**; Importzähler MapTracks/ActivityTracks; Travelbook (interaktiv) als HTML-Ordner (Leiste, Lightbox, Zoom-Schieber).
 
 ## Prinzip
 
@@ -29,7 +29,9 @@ aus diesem Store (Seite **Import** → Activity-Datenbank,
 **Laden…** / **Neu laden**, Zeitraum vorbefüllt, Checkboxen Activity-Tracks/Flüge,
 überschreibbar, jeweils mit Fortschritt) nach
 `{Quellwurzel}/.ActivityTracks/` bzw. `{Quellwurzel}/.IGCTracks/`.
-Scan und Synchronisieren nehmen beide Ordner mit (normale GPS-Dateien, nicht Map-Tracks).
+**Neu laden** löscht fehlende Dateien in diesen Ordnern (inkl. Altbestand `.FitnessTracks/`),
+im Index und auf den Karten. Scan und Synchronisieren nehmen beide Ordner mit
+(normale GPS-Dateien, nicht Map-Tracks).
 Tests: `packages/travelcore/tests/test_fitnesstracks.py`,
 `packages/travelcore/tests/test_igctracks.py`,
 `tests/test_fitness_tracks.py`, `tests/test_igc_tracks.py`.
@@ -59,13 +61,13 @@ in `trips.countries`. Aufruf und Quellen: [README.md](../README.md).
 | Use Cases | `travelcore.media`, `gps`, `timeline`, `geolocation`, `maps`, `similarity`, `export` | Import, Zuordnung, Timeline, Karte, Cluster, Export |
 | Persistenz | `travelcore.database` | SQLAlchemy-Modelle, Alembic, Projektordner |
 
-## Module in travelcore (Phase 7 plus Medien-Pipeline, R3.0.0–R3.3.0)
+## Module in travelcore (Phase 7 plus Medien-Pipeline, R3.0.0–R3.4.0)
 
 | Paket | Inhalt |
 | --- | --- |
 | `media` | Scan, SHA-256, Indexer, Thumbnails, Galerie, Anzeigedrehung (`orientation`) |
 | `metadata` | Pillow, HEIC-Container, optional ExifTool, Merge |
-| `gps` | GPX/IGC-Parse und Ingest, KML/GeoJSON nur für Vorschauen, zeitliche Interpolation; `track_badge` (**Map** / **Act** / **igc**); Fitness- und IGC-Exportordner `.ActivityTracks/` / `.IGCTracks/` |
+| `gps` | GPX/IGC-Parse und Ingest, KML/GeoJSON nur für Vorschauen, zeitliche Interpolation; `track_badge` (**Map** / **Act** / **igc**); Fitness- und IGC-Exportordner `.ActivityTracks/` / `.IGCTracks/` (Altbestand `.FitnessTracks/`; `unlink_unwanted_files` beim Neu-Laden) |
 | `geolocation` | Aufenthaltscluster (Haversine, Radius 150 m) |
 | `timeline` | Tage, Transfers und Aufenthalte als Abschnitte, Mitglieder, Journal-Zeit, Pool (`parked`), Links, Cover, Sichtbarkeit (`hidden`), manuelle Edits, Snapshots zum Wiederherstellen (`history`) |
 | `maps` | `MapScene` + Folium/Leaflet; statische OSM-Ausschnitte für Track-Thumbs |
@@ -105,9 +107,11 @@ meine_reise/
 Map-Tracks liegen nicht im Projektordner, sondern unter `{Quellwurzel}/.MapTracks/`
 im Import-Ordner. Der Scan überspringt diesen Ordner.
 
-Fitness-Tracks aus der Fitness-Datenbank liegen unter `{Quellwurzel}/.ActivityTracks/`.
+Fitness-Tracks aus der Fitness-Datenbank liegen unter `{Quellwurzel}/.ActivityTracks/`
+(Altbestand `{Quellwurzel}/.FitnessTracks/` wird beim Scan und beim Neu-Laden noch erkannt).
 IGC-Tracks aus derselben Datenbank liegen unter `{Quellwurzel}/.IGCTracks/`.
 Der Scan nimmt beide mit (Ausnahme bei versteckten Punkt-Ordnern).
+**Neu laden** löscht Dateien, die nicht mehr in der DB-Auswahl stehen, in diesen Ordnern.
 
 Die Datenbank speichert nur Referenzen auf Originaldateien. Originale werden
 nicht kopiert, sofern der Benutzer das nicht ausdrücklich wünscht.
@@ -541,4 +545,4 @@ macOS ist kein Ziel (WIC-Vorschauen, AppData-Pfade).
 10. Dublettenerkennung  ← R3.0.0 teilweise (SHA-256-Stapel, 30-s-Gruppen,
     manuelle Gruppen, Statistik; keine pHash/Embeddings)
 
-Aktueller Stand: Phase 7 erledigt plus Medien-Pipeline, Qualitätsampel, Filtern und Import-Zoom, Sichtbarkeit/Speichern/Verlassen, Fitness-/IGC-Import, Kartendetail Flüge/Aktivitäten, Travelbook (interaktiv) als HTML-Ordner, Software R3.3.0.
+Aktueller Stand: Phase 7 erledigt plus Medien-Pipeline, Qualitätsampel, Filtern und Import-Zoom, Sichtbarkeit/Speichern/Verlassen, Fitness-/IGC-Import nach `.ActivityTracks/` / `.IGCTracks/`, Kartendetail Flüge/Aktivitäten, Travelbook (interaktiv) als HTML-Ordner, Software R3.4.0.

@@ -12,7 +12,7 @@ SPECDIR = Path(SPECPATH).resolve()
 ROOT = SPECDIR.parent
 SRC_CORE = ROOT / "packages" / "travelcore" / "src"
 SRC_APP = ROOT / "apps" / "traveljournal" / "src"
-_VERSION = os.environ.get("TRAVELJOURNAL_VERSION", "3.3.0")  # kept for EXE metadata later
+_VERSION = os.environ.get("TRAVELJOURNAL_VERSION", "3.4.0")  # kept for EXE metadata later
 
 datas: list = []
 binaries: list = []
