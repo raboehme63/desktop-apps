@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from fitnesscore.database.engine import (
     DB_NAME,
+    LEGACY_DB_NAME,
     create_engine_for_path,
     create_session_factory,
     init_schema,
@@ -23,19 +24,29 @@ class OpenStore:
     session_factory: sessionmaker[Session]
 
 
-def resolve_db_path(target: Path) -> Path:
-    """Return the SQLite path for a store folder or an explicit ``.sqlite`` file."""
+def resolve_db_path(target: Path, *, create: bool = False) -> Path:
+    """Return the SQLite path for a store folder or an explicit ``.sqlite`` file.
+
+    Folders use ``activity.sqlite``. An existing ``fitness.sqlite`` is still opened
+    when the new name is absent. New stores always get ``activity.sqlite``.
+    """
 
     path = target.expanduser()
     if path.suffix.lower() == ".sqlite":
         return path
-    return path / DB_NAME
+    preferred = path / DB_NAME
+    if create or preferred.is_file():
+        return preferred
+    legacy = path / LEGACY_DB_NAME
+    if legacy.is_file():
+        return legacy
+    return preferred
 
 
 def init_store(target: Path) -> OpenStore:
     """Create the store folder and empty database."""
 
-    db_path = resolve_db_path(target)
+    db_path = resolve_db_path(target, create=True)
     directory = db_path.parent
     try:
         directory.mkdir(parents=True, exist_ok=True)

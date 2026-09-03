@@ -110,6 +110,65 @@ def test_park_media_clears_track_choice(open_project: OpenProject, tmp_path: Pat
         assert loaded[0].track_source_file_id is None
 
 
+def test_purge_deletes_transfer_track_line_without_replacement(
+    open_project: OpenProject, tmp_path: Path
+) -> None:
+    from travelcore.database.models import SourceFile
+    from travelcore.media.purge import purge_source_files
+
+    source = tmp_path / "media"
+    source.mkdir()
+    write_jpeg_with_exif(
+        source / "foto.jpg",
+        datetime_original="2025:05:15 09:00:00",
+        offset_original="+02:00",
+    )
+    write_gpx(
+        source / "fahrt.gpx",
+        points=[
+            (46.0, 11.0, None, "2025-05-15T09:10:00Z"),
+            (46.2, 11.1, None, "2025-05-15T09:40:00Z"),
+        ],
+    )
+    thumbs = tmp_path / "thumbs"
+    thumbs.mkdir()
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        FileIndexer().index(session, project, source, project_dir=open_project.directory)
+        session.commit()
+    with open_project.session_factory() as session:
+        project = session.get(Project, open_project.project_id)
+        assert project is not None
+        snapshot = sync_timeline(session, project, thumbs_dir=thumbs)
+        by_name = {item.filename: item.source_file_id for day in snapshot.days for item in day.photos}
+        track_id = by_name["fahrt.gpx"]
+        section = create_section(
+            session,
+            snapshot.trip_id,
+            [by_name["foto.jpg"], track_id],
+            kind=KIND_MOVEMENT,
+        )
+        save_transfer_links(
+            session,
+            section.id,
+            [
+                TransferLinkSpec(geometry=LINK_GEOMETRY_LINE, symbol="bus"),
+                TransferLinkSpec(geometry=LINK_GEOMETRY_TRACK, symbol="car", track_source_file_id=track_id),
+            ],
+        )
+        session.commit()
+        section_id = section.id
+        row = session.get(SourceFile, track_id)
+        assert row is not None
+        purge_source_files(session, [row], thumbs_dir=thumbs)
+        session.commit()
+        loaded = load_transfer_links(session, section_id)
+        assert [item.geometry for item in loaded] == [LINK_GEOMETRY_LINE]
+        assert loaded[0].symbol == "bus"
+        assert session.get(SourceFile, track_id) is None
+
+
 def test_gap_filler_between_cover_and_track() -> None:
     users = (
         StayLinkSegment(

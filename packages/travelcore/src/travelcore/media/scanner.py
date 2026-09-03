@@ -29,7 +29,7 @@ SKIP_DIRECTORY_NAMES = frozenset(
     }
 )
 # Dot folders are skipped except these import sidecars (normal GPS, not Map-Tracks).
-SCAN_DOT_DIRECTORY_NAMES = frozenset({".fitnesstracks", ".igctracks"})
+SCAN_DOT_DIRECTORY_NAMES = frozenset({".activitytracks", ".fitnesstracks", ".igctracks"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,7 +89,8 @@ def scan_source_directory(root: Path) -> Iterator[ScannedFile]:
 
     Hidden files and directories are skipped, as are project output folders
     such as ``thumbnails/`` (generated JPEG previews must not be imported).
-    ``.FitnessTracks/`` and ``.IGCTracks/`` are scanned (normal GPS); ``.MapTracks/`` is not.
+    ``.ActivityTracks/`` (and leftover ``.FitnessTracks/``) and ``.IGCTracks/``
+    are scanned (normal GPS); ``.MapTracks/`` is not.
     A single unreadable file does not abort the scan.
     """
 

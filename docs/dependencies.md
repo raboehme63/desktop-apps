@@ -36,7 +36,7 @@ Standardbibliothek; geographiclib ist nicht installiert.
 
 | Bibliothek | Version | Lizenz | Zweck |
 | --- | --- | --- | --- |
-| SQLAlchemy | 2.0.52 | MIT | Fitness-SQLite (`fitness.sqlite`) |
+| SQLAlchemy | 2.0.52 | MIT | Fitness-SQLite (`activity.sqlite`) |
 | fitdecode | 0.11.0 | MIT | Garmin/Polar FIT-Aktivitäten |
 
 ## Laufzeit – traveljournal

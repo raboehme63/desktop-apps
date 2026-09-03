@@ -87,6 +87,10 @@ def purge_source_files(
     paths = [row.path for row in stale]
     project_id = stale[0].project_id
 
+    from travelcore.timeline.transfer_links import drop_track_usages
+
+    drop_track_usages(session, ids)
+
     for chunk in _chunks(ids):
         session.execute(delete(SectionMember).where(SectionMember.source_file_id.in_(chunk)))
         session.execute(

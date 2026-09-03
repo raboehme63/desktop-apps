@@ -121,10 +121,9 @@ kommen aus dem Link, die Strecke folgt OpenStreetMap-Straßen (OSRM).
 ### 3.5 Fitness-Datenbank (CLI)
 
 `packages/fitnesscore` importiert Polar-JSON, FIT und IGC in eine eigene SQLite
-(`fitness.sqlite`), nicht ins Reiseprojekt. Das Reisetagebuch holt GPX auf der Seite **Import** (**Fitnessdaten Importieren**,
-Zeitraum vorbefüllt aus Reise von–bis, überschreibbar) nach `{Import}/.FitnessTracks/`;
-Scan und Synchronisieren nehmen den Ordner mit. IGC derselben Datenbank holt
-die Seite Import nach `{Import}/.IGCTracks/` (jeweils mit Fortschritt; DB-Pfade in `config.json`). Aufruf und Parameter:
+(`activity.sqlite`), nicht ins Reiseprojekt. Das Reisetagebuch holt GPX und IGC auf der Seite **Import** (**Laden…**,
+Zeitraum vorbefüllt aus Reise von–bis, Checkboxen Activity-Tracks/Flüge) nach `{Import}/.ActivityTracks/` bzw. `{Import}/.IGCTracks/`;
+**Neu laden** gleicht ab (neue dazu, fehlende aus den Ordnern, dem Index und den Karten entfernt). Scan und Synchronisieren nehmen die Ordner mit. Der DB-Pfad steht in `config.json`. Aufruf und Parameter:
 [README.md](../README.md) (Abschnitt *Fitness-Datenbank*),
 [packages/fitnesscore/README.md](../packages/fitnesscore/README.md). Tests:
 `packages/fitnesscore/tests/`, `packages/travelcore/tests/test_fitnesstracks.py`,
@@ -143,7 +142,7 @@ die Seite Import nach `{Import}/.IGCTracks/` (jeweils mit Fortschritt; DB-Pfade 
 ```
 usage: fitnessdb [-h] [--db ORDNER] {init,import,export-gpx,export-igc,sports} ...
 
-  --db ORDNER  Store-Ordner oder fitness.sqlite (Standard: ./fitness)
+  --db ORDNER  Store-Ordner oder activity.sqlite (Standard: ./fitness)
   init         leere Datenbank anlegen
   import       -f DATEI | -d VERZEICHNIS  [-r|--recursive]
   export-gpx   [--sports SPORT …] --from DATUM --to DATUM --out ORDNER
@@ -189,7 +188,8 @@ Stand nach `pytest --collect-only`: **578 Tests** (2. September 2026). Neue Test
 | `test_scan_finds_igc_flight_log` | `test_scanner.py` | IGC wird als GPS gefunden |
 | `test_scan_skips_thumbnail_jpegs` | `test_scanner.py` | `thumbnails/` und `cache/` nicht als Fotos |
 | `test_scan_skips_dot_map_tracks` | `test_scanner.py` | `.MapTracks/` im Import-Ordner nicht als GPS |
-| `test_scan_includes_fitness_tracks` | `test_scanner.py` | `.FitnessTracks/` wird gescannt, `.MapTracks/` nicht |
+| `test_scan_includes_fitness_tracks` | `test_scanner.py` | `.ActivityTracks/` wird gescannt, `.MapTracks/` nicht |
+| `test_scan_includes_legacy_fitness_tracks` | `test_scanner.py` | alter Ordner `.FitnessTracks/` wird weiter gescannt |
 | `test_scan_includes_igc_tracks` | `test_scanner.py` | `.IGCTracks/` wird gescannt |
 
 ### 4.2 Index, Hash, Fehler — FA-020 bis FA-026, FA-095
@@ -346,11 +346,17 @@ Stand nach `pytest --collect-only`: **578 Tests** (2. September 2026). Neue Test
 | `test_convert_file_writes_sibling_gpx` | `tests/test_json_routes_to_gpx.py` | Polar-JSON Routes → GPX neben der Datei (Hilfsskript) |
 | `test_directory_mode_prints_dots_and_counts` | `tests/test_json_routes_to_gpx.py` | `-d` / `-r`, Punkte und Zähler `JSON n, GPX m` |
 | `test_fitness_track_is_indexed_scanned_and_in_gallery` | `packages/travelcore/tests/test_fitnesstracks.py` | Fitness-GPX indexiert, Galerie-Chip **Act**, Zähler `act` |
-| `test_workspace_import_fitness_tracks_and_rescan` | `tests/test_fitness_tracks.py` | Import schreibt `.FitnessTracks/`, Re-Scan löscht nicht, Re-Export verdoppelt nicht |
+| `test_workspace_import_fitness_tracks_and_rescan` | `tests/test_fitness_tracks.py` | Import schreibt `.ActivityTracks/`, Re-Scan löscht nicht, Re-Export verdoppelt nicht |
 | `test_workspace_import_fitness_uses_date_override` | `tests/test_fitness_tracks.py` | Zeitraum-Überschreibung statt Reise von–bis |
-| `test_import_view_fitness_span_prefilled_and_overridable` | `tests/test_gui_smoke.py` | Import-Seite: Von/Bis aus Reise, gemerkte Fitness-/IGC-DB |
-| `test_format_import_status` | `tests/test_gui_smoke.py` | Importzähler Fotos, Videos, MAP, Activity, Flüge, Sonstige |
+| `test_import_view_fitness_span_prefilled_and_overridable` | `tests/test_gui_smoke.py` | Import-Seite: gemerkte Activity-DB, Lade-Dialog Von/Bis und Checkboxen |
+| `test_format_import_status` | `tests/test_gui_smoke.py` | Importzähler Fotos, Videos, MapTracks, ActivityTracks, Flüge, Sonstige |
 | `test_workspace_import_fitness_reports_progress` | `tests/test_fitness_tracks.py` | Fitness-Import ruft die Fortschrittsanzeige |
+| `test_workspace_reload_drops_stale_activity_tracks` | `tests/test_fitness_tracks.py` | Neu laden entfernt GPX, die nicht mehr in der DB-Auswahl liegen |
+| `test_workspace_reload_activities_leaves_flights` | `tests/test_fitness_tracks.py` | Nur Activity neu laden lässt IGC unangetastet |
+| `test_unlink_unwanted_files_clears_dest_orphans_and_legacy` | `packages/travelcore/tests/test_fitnesstracks.py` | Waisen in `.ActivityTracks/` und Kopien in `.FitnessTracks/` werden gelöscht |
+| `test_workspace_reload_deletes_orphan_files_on_disk` | `tests/test_fitness_tracks.py` | Neu laden löscht verwaiste GPX auf der Platte, Zähler `act` bleibt stimmig |
+| `test_workspace_reload_deletes_orphan_igc_on_disk` | `tests/test_igc_tracks.py` | Neu laden löscht verwaiste IGC auf der Platte, Zähler `flights` bleibt stimmig |
+| `test_purge_deletes_transfer_track_line_without_replacement` | `packages/travelcore/tests/test_transfer_links.py` | Gelöschter Track verschwindet ersatzlos aus der Transfer-Linie |
 | `test_export_igc_writes_original_payload` | `packages/fitnesscore/tests/test_igc.py` | IGC-Export schreibt das Original aus der Fitness-DB |
 | `test_igc_track_is_indexed_scanned_and_in_gallery` | `packages/travelcore/tests/test_igctracks.py` | IGC unter `.IGCTracks/`, Galerie-Chip **igc**, Zähler `flights` |
 | `test_workspace_import_igc_tracks_and_rescan` | `tests/test_igc_tracks.py` | Import-Seite holt IGC, Re-Scan löscht nicht |
@@ -731,7 +737,7 @@ Stand nach `pytest --collect-only`: **578 Tests** (2. September 2026). Neue Test
 | `test_thumb_zoom_persists` | `tests/test_workspace.py` | `timeline_thumb_zoom`, `map_thumb_zoom`, `media_thumb_zoom` und `import_thumb_zoom` in `config.json` |
 | `test_normalize_timeline_media_tab` | `tests/test_workspace.py` | gültige Tab-Namen |
 | `test_timeline_media_tab_persists` | `tests/test_workspace.py` | `config.json` hält das Register |
-| `test_store_db_paths_persist` | `tests/test_workspace.py` | Fitness- und IGC-DB-Pfad in `config.json` |
+| `test_store_db_paths_persist` | `tests/test_workspace.py` | Activity-DB-Pfad in `config.json` (`activity.sqlite`) |
 | `test_sidebar_collapsed_persists` | `tests/test_workspace.py` | `config.json` hält die eingeklappte Navigation |
 | `test_timeline_pool_visible_persists` | `tests/test_workspace.py` | `config.json` hält die Pool-Spalte |
 | `test_timeline_galleries_collapsed_persists` | `tests/test_workspace.py` | `config.json` hält eingeklappte Timeline-Galerien |
@@ -810,7 +816,7 @@ Stand nach `pytest --collect-only`: **578 Tests** (2. September 2026). Neue Test
 - HEIC-GPS/Kamera ohne ExifTool (ISO 6709, eingebettetes TIFF, Apple-Boxen)
 - GPX-Parsing inkl. zeitloser und leerer Tracks, Interpolation, keine Überschreibung von EXIF-GPS
 - Hilfsskript Polar-JSON `routes` → Sibling-GPX (`tests/test_json_routes_to_gpx.py`)
-- Fitness-Datenbank: Import aller JSON/FIT/IGC, optionales `--sports`, GPX- und IGC-Export (`packages/fitnesscore/tests/`); GUI nach `.FitnessTracks/` und `.IGCTracks/` (gemerkte DB-Pfade, eigene Fortschrittsanzeige)
+- Fitness-Datenbank: Import aller JSON/FIT/IGC, optionales `--sports`, GPX- und IGC-Export (`packages/fitnesscore/tests/`); GUI nach `.ActivityTracks/` und `.IGCTracks/` (gemerkte DB-Pfade, eigene Fortschrittsanzeige)
 - Track-Chips **Map** / **Act** / **igc**; Importzähler MAP / Activity / Flüge / Sonstige; Kartendetail **Flüge anzeigen** / **Aktivitäten anzeigen**
 - Hilfsskript Google-Maps-Routenlink → GPX (`tests/test_maps_url_to_gpx.py`)
 - Ausgangslinie Map-Track / `.MapTracks/` im Import-Ordner (`packages/travelcore/tests/test_maptracks.py`)
@@ -919,11 +925,10 @@ Ohne ExifTool auf dem PATH muss dasselbe gelten.
 
 | Schritt | Erwartung |
 | --- | --- |
-| Quelle mit mehr als 250 unterstützten Dateien | Tabellenzeilen = indexierte Dateien; Zähler und Fußzeile („N Dateien in der Liste“) stimmen überein; Tracks als **MAP**, **Activity**, **Flüge**, **Sonstige** |
+| Quelle mit mehr als 250 unterstützten Dateien | Tabellenzeilen = indexierte Dateien; Zähler und Fußzeile („N Dateien in der Liste“) stimmen überein; Tracks als **MapTracks**, **ActivityTracks**, **Flüge**, **Sonstige** |
 | Klick oder Mouseover auf eine Fotozeile | Rechts: Vorschaubild (nach Thumbnail-Lauf) und Metadaten inkl. GPS/Kamera |
 | Thumbnail-Schieber auf Import | rechte Vorschau 50–200 %; bleibt in `config.json` als `import_thumb_zoom` |
-| Fitness-DB wählen, Zeitraum (vorbefüllt, überschreibbar), **Fitnessdaten Importieren** | GPX unter `{Import}/.FitnessTracks/`; Fortschrittsanzeige; Scan/Sync überspringt den Ordner nicht; Pfad bleibt in `config.json` |
-| IGC-DB wählen, Zeitraum (vorbefüllt, überschreibbar), **IGC-Daten Importieren** | IGC unter `{Import}/.IGCTracks/`; Fortschrittsanzeige; Scan/Sync überspringt den Ordner nicht; Pfad bleibt in `config.json` |
+| Activity-DB wählen (Dateiname, Standard `activity.sqlite`), **Laden…** (Zeitraum, Checkboxen Activity-Tracks/Flüge), **Neu laden** | GPX unter `{Import}/.ActivityTracks/`, IGC unter `{Import}/.IGCTracks/`; Abgleich entfernt fehlende Spuren aus den Ordnern, dem Index und den Karten; Pfad bleibt in `config.json` |
 | App schließen und neu öffnen, Seite Import | dieselben Fitness- und IGC-Datenbankfelder |
 
 ### MT-23 Quellverzeichnis synchronisieren
@@ -1291,7 +1296,7 @@ Ein Phasenabschluss ohne grüne Automatisierung gilt als nicht abgenommen.
 | --- | --- | --- |
 | 02.09.2026 | `python -m pytest --collect-only` im Projekt-venv | 651 Tests gesammelt (R3.3.0; Travelbook interaktiv HTML-Ordner, Lightbox, Zoom-Schieber) |
 | 02.09.2026 | `python -m pytest --collect-only -q` im Projekt-venv | 643 Tests gesammelt (R3.2.0; Fitness-/IGC-Import, Track-Chips, Kartendetail Flüge/Aktivitäten) |
-| 02.09.2026 | `python -m pytest --collect-only` im Projekt-venv | 622 Tests gesammelt (Fitness-Tracks unter `.FitnessTracks/`, Scan nimmt sie mit) |
+| 02.09.2026 | `python -m pytest --collect-only` im Projekt-venv | 622 Tests gesammelt (Fitness-Tracks unter `.ActivityTracks/`, Scan nimmt sie mit) |
 | 02.09.2026 | `python -m pytest --collect-only` im Projekt-venv | 578 Tests gesammelt (Ausgangslinie Track, `.MapTracks/` im Import-Ordner) |
 | 02.09.2026 | `python -m pytest --collect-only` im Projekt-venv | 574 Tests gesammelt (Maps-URL → GPX Hilfsskript) |
 | 31.08.2026 | `python -m pytest --collect-only -q` im Projekt-venv | 560 Tests gesammelt (R3.1.0; CEWE-`.mcf` Hybrid, Travelbook-PDF, Sichtbarkeit) |

@@ -456,20 +456,22 @@ class StoreImportRunnable(QRunnable):
     def __init__(
         self,
         workspace: Workspace,
-        kind: str,
         store_path: Path,
         *,
         source_root: str | None,
         date_from: date,
         date_to: date,
+        include_activities: bool = True,
+        include_flights: bool = True,
     ) -> None:
         super().__init__()
         self.workspace = workspace
-        self.kind = kind
         self.store_path = store_path
         self.source_root = source_root
         self.date_from = date_from
         self.date_to = date_to
+        self.include_activities = include_activities
+        self.include_flights = include_flights
         self.signals = StoreImportSignals()
         self.setAutoDelete(True)
 
@@ -478,22 +480,15 @@ class StoreImportRunnable(QRunnable):
             self.signals.progress.emit(current, total, message)
 
         try:
-            if self.kind == "igc":
-                count = self.workspace.import_igc_tracks(
-                    self.store_path,
-                    source_root=self.source_root,
-                    date_from=self.date_from,
-                    date_to=self.date_to,
-                    progress=on_progress,
-                )
-            else:
-                count = self.workspace.import_fitness_tracks(
-                    self.store_path,
-                    source_root=self.source_root,
-                    date_from=self.date_from,
-                    date_to=self.date_to,
-                    progress=on_progress,
-                )
+            count = self.workspace.import_activity_tracks(
+                self.store_path,
+                source_root=self.source_root,
+                date_from=self.date_from,
+                date_to=self.date_to,
+                include_activities=self.include_activities,
+                include_flights=self.include_flights,
+                progress=on_progress,
+            )
             self.signals.finished.emit(count)
         except ProjectError as exc:
             self.signals.failed.emit(str(exc))

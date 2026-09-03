@@ -63,12 +63,21 @@ def test_scan_includes_fitness_tracks(tmp_path: Path) -> None:
     maps = tmp_path / ".MapTracks"
     maps.mkdir()
     (maps / "Map-Track.gpx").write_text("<gpx></gpx>", encoding="utf-8")
-    fitness = tmp_path / ".FitnessTracks"
+    fitness = tmp_path / ".ActivityTracks"
     fitness.mkdir()
     (fitness / "ride.gpx").write_text("<gpx></gpx>", encoding="utf-8")
     found = list(scan_source_directory(tmp_path))
     assert {item.filename for item in found} == {"foto.jpg", "ride.gpx"}
     assert not is_skipped_source_path(fitness / "ride.gpx", root=tmp_path)
+
+
+def test_scan_includes_legacy_fitness_tracks(tmp_path: Path) -> None:
+    (tmp_path / "foto.jpg").write_bytes(MIN_JPEG)
+    fitness = tmp_path / ".FitnessTracks"
+    fitness.mkdir()
+    (fitness / "ride.gpx").write_text("<gpx></gpx>", encoding="utf-8")
+    found = list(scan_source_directory(tmp_path))
+    assert {item.filename for item in found} == {"foto.jpg", "ride.gpx"}
 
 
 def test_scan_includes_igc_tracks(tmp_path: Path) -> None:

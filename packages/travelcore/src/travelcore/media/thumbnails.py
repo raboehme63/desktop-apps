@@ -468,12 +468,12 @@ def _should_refresh_gps_thumbnail(
 
     if not use_map_tiles or row.file_kind != FileKind.GPS.value:
         return False
-    from travelcore.gps.fitnesstracks import is_fitness_track_path
+    from travelcore.gps.fitnesstracks import is_activity_track_path
     from travelcore.gps.igctracks import is_igc_track_path
     from travelcore.gps.maptracks import is_map_track_path
 
     if not (
-        is_fitness_track_path(row.path)
+        is_activity_track_path(row.path)
         or is_igc_track_path(row.path)
         or is_map_track_path(row.path)
     ):

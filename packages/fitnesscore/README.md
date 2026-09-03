@@ -35,7 +35,7 @@ Nach `pip install -e packages/fitnesscore` aus der Repository-Wurzel:
 
 | Parameter | Pflicht | Bedeutung |
 | --- | --- | --- |
-| `--db ORDNER` | nein | Store-Ordner (`fitness.sqlite` darin) oder `.sqlite`-Datei. Standard: `./fitness`. |
+| `--db ORDNER` | nein | Store-Ordner (`activity.sqlite` darin, sonst `fitness.sqlite`) oder `.sqlite`-Datei. Standard: `./fitness`. |
 | `init [target]` | nein | Leeren Store anlegen. Existierende Datenbank ist ein Fehler. |
 | `import -f DATEI` | eine von `-f`/`-d` | Eine `.json`-, `.fit`- oder `.igc`-Datei. |
 | `import -d VERZEICHNIS` | eine von `-f`/`-d` | Ordner, nur `.json`, `.fit` und `.igc`. Erneuter Lauf = Update (neue SHA-256). |
@@ -59,7 +59,7 @@ usage: fitnessdb [-h] [--db ORDNER] {init,import,export-gpx,export-igc,sports} .
   export-gpx   GPX (Polar/FIT) nach optionaler Sportart und Datumsbereich
   export-igc   Original-IGC nach optionaler Sportart und Datumsbereich
   sports       Sportarten auflisten, für die eine Route vorliegt
-  --db ORDNER  Store-Ordner oder fitness.sqlite (Standard: ./fitness)
+  --db ORDNER  Store-Ordner oder activity.sqlite (Standard: ./fitness)
 ```
 
 ```

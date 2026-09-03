@@ -60,10 +60,11 @@ IGC-Flüge, …),
 komprimiert als Payload. Originale werden nur gelesen. Abfragen: GPX (Polar/FIT)
 und Original-IGC, jeweils nach optionaler Sportart und Datumsbereich
 (UTC-Kalendertage).
-Im Reisetagebuch: Seite **Import** → Fitness-DB bzw. IGC-DB wählen → Zeitraum
-(von Reise von–bis vorbefüllt, überschreibbar) → **Fitnessdaten Importieren**
-bzw. **IGC-Daten Importieren** (jeweils mit Fortschrittsanzeige). Schreibt nach
-`{Import}/.FitnessTracks/` bzw. `{Import}/.IGCTracks/`.
+Im Reisetagebuch: Seite **Import** → Activity-Datenbank wählen (Dateiname,
+Standard `activity.sqlite`) → **Laden…** (Zeitraum von Reise von–bis, Checkboxen
+**Activity-Tracks** und **Flüge**, beide an) bzw. **Neu laden**. Schreibt nach
+`{Import}/.ActivityTracks/` bzw. `{Import}/.IGCTracks/` und gleicht vorhandene
+Spuren ab (neu dazu, fehlende aus den Ordnern, dem Index und den Karten entfernt).
 Scan und Synchronisieren nehmen beide Ordner mit
 (normale GPS-Dateien; `.MapTracks/` bleibt ausgeblendet).
 Parameter und Aufruf auch in [packages/fitnesscore/README.md](packages/fitnesscore/README.md).
@@ -108,7 +109,7 @@ GPX-Abfrage für Polar/FIT, IGC-Abfrage liefert die Originaldatei.
   export-igc   Original-IGC nach optionaler Sportart und Datumsbereich
   sports       Sportarten auflisten, für die eine Route vorliegt
 
-  --db ORDNER  Store-Ordner oder fitness.sqlite (Standard: ./fitness)
+  --db ORDNER  Store-Ordner oder activity.sqlite (Standard: ./fitness)
 ```
 
 `init`:
@@ -157,7 +158,7 @@ Kommandos.
 
 | Parameter | Pflicht | Bedeutung |
 | --- | --- | --- |
-| `--db ORDNER` | nein | Store-Ordner (`fitness.sqlite` darin) oder Pfad zu einer `.sqlite`-Datei. Standard: `./fitness` im aktuellen Verzeichnis. |
+| `--db ORDNER` | nein | Store-Ordner (`activity.sqlite` darin, sonst `fitness.sqlite`) oder Pfad zu einer `.sqlite`-Datei. Standard: `./fitness` im aktuellen Verzeichnis. |
 | `init [target]` | nein | Legt den Ordner und eine leere Datenbank an. Bricht ab, wenn die Datei schon existiert. Ohne `target` gilt `--db`. |
 | `import -f DATEI` | eine von beiden | Eine Polar-JSON-, FIT- oder IGC-Datei. |
 | `import -d VERZEICHNIS` | eine von beiden | Ordner; nur `.json`, `.fit` und `.igc`. Andere Endungen (z. B. `.gpx`) werden ignoriert. |

@@ -57,18 +57,20 @@ def test_main_window_starts(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN00
     assert window.import_view._stat_labels["unlocated"].text() == "0"
     assert window.import_view._stat_labels["map"].text() == "0"
     assert window.import_view._stat_labels["act"].text() == "0"
+    stat_titles = [
+        label.text() for label in window.import_view.findChildren(QLabel) if label.objectName() == "statLabel"
+    ]
+    assert "MapTracks" in stat_titles
+    assert "ActivityTracks" in stat_titles
     assert window.import_view._stat_labels["flights"].text() == "0"
     assert window.import_view._stat_labels["other"].text() == "0"
     assert "gps" not in window.import_view._stat_labels
     assert window.import_view._preview_image is not None
     assert window.import_view._sync_button.text() == "Synchronisieren"
-    assert window.import_view._fitness_import_button.text() == "Fitnessdaten Importieren"
-    assert window.import_view._igc_import_button.text() == "IGC-Daten Importieren"
-    assert window.import_view.fitness_progress.format() == "Bereit"
-    assert window.import_view.igc_progress.format() == "Bereit"
-    assert window.import_view.fitness_path_edit.placeholderText()
-    assert window.import_view.fitness_from_edit.specialValueText() == "–"
-    assert window.import_view.fitness_to_edit.specialValueText() == "–"
+    assert window.import_view._activity_load_button.text() == "Laden…"
+    assert window.import_view._activity_reload_button.text() == "Neu laden"
+    assert window.import_view.activity_progress.format() == "Bereit"
+    assert "activity.sqlite" in window.import_view.activity_path_edit.placeholderText()
     assert "Mouseover" in window.import_view._preview_meta.text()
     assert window.project_view.name_label.text() == "–"
     assert not window.project_view.name_edit.isEnabled()
@@ -1201,13 +1203,13 @@ def test_import_view_fitness_span_prefilled_and_overridable(tmp_path: Path, monk
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from datetime import date
 
-    from PySide6.QtCore import QDate
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication, QDialog
 
     from travelcore.database.project_store import ProjectStore
     from traveljournal.services import workspace as workspace_mod
     from traveljournal.services.workspace import Workspace
-    from traveljournal.views.import_view import ImportView, _date_from_edit
+    from traveljournal.views.activity_store_dialogs import ActivityDbDialog, ActivityLoadDialog
+    from traveljournal.views.import_view import ImportView
 
     monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
     app = QApplication.instance() or QApplication([])
@@ -1215,26 +1217,30 @@ def test_import_view_fitness_span_prefilled_and_overridable(tmp_path: Path, monk
     workspace = Workspace()
     workspace.current = opened
     workspace.save_trip_span(date(2026, 8, 1), date(2026, 9, 2))
-    workspace.set_fitness_db_path(str(tmp_path / "Fitness"))
-    workspace.set_igc_db_path(str(tmp_path / "IGC"))
+    db_file = tmp_path / "Fitness" / "activity.sqlite"
+    workspace.set_activity_db_path(str(db_file))
     view = ImportView(workspace)
     view.refresh_summary()
-    assert view.fitness_path_edit.text() == str(tmp_path / "Fitness")
-    assert view.igc_path_edit.text() == str(tmp_path / "IGC")
-    assert view._fitness_import_button.text() == "Fitnessdaten Importieren"
-    assert view._igc_import_button.text() == "IGC-Daten Importieren"
-    assert view.fitness_progress.format() == "Bereit"
-    assert view.igc_progress.format() == "Bereit"
-    assert _date_from_edit(view.fitness_from_edit) == date(2026, 8, 1)
-    assert _date_from_edit(view.fitness_to_edit) == date(2026, 9, 2)
-    assert _date_from_edit(view.igc_from_edit) == date(2026, 8, 1)
-    assert _date_from_edit(view.igc_to_edit) == date(2026, 9, 2)
-    view.fitness_from_edit.setDate(QDate(2026, 7, 15))
-    view.refresh_summary()
-    assert _date_from_edit(view.fitness_from_edit) == date(2026, 7, 15)
-    assert _date_from_edit(view.fitness_to_edit) == date(2026, 9, 2)
-    assert _date_from_edit(view.igc_from_edit) == date(2026, 8, 1)
-    _ = app
+    assert view.activity_path_edit.text() == str(db_file)
+    assert view._activity_load_button.text() == "Laden…"
+    assert view._activity_reload_button.text() == "Neu laden"
+    assert view.activity_progress.format() == "Bereit"
+    assert view._load_from == date(2026, 8, 1)
+    assert view._load_to == date(2026, 9, 2)
+    dialog = ActivityLoadDialog(
+        date_from=view._load_from,
+        date_to=view._load_to,
+        include_activities=True,
+        include_flights=True,
+    )
+    assert dialog.date_from() == date(2026, 8, 1)
+    assert dialog.date_to() == date(2026, 9, 2)
+    assert dialog.include_activities()
+    assert dialog.include_flights()
+    db_dialog = ActivityDbDialog(str(db_file))
+    assert db_dialog.name_edit.text() == "activity.sqlite"
+    assert db_dialog.selected_path() == str(db_file)
+    _ = (app, QDialog)
 
 
 def test_youtube_links_dialog_add_and_delete() -> None:
@@ -2149,7 +2155,7 @@ def test_entry_widget_track_chips_map_act_igc() -> None:
         origin="auto",
         photos=(
             track(1, "Map-Track.gpx", "D:/fotos/.MapTracks/Map-Track.gpx"),
-            track(2, "ride.gpx", "D:/fotos/.FitnessTracks/ride.gpx"),
+            track(2, "ride.gpx", "D:/fotos/.ActivityTracks/ride.gpx"),
             track(3, "flug.igc", "D:/fotos/.IGCTracks/flug.igc"),
         ),
     )

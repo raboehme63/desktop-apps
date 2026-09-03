@@ -2,6 +2,7 @@
 
 from fitnesscore.database.engine import (
     DB_NAME,
+    LEGACY_DB_NAME,
     create_engine_for_path,
     create_session_factory,
     init_schema,
@@ -11,6 +12,7 @@ from fitnesscore.database.models import Base, Document, ImportErrorRow, Meta, So
 
 __all__ = [
     "DB_NAME",
+    "LEGACY_DB_NAME",
     "Base",
     "Document",
     "ImportErrorRow",

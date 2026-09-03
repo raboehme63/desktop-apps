@@ -137,7 +137,7 @@ def test_cli_init_import_export(tmp_path: Path) -> None:
     source.write_text(json.dumps(_session_json()), encoding="utf-8")
     out = tmp_path / "out"
     assert main(["--db", str(db), "init"]) == 0
-    assert (db / "fitness.sqlite").is_file()
+    assert (db / "activity.sqlite").is_file()
     assert main(["--db", str(db), "import", "-f", str(source)]) == 0
     assert (
         main(
@@ -208,3 +208,18 @@ def test_training_start_is_converted_from_offset() -> None:
     assert docs[0].started_at == datetime(2026, 8, 29, 11, 45, 15, tzinfo=UTC)
     assert docs[0].sport_slug == "kitesurfing"
     assert len(docs[0].tracks) == 1
+
+
+def test_resolve_db_path_prefers_activity_and_falls_back(tmp_path: Path) -> None:
+    from fitnesscore.store import resolve_db_path
+
+    folder = tmp_path / "store"
+    folder.mkdir()
+    assert resolve_db_path(folder).name == "activity.sqlite"
+    assert resolve_db_path(folder, create=True).name == "activity.sqlite"
+    (folder / "fitness.sqlite").write_bytes(b"")
+    assert resolve_db_path(folder).name == "fitness.sqlite"
+    (folder / "activity.sqlite").write_bytes(b"")
+    assert resolve_db_path(folder).name == "activity.sqlite"
+    named = folder / "other.sqlite"
+    assert resolve_db_path(named) == named

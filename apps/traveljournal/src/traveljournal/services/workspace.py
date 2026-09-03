@@ -636,60 +636,17 @@ class Workspace:
         date_to: date | None = None,
         progress: Callable[[int, int, str], None] | None = None,
     ) -> int:
-        """Export GPX from a fitness store for a date range into ``{import}/.FitnessTracks``."""
+        """Export GPX from the activity store into ``{import}/.ActivityTracks``."""
 
-        from fitnesscore.exceptions import QueryError, StoreError
-        from fitnesscore.query_gpx import export_gpx
-        from fitnesscore.store import open_store, resolve_db_path
-        from travelcore.gps.fitnesstracks import fitness_tracks_dir, index_fitness_gpx_file
-        from travelcore.gps.maptracks import resolve_source_root
-
-        opened = self.require_writable()
-        trip_start, trip_end = self.load_trip_span()
-        start = date_from or trip_start
-        end = date_to or trip_end
-        if start is None or end is None:
-            raise ProjectError("Bitte einen Zeitraum von–bis setzen.")
-        if end < start:
-            raise ProjectError("Das Endedatum liegt vor dem Startdatum.")
-        db_path = resolve_db_path(Path(store_path))
-        if not db_path.is_file():
-            raise ProjectError(f"Keine Fitness-Datenbank: {db_path}")
-        root = resolve_source_root(source_root) if source_root else self._import_root()
-        dest = fitness_tracks_dir(root)
-        if progress is not None:
-            progress(0, 1, "Suche GPX…")
-        try:
-            hits = export_gpx(
-                open_store(db_path),
-                date_from=start,
-                date_to=end,
-                dest=dest,
-                progress=lambda current, total, name: progress(
-                    current, total * 2 if total else 1, f"Schreibe {name}"
-                )
-                if progress is not None
-                else None,
-            )
-        except (StoreError, QueryError) as exc:
-            raise ProjectError(str(exc)) from exc
-        with opened.session_factory() as session:
-            project = session.get(Project, opened.project_id)
-            if project is None:
-                raise ProjectError("Projektzeile fehlt.")
-            total = len(hits)
-            for index, hit in enumerate(hits, start=1):
-                index_fitness_gpx_file(session, project, hit.path, project_dir=opened.directory)
-                if progress is not None:
-                    progress(total + index, total * 2 if total else 1, f"Indexiere {hit.path.name}")
-            session.commit()
-        if hits:
-            if progress is not None:
-                progress(1, 1, "Timeline wird aktualisiert…")
-            self.sync_timeline()
-        elif progress is not None:
-            progress(1, 1, "Keine GPX")
-        return len(hits)
+        return self.import_activity_tracks(
+            store_path,
+            source_root=source_root,
+            date_from=date_from,
+            date_to=date_to,
+            include_activities=True,
+            include_flights=False,
+            progress=progress,
+        )
 
     def import_igc_tracks(
         self,
@@ -700,14 +657,50 @@ class Workspace:
         date_to: date | None = None,
         progress: Callable[[int, int, str], None] | None = None,
     ) -> int:
-        """Export IGC flights from a fitness store for the trip span into ``{import}/.IGCTracks``."""
+        """Export IGC flights from the activity store into ``{import}/.IGCTracks``."""
+
+        return self.import_activity_tracks(
+            store_path,
+            source_root=source_root,
+            date_from=date_from,
+            date_to=date_to,
+            include_activities=False,
+            include_flights=True,
+            progress=progress,
+        )
+
+    def import_activity_tracks(
+        self,
+        store_path: Path,
+        *,
+        source_root: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        include_activities: bool = True,
+        include_flights: bool = True,
+        progress: Callable[[int, int, str], None] | None = None,
+    ) -> int:
+        """Load activity GPX and/or IGC from one store and drop tracks that disappeared."""
 
         from fitnesscore.exceptions import QueryError, StoreError
+        from fitnesscore.query_gpx import export_gpx
         from fitnesscore.query_igc import export_igc
         from fitnesscore.store import open_store, resolve_db_path
-        from travelcore.gps.igctracks import igc_tracks_dir, index_igc_file
+        from travelcore.gps.fitnesstracks import (
+            activity_track_folders,
+            activity_tracks_dir,
+            index_fitness_gpx_file,
+            is_activity_track_path,
+            normalized_path_key,
+            unlink_unwanted_files,
+        )
+        from travelcore.gps.igctracks import igc_tracks_dir, index_igc_file, is_igc_track_path
         from travelcore.gps.maptracks import resolve_source_root
+        from travelcore.media.purge import purge_source_files
+        from travelcore.media.types import FileKind
 
+        if not include_activities and not include_flights:
+            raise ProjectError("Bitte Activity-Tracks oder Flüge auswählen.")
         opened = self.require_writable()
         trip_start, trip_end = self.load_trip_span()
         start = date_from or trip_start
@@ -718,42 +711,106 @@ class Workspace:
             raise ProjectError("Das Endedatum liegt vor dem Startdatum.")
         db_path = resolve_db_path(Path(store_path))
         if not db_path.is_file():
-            raise ProjectError(f"Keine IGC-Datenbank: {db_path}")
+            raise ProjectError(f"Keine Activity-Datenbank: {db_path}")
         root = resolve_source_root(source_root) if source_root else self._import_root()
-        dest = igc_tracks_dir(root)
-        if progress is not None:
-            progress(0, 1, "Suche IGC…")
         try:
-            hits = export_igc(
-                open_store(db_path),
-                date_from=start,
-                date_to=end,
-                dest=dest,
-                progress=lambda current, total, name: progress(
-                    current, total * 2 if total else 1, f"Schreibe {name}"
-                )
-                if progress is not None
-                else None,
-            )
-        except (StoreError, QueryError) as exc:
+            store = open_store(db_path)
+        except StoreError as exc:
             raise ProjectError(str(exc)) from exc
-        with opened.session_factory() as session:
-            project = session.get(Project, opened.project_id)
-            if project is None:
-                raise ProjectError("Projektzeile fehlt.")
-            total = len(hits)
-            for index, hit in enumerate(hits, start=1):
-                index_igc_file(session, project, hit.path, project_dir=opened.directory)
-                if progress is not None:
-                    progress(total + index, total * 2 if total else 1, f"Indexiere {hit.path.name}")
-            session.commit()
-        if hits:
+        kinds: list[tuple[str, Path, object, object, object]] = []
+        if include_activities:
+            kinds.append(
+                (
+                    "GPX",
+                    activity_tracks_dir(root),
+                    export_gpx,
+                    index_fitness_gpx_file,
+                    is_activity_track_path,
+                )
+            )
+        if include_flights:
+            kinds.append(
+                (
+                    "IGC",
+                    igc_tracks_dir(root),
+                    export_igc,
+                    index_igc_file,
+                    is_igc_track_path,
+                )
+            )
+        written = 0
+        removed = 0
+        thumbs_dir = opened.directory / "thumbnails"
+        for label, dest, exporter, indexer, is_kind_path in kinds:
+            if progress is not None:
+                progress(0, 1, f"Suche {label}…")
+            try:
+                hits = exporter(
+                    store,
+                    date_from=start,
+                    date_to=end,
+                    dest=dest,
+                    progress=(
+                        (
+                            lambda current, total, name: progress(
+                                current, max(total, 1), f"Schreibe {name}"
+                            )
+                        )
+                        if progress is not None
+                        else None
+                    ),
+                )
+            except (StoreError, QueryError) as exc:
+                raise ProjectError(str(exc)) from exc
+            wanted = {hit.path.name for hit in hits}
+            wanted_keys = {normalized_path_key(hit.path) for hit in hits}
+            suffix = ".gpx" if label == "GPX" else ".igc"
+            folders: tuple[Path, ...] = (dest,)
+            if label == "GPX":
+                folders = activity_track_folders(root)
+            unlink_unwanted_files(folders, dest=dest, wanted_names=wanted, suffix=suffix)
+            with opened.session_factory() as session:
+                project = session.get(Project, opened.project_id)
+                if project is None:
+                    raise ProjectError("Projektzeile fehlt.")
+                indexed = [
+                    row
+                    for row in session.scalars(
+                        select(SourceFile).where(
+                            SourceFile.project_id == opened.project_id,
+                            SourceFile.file_kind == FileKind.GPS.value,
+                        )
+                    )
+                    if is_kind_path(row.path)
+                ]
+                stale = [
+                    row
+                    for row in indexed
+                    if normalized_path_key(Path(row.path)) not in wanted_keys
+                ]
+                if stale:
+                    for row in stale:
+                        Path(row.path).unlink(missing_ok=True)
+                    purge_source_files(
+                        session,
+                        stale,
+                        thumbs_dir=thumbs_dir if thumbs_dir.is_dir() else None,
+                    )
+                    removed += len(stale)
+                total = len(hits)
+                for index, hit in enumerate(hits, start=1):
+                    indexer(session, project, hit.path, project_dir=opened.directory)
+                    if progress is not None:
+                        progress(index, max(total, 1), f"Indexiere {hit.path.name}")
+                session.commit()
+            written += len(hits)
+        if written or removed:
             if progress is not None:
                 progress(1, 1, "Timeline wird aktualisiert…")
             self.sync_timeline()
         elif progress is not None:
-            progress(1, 1, "Keine IGC")
-        return len(hits)
+            progress(1, 1, "Keine Tracks")
+        return written
 
     def _import_root(self, project: Project | None = None) -> Path:
         from travelcore.gps.maptracks import resolve_source_root
@@ -1285,19 +1342,71 @@ class Workspace:
         data["map_thumb_zoom"] = zoom
         self._save_ui_config(data)
 
+    def activity_db_path(self) -> str:
+        data = self._load_ui_config()
+        stored = data.get("activity_db_path") or data.get("fitness_db_path") or data.get("igc_db_path")
+        if not isinstance(stored, str) or not stored.strip():
+            return ""
+        path = Path(stored.strip())
+        if path.suffix.lower() == ".sqlite":
+            return str(path)
+        from fitnesscore.store import resolve_db_path
+
+        return str(resolve_db_path(path))
+
+    def set_activity_db_path(self, path: str) -> None:
+        text = path.strip()
+        data = self._load_ui_config()
+        changed = False
+        for old in ("fitness_db_path", "igc_db_path"):
+            if old in data:
+                data.pop(old, None)
+                changed = True
+        current = data.get("activity_db_path")
+        current_text = current.strip() if isinstance(current, str) else ""
+        if text:
+            if current_text != text:
+                data["activity_db_path"] = text
+                changed = True
+        elif "activity_db_path" in data:
+            data.pop("activity_db_path", None)
+            changed = True
+        if changed:
+            self._save_ui_config(data)
+
+    def activity_load_kinds(self) -> tuple[bool, bool]:
+        data = self._load_ui_config()
+        activities = data.get("activity_load_activities")
+        flights = data.get("activity_load_flights")
+        return (
+            True if activities is None else bool(activities),
+            True if flights is None else bool(flights),
+        )
+
+    def set_activity_load_kinds(self, activities: bool, flights: bool) -> None:
+        data = self._load_ui_config()
+        wanted_activities = bool(activities)
+        wanted_flights = bool(flights)
+        if (
+            bool(data.get("activity_load_activities", True)) == wanted_activities
+            and bool(data.get("activity_load_flights", True)) == wanted_flights
+        ):
+            return
+        data["activity_load_activities"] = wanted_activities
+        data["activity_load_flights"] = wanted_flights
+        self._save_ui_config(data)
+
     def fitness_db_path(self) -> str:
-        stored = self._load_ui_config().get("fitness_db_path")
-        return stored.strip() if isinstance(stored, str) else ""
+        return self.activity_db_path()
 
     def set_fitness_db_path(self, path: str) -> None:
-        self._set_stored_path("fitness_db_path", path)
+        self.set_activity_db_path(path)
 
     def igc_db_path(self) -> str:
-        stored = self._load_ui_config().get("igc_db_path")
-        return stored.strip() if isinstance(stored, str) else ""
+        return self.activity_db_path()
 
     def set_igc_db_path(self, path: str) -> None:
-        self._set_stored_path("igc_db_path", path)
+        self.set_activity_db_path(path)
 
     def _set_stored_path(self, key: str, path: str) -> None:
         text = path.strip()

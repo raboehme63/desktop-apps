@@ -234,7 +234,7 @@ def test_geojson_thumbnail_is_red_track_on_map(tmp_path: Path) -> None:
 def test_blank_fitness_thumb_is_marked_for_leaflet_refresh(tmp_path: Path) -> None:
     from types import SimpleNamespace
 
-    dest_dir = tmp_path / ".FitnessTracks"
+    dest_dir = tmp_path / ".ActivityTracks"
     dest_dir.mkdir()
     source = write_gpx(
         dest_dir / "ride.gpx",

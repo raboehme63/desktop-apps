@@ -28,7 +28,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--db",
         metavar="ORDNER",
-        help="Store-Ordner oder fitness.sqlite (Standard: ./fitness)",
+        help="Store-Ordner oder activity.sqlite (Standard: ./fitness)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 

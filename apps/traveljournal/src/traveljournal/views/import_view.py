@@ -5,11 +5,10 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from PySide6.QtCore import QDate, QEvent, QObject, QSize, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
-    QDateEdit,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -25,7 +24,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QScrollArea,
-    QSizePolicy,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -44,6 +42,11 @@ from travelcore.media.types import FileKind
 from traveljournal.services.workers import IndexLoadRunnable, IndexRunnable, StoreImportRunnable
 from traveljournal.services.workspace import Workspace
 from traveljournal.ui.errors import report_exception
+from traveljournal.views.activity_store_dialogs import (
+    ActivityDbDialog,
+    ActivityLoadDialog,
+    default_activity_db_name,
+)
 from traveljournal.widgets.thumb_zoom import (
     ThumbZoomSlider,
     clamp_thumb_zoom,
@@ -51,31 +54,6 @@ from traveljournal.widgets.thumb_zoom import (
 )
 
 _TABLE_FILL_CHUNK = 80
-_EMPTY_DATE = QDate(100, 1, 1)
-
-
-def _configure_fitness_date_edit(edit: QDateEdit) -> None:
-    edit.setCalendarPopup(True)
-    edit.setDisplayFormat("dd.MM.yyyy")
-    edit.setSpecialValueText("–")
-    edit.setMinimumDate(_EMPTY_DATE)
-    edit.setDate(_EMPTY_DATE)
-    edit.setMinimumWidth(120)
-    edit.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-
-
-def _date_from_edit(edit: QDateEdit) -> date | None:
-    chosen = edit.date()
-    if chosen <= edit.minimumDate():
-        return None
-    return date(chosen.year(), chosen.month(), chosen.day())
-
-
-def _set_date_edit(edit: QDateEdit, value: date | None) -> None:
-    if value is None:
-        edit.setDate(edit.minimumDate())
-        return
-    edit.setDate(QDate(value.year, value.month, value.day))
 
 
 def import_browse_start(
@@ -125,8 +103,8 @@ class ImportView(QWidget):
             "IGC-Flüge: Pilot aus dem Log; DHV-Leonardo-Link per Doppelklick. "
             "Synchronisieren entfernt fehlende Dateien aus dem Tagebuch und fragt, "
             "ob neue Medien in die Timeline oder in den Pool sollen. "
-            "Fitness- und IGC-Tracks holt man unten aus derselben oder getrennten "
-            "Datenbanken nach .FitnessTracks bzw. .IGCTracks."
+            "Activity-Tracks und Flüge holt man unten aus einer Activity-Datenbank "
+            "(Standard activity.sqlite) nach .ActivityTracks bzw. .IGCTracks."
         )
         subtitle.setObjectName("pageSubtitle")
         subtitle.setWordWrap(True)
@@ -163,92 +141,40 @@ class ImportView(QWidget):
         fitness_box.setContentsMargins(16, 14, 16, 14)
         fitness_box.setSpacing(10)
         fitness_row = QHBoxLayout()
-        self.fitness_path_edit = QLineEdit()
-        self.fitness_path_edit.setPlaceholderText("Fitness-DB (Ordner mit fitness.sqlite)")
-        self.fitness_path_edit.editingFinished.connect(lambda: self._remember_store_path("fitness"))
-        fitness_browse = QPushButton("Fitness-DB…")
-        fitness_browse.clicked.connect(self._browse_fitness_db)
-        self.fitness_from_edit = QDateEdit()
-        _configure_fitness_date_edit(self.fitness_from_edit)
-        self.fitness_to_edit = QDateEdit()
-        _configure_fitness_date_edit(self.fitness_to_edit)
-        self.fitness_from_edit.dateChanged.connect(lambda: self._on_store_date_changed("fitness"))
-        self.fitness_to_edit.dateChanged.connect(lambda: self._on_store_date_changed("fitness"))
-        fitness_import = QPushButton("Fitnessdaten Importieren")
-        fitness_import.clicked.connect(lambda: self._start_store_import("fitness"))
-        self._fitness_import_button = fitness_import
-        from_label = QLabel("Von")
-        to_label = QLabel("Bis")
-        fitness_row.addWidget(self.fitness_path_edit, 1)
-        fitness_row.addWidget(fitness_browse)
-        fitness_row.addWidget(from_label)
-        fitness_row.addWidget(self.fitness_from_edit)
-        fitness_row.addWidget(to_label)
-        fitness_row.addWidget(self.fitness_to_edit)
-        fitness_row.addWidget(fitness_import)
+        self.activity_path_edit = QLineEdit()
+        self.activity_path_edit.setPlaceholderText(f"Activity-DB ({default_activity_db_name()})")
+        self.activity_path_edit.editingFinished.connect(self._remember_activity_db_path)
+        activity_browse = QPushButton("Datenbank…")
+        activity_browse.clicked.connect(self._browse_activity_db)
+        activity_load = QPushButton("Laden…")
+        activity_load.clicked.connect(self._open_load_dialog)
+        self._activity_load_button = activity_load
+        activity_reload = QPushButton("Neu laden")
+        activity_reload.clicked.connect(self._reload_activity_store)
+        self._activity_reload_button = activity_reload
+        fitness_row.addWidget(self.activity_path_edit, 1)
+        fitness_row.addWidget(activity_browse)
+        fitness_row.addWidget(activity_load)
+        fitness_row.addWidget(activity_reload)
         fitness_hint = QLabel(
-            "Zeitraum kommt von Reise von–bis und lässt sich hier ändern. "
-            "GPX nach .FitnessTracks im Import-Ordner; Scan nimmt sie mit."
+            "Eine SQLite-Datei, Standardname activity.sqlite. "
+            "Laden wählt Zeitraum sowie Activity-Tracks und Flüge. "
+            "Neu laden ergänzt neue Spuren und entfernt fehlende aus den Ordnern, dem Index und den Karten."
         )
         fitness_hint.setObjectName("pageSubtitle")
         fitness_hint.setWordWrap(True)
-        self.fitness_progress = QProgressBar()
-        self.fitness_progress.setRange(0, 100)
-        self.fitness_progress.setValue(0)
-        self.fitness_progress.setFormat("Bereit")
+        self.activity_progress = QProgressBar()
+        self.activity_progress.setRange(0, 100)
+        self.activity_progress.setValue(0)
+        self.activity_progress.setFormat("Bereit")
         fitness_box.addLayout(fitness_row)
-        fitness_box.addWidget(self.fitness_progress)
+        fitness_box.addWidget(self.activity_progress)
         fitness_box.addWidget(fitness_hint)
         root.addWidget(fitness)
-
-        igc = QFrame()
-        igc.setObjectName("card")
-        igc_box = QVBoxLayout(igc)
-        igc_box.setContentsMargins(16, 14, 16, 14)
-        igc_box.setSpacing(10)
-        igc_row = QHBoxLayout()
-        self.igc_path_edit = QLineEdit()
-        self.igc_path_edit.setPlaceholderText("IGC-DB (Ordner mit fitness.sqlite, oft dieselbe)")
-        self.igc_path_edit.editingFinished.connect(lambda: self._remember_store_path("igc"))
-        igc_browse = QPushButton("IGC-DB…")
-        igc_browse.clicked.connect(self._browse_igc_db)
-        self.igc_from_edit = QDateEdit()
-        _configure_fitness_date_edit(self.igc_from_edit)
-        self.igc_to_edit = QDateEdit()
-        _configure_fitness_date_edit(self.igc_to_edit)
-        self.igc_from_edit.dateChanged.connect(lambda: self._on_store_date_changed("igc"))
-        self.igc_to_edit.dateChanged.connect(lambda: self._on_store_date_changed("igc"))
-        igc_import = QPushButton("IGC-Daten Importieren")
-        igc_import.clicked.connect(lambda: self._start_store_import("igc"))
-        self._igc_import_button = igc_import
-        igc_from_label = QLabel("Von")
-        igc_to_label = QLabel("Bis")
-        igc_row.addWidget(self.igc_path_edit, 1)
-        igc_row.addWidget(igc_browse)
-        igc_row.addWidget(igc_from_label)
-        igc_row.addWidget(self.igc_from_edit)
-        igc_row.addWidget(igc_to_label)
-        igc_row.addWidget(self.igc_to_edit)
-        igc_row.addWidget(igc_import)
-        igc_hint = QLabel(
-            "Zeitraum kommt von Reise von–bis und lässt sich hier ändern. "
-            "IGC nach .IGCTracks im Import-Ordner; Scan nimmt sie mit."
-        )
-        igc_hint.setObjectName("pageSubtitle")
-        igc_hint.setWordWrap(True)
-        self.igc_progress = QProgressBar()
-        self.igc_progress.setRange(0, 100)
-        self.igc_progress.setValue(0)
-        self.igc_progress.setFormat("Bereit")
-        igc_box.addLayout(igc_row)
-        igc_box.addWidget(self.igc_progress)
-        igc_box.addWidget(igc_hint)
-        root.addWidget(igc)
-        self._span_key: dict[str, tuple[int | None, date | None, date | None] | None] = {
-            "fitness": None,
-            "igc": None,
-        }
-        self._span_dirty = {"fitness": False, "igc": False}
+        self._span_key: tuple[int | None, date | None, date | None] | None = None
+        self._span_dirty = False
+        self._load_from: date | None = None
+        self._load_to: date | None = None
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
@@ -264,8 +190,8 @@ class ImportView(QWidget):
         titles = {
             "photo": "Fotos",
             "video": "Videos",
-            "map": "MAP",
-            "act": "Activity",
+            "map": "MapTracks",
+            "act": "ActivityTracks",
             "flights": "Flüge",
             "other": "Sonstige",
             "located": "mit Ort",
@@ -276,9 +202,9 @@ class ImportView(QWidget):
         }
         tooltips = {
             "map": "Map-Tracks aus .MapTracks im Import-Ordner.",
-            "act": "Activity-Tracks aus .FitnessTracks.",
+            "act": "Activity-Tracks aus .ActivityTracks.",
             "flights": "IGC-Fluglogs (auch .IGCTracks).",
-            "other": "Sonstige Tracks (GPX/KML/GeoJSON außerhalb Map und Fitness).",
+            "other": "Sonstige Tracks (GPX/KML/GeoJSON außerhalb MapTracks und ActivityTracks).",
             "located": "Dateien mit GPS-Koordinaten aus Metadaten, Track oder Abgleich.",
             "matched": "Fotos und Videos, denen per GPS-Abgleich eine Position zugeordnet wurde.",
             "unlocated": (
@@ -415,7 +341,7 @@ class ImportView(QWidget):
             "unlocated",
         ):
             self._stat_labels[key].setText(str(counts.get(key, 0)))
-        self._apply_remembered_store_paths()
+        self._apply_remembered_activity_db_path()
         errors = 0
         if self.workspace.current is not None:
             with self.workspace.current.session_factory() as session:
@@ -566,118 +492,107 @@ class ImportView(QWidget):
     def _sync_store_spans(self) -> None:
         project_id = self.workspace.current.project_id if self.workspace.current else None
         start, end = self.workspace.load_trip_span() if project_id is not None else (None, None)
-        self._sync_one_span("fitness", self.fitness_from_edit, self.fitness_to_edit, project_id, start, end)
-        self._sync_one_span("igc", self.igc_from_edit, self.igc_to_edit, project_id, start, end)
-
-    def _sync_one_span(
-        self,
-        kind: str,
-        from_edit: QDateEdit,
-        to_edit: QDateEdit,
-        project_id: int | None,
-        start: date | None,
-        end: date | None,
-    ) -> None:
         key = (project_id, start, end)
-        if key == self._span_key[kind]:
+        if key == self._span_key:
             return
-        previous = self._span_key[kind]
-        self._span_key[kind] = key
-        if previous is not None and previous[0] == project_id and self._span_dirty[kind]:
+        previous = self._span_key
+        self._span_key = key
+        if previous is not None and previous[0] == project_id and self._span_dirty:
             return
-        self._span_dirty[kind] = False
-        from_edit.blockSignals(True)
-        to_edit.blockSignals(True)
-        _set_date_edit(from_edit, start)
-        _set_date_edit(to_edit, end)
-        from_edit.blockSignals(False)
-        to_edit.blockSignals(False)
+        self._span_dirty = False
+        self._load_from = start
+        self._load_to = end
 
-    def _on_store_date_changed(self, kind: str) -> None:
-        self._span_dirty[kind] = True
+    def _browse_activity_db(self) -> None:
+        current = self.activity_path_edit.text().strip() or self.workspace.activity_db_path()
+        dialog = ActivityDbDialog(current, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        path = dialog.selected_path()
+        self.activity_path_edit.setText(path)
+        self.workspace.set_activity_db_path(path)
 
-    def _browse_fitness_db(self) -> None:
-        self._browse_store_db(self.fitness_path_edit, "Fitness-Datenbank (Ordner mit fitness.sqlite)")
+    def _apply_remembered_activity_db_path(self) -> None:
+        stored = self.workspace.activity_db_path()
+        if stored and not self.activity_path_edit.text().strip():
+            self.activity_path_edit.setText(stored)
 
-    def _browse_igc_db(self) -> None:
-        start = self.igc_path_edit.text().strip() or self.fitness_path_edit.text().strip()
-        self._browse_store_db(self.igc_path_edit, "IGC-Datenbank (Ordner mit fitness.sqlite)", start)
+    def _remember_activity_db_path(self) -> None:
+        self.workspace.set_activity_db_path(self.activity_path_edit.text().strip())
 
-    def _apply_remembered_store_paths(self) -> None:
-        fitness = self.workspace.fitness_db_path()
-        if fitness and not self.fitness_path_edit.text().strip():
-            self.fitness_path_edit.setText(fitness)
-        igc = self.workspace.igc_db_path()
-        if igc and not self.igc_path_edit.text().strip():
-            self.igc_path_edit.setText(igc)
+    def _open_load_dialog(self) -> None:
+        self._start_activity_import(reload=False, prompt=True)
 
-    def _remember_store_path(self, kind: str) -> None:
-        edit = self.fitness_path_edit if kind == "fitness" else self.igc_path_edit
-        path = edit.text().strip()
-        if kind == "fitness":
-            self.workspace.set_fitness_db_path(path)
-        else:
-            self.workspace.set_igc_db_path(path)
+    def _reload_activity_store(self) -> None:
+        self._start_activity_import(reload=True, prompt=False)
 
-    def _browse_store_db(self, edit: QLineEdit, title: str, start: str | None = None) -> None:
-        current = (start if start is not None else edit.text()).strip()
-        if not current or not Path(current).is_dir():
-            if edit is self.fitness_path_edit:
-                current = self.workspace.fitness_db_path()
-            else:
-                current = self.workspace.igc_db_path() or self.workspace.fitness_db_path()
-            if not current or not Path(current).is_dir():
-                current = ""
-        directory = QFileDialog.getExistingDirectory(self, title, current)
-        if directory:
-            edit.setText(directory)
-            self._remember_store_path("fitness" if edit is self.fitness_path_edit else "igc")
-
-    def _start_store_import(self, kind: str) -> None:
-        title = "Fitnessdaten" if kind == "fitness" else "IGC-Daten"
+    def _start_activity_import(self, *, reload: bool, prompt: bool) -> None:
         if self.workspace.current is None:
-            QMessageBox.information(self, title, "Bitte zuerst ein Projekt anlegen oder öffnen.")
+            QMessageBox.information(self, "Activity-Daten", "Bitte zuerst ein Projekt anlegen oder öffnen.")
             return
         if self._busy:
             return
-        path_edit = self.fitness_path_edit if kind == "fitness" else self.igc_path_edit
-        from_edit = self.fitness_from_edit if kind == "fitness" else self.igc_from_edit
-        to_edit = self.fitness_to_edit if kind == "fitness" else self.igc_to_edit
-        store = path_edit.text().strip()
-        if not store and kind == "igc":
-            store = self.fitness_path_edit.text().strip()
-            if store:
-                self.igc_path_edit.setText(store)
+        store = self.activity_path_edit.text().strip() or self.workspace.activity_db_path()
         if not store:
-            QMessageBox.information(self, title, "Bitte eine Datenbank wählen.")
-            return
-        self._remember_store_path(kind)
-        start = _date_from_edit(from_edit)
-        end = _date_from_edit(to_edit)
+            if not prompt:
+                QMessageBox.information(self, "Activity-Daten", "Bitte zuerst eine Datenbank wählen.")
+                return
+            self._browse_activity_db()
+            store = self.activity_path_edit.text().strip()
+            if not store:
+                return
+        self.activity_path_edit.setText(store)
+        self._remember_activity_db_path()
+        activities, flights = self.workspace.activity_load_kinds()
+        if prompt:
+            dialog = ActivityLoadDialog(
+                date_from=self._load_from,
+                date_to=self._load_to,
+                include_activities=activities,
+                include_flights=flights,
+                parent=self,
+            )
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+            start = dialog.date_from()
+            end = dialog.date_to()
+            activities = dialog.include_activities()
+            flights = dialog.include_flights()
+            reload = dialog.reload or reload
+            self._load_from = start
+            self._load_to = end
+            self._span_dirty = True
+            self.workspace.set_activity_load_kinds(activities, flights)
+        else:
+            start = self._load_from
+            end = self._load_to
         if start is None or end is None:
-            QMessageBox.information(self, title, "Bitte einen Zeitraum von–bis setzen.")
+            if prompt:
+                return
+            QMessageBox.information(self, "Activity-Daten", "Bitte zuerst über Laden… einen Zeitraum setzen.")
             return
         if end < start:
-            QMessageBox.warning(self, title, "Das Endedatum liegt vor dem Startdatum.")
+            QMessageBox.warning(self, "Activity-Daten", "Das Endedatum liegt vor dem Startdatum.")
             return
-        bar = self.fitness_progress if kind == "fitness" else self.igc_progress
-        bar.setRange(0, 0)
-        bar.setFormat("Datenbank wird gelesen…")
+        if not activities and not flights:
+            QMessageBox.information(self, "Activity-Daten", "Bitte Activity-Tracks oder Flüge ankreuzen.")
+            return
+        self.activity_progress.setRange(0, 0)
+        self.activity_progress.setFormat("Neu laden…" if reload else "Datenbank wird gelesen…")
         self._busy = True
         self._set_store_controls_enabled(False)
         worker = StoreImportRunnable(
             self.workspace,
-            kind,
             Path(store),
             source_root=self.path_edit.text().strip() or None,
             date_from=start,
             date_to=end,
+            include_activities=activities,
+            include_flights=flights,
         )
-        worker._on_progress = lambda current, total, message: self._on_store_progress(
-            kind, current, total, message
-        )
-        worker._on_finished = lambda count: self._on_store_finished(kind, count)
-        worker._on_failed = lambda message: self._on_store_failed(kind, message)
+        worker._on_progress = self._on_store_progress
+        worker._on_finished = self._on_store_finished
+        worker._on_failed = self._on_store_failed
         worker.signals.progress.connect(worker._on_progress)
         worker.signals.finished.connect(worker._on_finished)
         worker.signals.failed.connect(worker._on_failed)
@@ -687,45 +602,43 @@ class ImportView(QWidget):
     def _set_store_controls_enabled(self, enabled: bool) -> None:
         self._analyze_button.setEnabled(enabled)
         self._sync_button.setEnabled(enabled)
-        self._fitness_import_button.setEnabled(enabled)
-        self._igc_import_button.setEnabled(enabled)
+        self._activity_load_button.setEnabled(enabled)
+        self._activity_reload_button.setEnabled(enabled)
 
-    def _on_store_progress(self, kind: str, current: int, total: int, message: str) -> None:
-        bar = self.fitness_progress if kind == "fitness" else self.igc_progress
+    def _on_store_progress(self, current: int, total: int, message: str) -> None:
         maximum = max(total, 1)
-        bar.setRange(0, maximum)
-        bar.setValue(min(current, maximum))
-        bar.setFormat(f"{message} ({current}/{total})" if total else message)
+        self.activity_progress.setRange(0, maximum)
+        self.activity_progress.setValue(min(current, maximum))
+        self.activity_progress.setFormat(f"{message} ({current}/{total})" if total else message)
 
-    def _on_store_finished(self, kind: str, count: int) -> None:
+    def _on_store_finished(self, count: int) -> None:
         self._busy = False
         self._set_store_controls_enabled(True)
-        title = "Fitnessdaten" if kind == "fitness" else "IGC-Daten"
-        folder = ".FitnessTracks" if kind == "fitness" else ".IGCTracks"
-        label = "GPX" if kind == "fitness" else "IGC"
-        bar = self.fitness_progress if kind == "fitness" else self.igc_progress
+        self._emit_import_after_load = True
+        self.refresh()
         if count:
-            bar.setFormat(f"{count} {label} geschrieben")
+            self.activity_progress.setFormat(f"{count} Dateien geladen")
             QMessageBox.information(
                 self,
-                title,
-                f"{count} {label} nach {folder} im Import-Ordner geschrieben.",
+                "Activity-Daten",
+                f"{count} Dateien nach .ActivityTracks / .IGCTracks geschrieben. "
+                "Fehlende Tracks wurden aus den Ordnern, dem Index und den Karten entfernt.",
             )
-            self._emit_import_after_load = True
-            self.refresh()
             return
-        bar.setFormat(f"Keine {label} im gewählten Zeitraum")
-        QMessageBox.information(self, title, f"Keine {label} im gewählten Zeitraum.")
+        self.activity_progress.setFormat("Keine Tracks im gewählten Zeitraum")
+        QMessageBox.information(
+            self,
+            "Activity-Daten",
+            "Keine Tracks im gewählten Zeitraum. Bereits geladene Spuren der Auswahl wurden entfernt.",
+        )
 
-    def _on_store_failed(self, kind: str, message: str) -> None:
+    def _on_store_failed(self, message: str) -> None:
         self._busy = False
         self._set_store_controls_enabled(True)
-        bar = self.fitness_progress if kind == "fitness" else self.igc_progress
-        bar.setRange(0, 100)
-        bar.setValue(0)
-        bar.setFormat("Fehler")
-        title = "Fitnessdaten" if kind == "fitness" else "IGC-Daten"
-        QMessageBox.warning(self, title, message)
+        self.activity_progress.setRange(0, 100)
+        self.activity_progress.setValue(0)
+        self.activity_progress.setFormat("Fehler")
+        QMessageBox.warning(self, "Activity-Daten", message)
 
     def _start_import(self) -> None:
         path = self._ready_source_path()

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from travelcore.config import DEFAULT_THUMBNAIL_SIZE
 from travelcore.database.models import Project, SourceFile
 from travelcore.exceptions import ProjectError
+from travelcore.gps.fitnesstracks import normalized_path_key
 from travelcore.gps.igc import parse_igc
 
 IGC_TRACKS_DIRNAME = ".IGCTracks"
@@ -37,6 +38,14 @@ def index_igc_file(
     if not path.is_file() or path.suffix.lower() != ".igc":
         return None
     existing = session.scalar(select(SourceFile).where(SourceFile.path == str(path)))
+    if existing is None:
+        key = normalized_path_key(path)
+        for row in session.scalars(
+            select(SourceFile).where(SourceFile.project_id == project.id, SourceFile.filename == path.name)
+        ):
+            if normalized_path_key(Path(row.path)) == key:
+                existing = row
+                break
     if existing is not None:
         return existing
     return _index_and_ingest(session, project, path, project_dir)

@@ -19,16 +19,16 @@ CLI fitnessdb       ──uses──►  packages/fitnesscore   (eigene SQLite, 
 
 Polar-Trainings-JSON, FIT und IGC ingestiert das Reisetagebuch nicht direkt. Dafür ist die
 eigenständige Fitness-Datenbank `packages/fitnesscore` (CLI `python -m fitnesscore`
-bzw. `fitnessdb`). Import aller Polar-JSON-Typen, FIT und IGC in `fitness.sqlite`;
+bzw. `fitnessdb`). Import aller Polar-JSON-Typen, FIT und IGC in `activity.sqlite`;
 Abfrage: GPX (Polar/FIT) nach optionaler Sportart und Datumsbereich; IGC-Abfrage
 liefert die Originaldatei (nicht GPX). Aufruf und
 Parameter: [README.md](../README.md) (Abschnitt *Fitness-Datenbank*),
 [packages/fitnesscore/README.md](../packages/fitnesscore/README.md). Tests:
 `packages/fitnesscore/tests/`. Das Reisetagebuch holt GPX für **Reise von–bis**
-aus diesem Store (Seite **Import** → Fitness-DB bzw. IGC-DB,
-**Fitnessdaten Importieren** / **IGC-Daten Importieren**, Zeitraum vorbefüllt,
+aus diesem Store (Seite **Import** → Activity-Datenbank,
+**Laden…** / **Neu laden**, Zeitraum vorbefüllt, Checkboxen Activity-Tracks/Flüge,
 überschreibbar, jeweils mit Fortschritt) nach
-`{Quellwurzel}/.FitnessTracks/` bzw. `{Quellwurzel}/.IGCTracks/`.
+`{Quellwurzel}/.ActivityTracks/` bzw. `{Quellwurzel}/.IGCTracks/`.
 Scan und Synchronisieren nehmen beide Ordner mit (normale GPS-Dateien, nicht Map-Tracks).
 Tests: `packages/travelcore/tests/test_fitnesstracks.py`,
 `packages/travelcore/tests/test_igctracks.py`,
@@ -65,7 +65,7 @@ in `trips.countries`. Aufruf und Quellen: [README.md](../README.md).
 | --- | --- |
 | `media` | Scan, SHA-256, Indexer, Thumbnails, Galerie, Anzeigedrehung (`orientation`) |
 | `metadata` | Pillow, HEIC-Container, optional ExifTool, Merge |
-| `gps` | GPX/IGC-Parse und Ingest, KML/GeoJSON nur für Vorschauen, zeitliche Interpolation; `track_badge` (**Map** / **Act** / **igc**); Fitness- und IGC-Exportordner `.FitnessTracks/` / `.IGCTracks/` |
+| `gps` | GPX/IGC-Parse und Ingest, KML/GeoJSON nur für Vorschauen, zeitliche Interpolation; `track_badge` (**Map** / **Act** / **igc**); Fitness- und IGC-Exportordner `.ActivityTracks/` / `.IGCTracks/` |
 | `geolocation` | Aufenthaltscluster (Haversine, Radius 150 m) |
 | `timeline` | Tage, Transfers und Aufenthalte als Abschnitte, Mitglieder, Journal-Zeit, Pool (`parked`), Links, Cover, Sichtbarkeit (`hidden`), manuelle Edits, Snapshots zum Wiederherstellen (`history`) |
 | `maps` | `MapScene` + Folium/Leaflet; statische OSM-Ausschnitte für Track-Thumbs |
@@ -105,7 +105,7 @@ meine_reise/
 Map-Tracks liegen nicht im Projektordner, sondern unter `{Quellwurzel}/.MapTracks/`
 im Import-Ordner. Der Scan überspringt diesen Ordner.
 
-Fitness-Tracks aus der Fitness-Datenbank liegen unter `{Quellwurzel}/.FitnessTracks/`.
+Fitness-Tracks aus der Fitness-Datenbank liegen unter `{Quellwurzel}/.ActivityTracks/`.
 IGC-Tracks aus derselben Datenbank liegen unter `{Quellwurzel}/.IGCTracks/`.
 Der Scan nimmt beide mit (Ausnahme bei versteckten Punkt-Ordnern).
 
@@ -141,7 +141,7 @@ Das Menü **Projekt → Zuletzt geöffnet** öffnet Einträge aus `recent.json` 
 Der Fenstertitel lautet `Reisetagebuch R{Version}`
 bzw. `Reisetagebuch R{Version} - {Projekttitel}`. Das Medienregister
 (Timeline und Medienseite) steht in `%LOCALAPPDATA%\TravelJournal\config.json` (`timeline_media_tab`),
-die gemerkten Fitness- und IGC-Datenbankordner (`fitness_db_path`, `igc_db_path`),
+die gemerkte Activity-Datenbank (`activity_db_path`; ältere `fitness_db_path` / `igc_db_path` werden gelesen),
 ebenso die Thumbnail-Schieber (`timeline_thumb_zoom`, `map_thumb_zoom`, `media_thumb_zoom`, `import_thumb_zoom`), die
 eingeklappte linke Navigation (`sidebar_collapsed`), der Medienpool
 (`timeline_pool_visible`, `pool_width`, `inspector_width` / `inspector_height` / `inspector_maximized`, `inspector_show_rejected`),

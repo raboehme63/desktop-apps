@@ -8,11 +8,11 @@ import pytest
 from sqlalchemy import select
 
 from fitnesscore.ingest import import_path
-from fitnesscore.store import init_store
+from fitnesscore.store import init_store, open_store
 from travelcore.database.models import Project, SourceFile
 from travelcore.database.project_store import ProjectStore
 from travelcore.exceptions import ProjectError
-from travelcore.gps.fitnesstracks import FITNESS_TRACKS_DIRNAME
+from travelcore.gps.fitnesstracks import ACTIVITY_TRACKS_DIRNAME
 from travelcore.media.indexer import FileIndexer
 from travelcore.media.purge import plan_source_sync
 from travelcore.project_settings import load_project_settings, save_project_settings
@@ -89,7 +89,7 @@ def test_workspace_import_fitness_tracks_and_rescan(tmp_path: Path) -> None:
     store_dir = _seed_fitness(tmp_path)
     count = workspace.import_fitness_tracks(store_dir)
     assert count == 1
-    files = list((media / FITNESS_TRACKS_DIRNAME).glob("*.gpx"))
+    files = list((media / ACTIVITY_TRACKS_DIRNAME).glob("*.gpx"))
     assert len(files) == 1
     opened = workspace.current
     assert opened is not None
@@ -137,13 +137,13 @@ def test_workspace_import_fitness_uses_date_override(tmp_path: Path) -> None:
         date_to=date(2026, 9, 1),
     )
     assert count == 1
-    assert list((media / FITNESS_TRACKS_DIRNAME).glob("*.gpx"))
+    assert list((media / ACTIVITY_TRACKS_DIRNAME).glob("*.gpx"))
 
 
 def test_workspace_import_fitness_requires_store(tmp_path: Path) -> None:
     workspace, _media = _open_workspace(tmp_path)
     workspace.save_trip_span(date(2026, 8, 1), date(2026, 9, 1))
-    with pytest.raises(ProjectError, match="Fitness-Datenbank"):
+    with pytest.raises(ProjectError, match="Activity-Datenbank"):
         workspace.import_fitness_tracks(tmp_path / "missing-store")
 
 
@@ -156,3 +156,103 @@ def test_workspace_import_fitness_reports_progress(tmp_path: Path) -> None:
     assert count == 1
     assert seen
     assert any("Schreibe" in message or "Indexiere" in message for _, _, message in seen)
+
+
+def test_workspace_reload_drops_stale_activity_tracks(tmp_path: Path) -> None:
+    workspace, media = _open_workspace(tmp_path)
+    workspace.save_trip_span(date(2026, 8, 1), date(2026, 9, 1))
+    store_dir = _seed_fitness(tmp_path)
+    assert workspace.import_activity_tracks(
+        store_dir, include_activities=True, include_flights=False
+    ) == 1
+    files = list((media / ACTIVITY_TRACKS_DIRNAME).glob("*.gpx"))
+    assert len(files) == 1
+    gpx = files[0]
+    opened = workspace.current
+    assert opened is not None
+    with opened.session_factory() as session:
+        assert len(list(session.scalars(select(SourceFile)))) == 1
+    assert (
+        workspace.import_activity_tracks(
+            store_dir,
+            include_activities=True,
+            include_flights=False,
+            date_from=date(2026, 1, 1),
+            date_to=date(2026, 1, 31),
+        )
+        == 0
+    )
+    assert not gpx.exists()
+    with opened.session_factory() as session:
+        assert list(session.scalars(select(SourceFile))) == []
+
+
+def test_workspace_reload_activities_leaves_flights(tmp_path: Path) -> None:
+    from travelcore.gps.igctracks import IGC_TRACKS_DIRNAME
+
+    workspace, media = _open_workspace(tmp_path)
+    workspace.save_trip_span(date(2026, 8, 1), date(2026, 9, 1))
+    store_dir = _seed_fitness(tmp_path)
+    flights = tmp_path / "flights"
+    flights.mkdir()
+    (flights / "flug.igc").write_bytes(
+        (
+            "AXXX FITNESSCORE\n"
+            "HFDTEDATE:290826\n"
+            "HFPLTPILOTINCHARGE:Testpilot\n"
+            "B1231504629881N01121180EA0123401234\n"
+            "B1232104630000N01121600EA0124001240\n"
+        ).encode("ascii")
+    )
+    import_path(open_store(store_dir), flights)
+    assert workspace.import_activity_tracks(store_dir) == 2
+    assert list((media / ACTIVITY_TRACKS_DIRNAME).glob("*.gpx"))
+    assert list((media / IGC_TRACKS_DIRNAME).glob("*.igc"))
+    assert (
+        workspace.import_activity_tracks(
+            store_dir,
+            include_activities=True,
+            include_flights=False,
+            date_from=date(2026, 1, 1),
+            date_to=date(2026, 1, 31),
+        )
+        == 0
+    )
+    assert not list((media / ACTIVITY_TRACKS_DIRNAME).glob("*.gpx"))
+    assert list((media / IGC_TRACKS_DIRNAME).glob("*.igc"))
+    opened = workspace.current
+    assert opened is not None
+    with opened.session_factory() as session:
+        rows = list(session.scalars(select(SourceFile)))
+        assert len(rows) == 1
+        assert rows[0].filename.endswith(".igc") or rows[0].extension == ".igc"
+
+
+def test_workspace_reload_deletes_orphan_files_on_disk(tmp_path: Path) -> None:
+    from travelcore.media.indexer import count_by_kind
+
+    workspace, media = _open_workspace(tmp_path)
+    workspace.save_trip_span(date(2026, 8, 1), date(2026, 9, 1))
+    store_dir = _seed_fitness(tmp_path)
+    assert workspace.import_activity_tracks(
+        store_dir, include_activities=True, include_flights=False
+    ) == 1
+    dest = media / ACTIVITY_TRACKS_DIRNAME
+    orphan = dest / "orphan.gpx"
+    orphan.write_text("<gpx></gpx>", encoding="utf-8")
+    legacy = media / ".FitnessTracks"
+    legacy.mkdir()
+    leftover = legacy / "old.gpx"
+    leftover.write_text("<gpx></gpx>", encoding="utf-8")
+    opened = workspace.current
+    assert opened is not None
+    with opened.session_factory() as session:
+        before = count_by_kind(session, opened.project_id)["act"]
+    assert workspace.import_activity_tracks(
+        store_dir, include_activities=True, include_flights=False
+    ) == 1
+    assert not orphan.exists()
+    assert not leftover.exists()
+    assert list(dest.glob("*.gpx"))
+    with opened.session_factory() as session:
+        assert count_by_kind(session, opened.project_id)["act"] == before == 1

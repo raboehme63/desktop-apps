@@ -12,7 +12,8 @@ from fitnesscore.database.models import Base, Meta
 
 SCHEMA_VERSION = "1"
 _SQLITE_BUSY_TIMEOUT_MS = 30_000
-DB_NAME = "fitness.sqlite"
+DB_NAME = "activity.sqlite"
+LEGACY_DB_NAME = "fitness.sqlite"
 
 
 def sqlite_url(db_path: Path) -> str:

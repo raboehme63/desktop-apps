@@ -185,6 +185,44 @@ def clear_transfer_track_refs(session: Session, source_file_ids: list[int]) -> N
     )
 
 
+def drop_track_usages(session: Session, source_file_ids: list[int]) -> None:
+    """Remove connection lines that pointed at deleted tracks. No replacement track."""
+
+    ids = [item for item in dict.fromkeys(source_file_ids) if item]
+    if not ids:
+        return
+    section_ids = list(
+        dict.fromkeys(
+            session.scalars(
+                select(TransferLink.section_id).where(TransferLink.track_source_file_id.in_(ids))
+            )
+        )
+    )
+    session.execute(delete(TransferLink).where(TransferLink.track_source_file_id.in_(ids)))
+    session.flush()
+    for section_id in section_ids:
+        remaining = list(load_transfer_links(session, section_id))
+        save_transfer_links(session, section_id, remaining)
+    session.execute(
+        update(TripSection)
+        .where(
+            TripSection.outbound_track_source_file_id.in_(ids),
+            TripSection.outbound_geometry == LINK_GEOMETRY_MAP_TRACK,
+        )
+        .values(
+            outbound_track_source_file_id=None,
+            outbound_geometry=None,
+            outbound_dash=None,
+            outbound_symbol=None,
+        )
+    )
+    session.execute(
+        update(TripSection)
+        .where(TripSection.outbound_track_source_file_id.in_(ids))
+        .values(outbound_track_source_file_id=None)
+    )
+
+
 def _normalize_spec(item: TransferLinkSpec | TimelineLink) -> TransferLinkSpec:
     geometry = parse_geometry(item.geometry)
     track_id = item.track_source_file_id if uses_track_points(geometry) else None

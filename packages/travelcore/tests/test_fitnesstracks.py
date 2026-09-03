@@ -8,9 +8,9 @@ from travelcore.database.models import GpsPoint, Project, SourceFile
 from travelcore.database.project_store import OpenProject
 from travelcore.exceptions import ProjectError
 from travelcore.gps.fitnesstracks import (
-    FITNESS_TRACKS_DIRNAME,
+    ACTIVITY_TRACKS_DIRNAME,
     index_fitness_gpx_file,
-    is_fitness_track_path,
+    is_activity_track_path,
 )
 from travelcore.gps.track_badge import TRACK_BADGE_ACT
 from travelcore.media.gallery import list_gallery_items
@@ -25,18 +25,19 @@ def _media_root(tmp_path: Path) -> Path:
     return root
 
 
-def test_is_fitness_track_path() -> None:
-    assert is_fitness_track_path(Path("D:/fotos/.FitnessTracks/ride.gpx"))
-    assert is_fitness_track_path(Path("D:/fotos/.fitnesstracks/ride.gpx"))
-    assert not is_fitness_track_path(Path("D:/fotos/.MapTracks/Map-Track.gpx"))
-    assert not is_fitness_track_path(Path("D:/fotos/tag1/track.gpx"))
+def test_is_activity_track_path() -> None:
+    assert is_activity_track_path(Path("D:/fotos/.ActivityTracks/ride.gpx"))
+    assert is_activity_track_path(Path("D:/fotos/.FitnessTracks/ride.gpx"))
+    assert is_activity_track_path(Path("D:/fotos/.fitnesstracks/ride.gpx"))
+    assert not is_activity_track_path(Path("D:/fotos/.MapTracks/Map-Track.gpx"))
+    assert not is_activity_track_path(Path("D:/fotos/tag1/track.gpx"))
 
 
 def test_fitness_track_is_indexed_scanned_and_in_gallery(
     open_project: OpenProject, tmp_path: Path
 ) -> None:
     media = _media_root(tmp_path)
-    dest_dir = media / FITNESS_TRACKS_DIRNAME
+    dest_dir = media / ACTIVITY_TRACKS_DIRNAME
     dest_dir.mkdir(parents=True)
     dest = write_gpx(
         dest_dir / "ride.gpx",
@@ -57,8 +58,8 @@ def test_fitness_track_is_indexed_scanned_and_in_gallery(
         assert row is not None
         source_id = row.id
         assert row.parked is False
-        assert is_fitness_track_path(row.path)
-        assert Path(row.path).parent == media / FITNESS_TRACKS_DIRNAME
+        assert is_activity_track_path(row.path)
+        assert Path(row.path).parent == media / ACTIVITY_TRACKS_DIRNAME
         points = list(session.scalars(select(GpsPoint)))
         assert len(points) >= 2
         thumbs = open_project.directory / "thumbnails"
@@ -102,7 +103,7 @@ def test_fitness_track_is_indexed_scanned_and_in_gallery(
 
 def test_empty_fitness_gpx_is_rejected(open_project: OpenProject, tmp_path: Path) -> None:
     media = _media_root(tmp_path)
-    dest_dir = media / FITNESS_TRACKS_DIRNAME
+    dest_dir = media / ACTIVITY_TRACKS_DIRNAME
     dest_dir.mkdir(parents=True)
     dest = dest_dir / "empty.gpx"
     dest.write_text(
@@ -122,3 +123,29 @@ def test_empty_fitness_gpx_is_rejected(open_project: OpenProject, tmp_path: Path
             )
         session.rollback()
         assert session.scalar(select(SourceFile)) is None
+
+
+def test_unlink_unwanted_files_clears_dest_orphans_and_legacy(tmp_path: Path) -> None:
+    from travelcore.gps.fitnesstracks import (
+        LEGACY_ACTIVITY_TRACKS_DIRNAME,
+        unlink_unwanted_files,
+    )
+
+    dest = tmp_path / ACTIVITY_TRACKS_DIRNAME
+    dest.mkdir()
+    keep = dest / "keep.gpx"
+    keep.write_text("keep", encoding="utf-8")
+    orphan = dest / "orphan.gpx"
+    orphan.write_text("gone", encoding="utf-8")
+    legacy = tmp_path / LEGACY_ACTIVITY_TRACKS_DIRNAME
+    legacy.mkdir()
+    (legacy / "keep.gpx").write_text("dup", encoding="utf-8")
+    (legacy / "old.gpx").write_text("old", encoding="utf-8")
+    removed = unlink_unwanted_files(
+        [dest, legacy], dest=dest, wanted_names={"keep.gpx"}, suffix=".gpx"
+    )
+    assert keep.exists()
+    assert not orphan.exists()
+    assert not (legacy / "keep.gpx").exists()
+    assert not (legacy / "old.gpx").exists()
+    assert removed == 3

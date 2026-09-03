@@ -115,15 +115,20 @@ def test_store_db_paths_persist(tmp_path: Path, monkeypatch) -> None:  # noqa: A
 
     monkeypatch.setattr(workspace_mod, "_UI_CONFIG_PATH", tmp_path / "config.json")
     workspace = Workspace()
-    assert workspace.fitness_db_path() == ""
-    assert workspace.igc_db_path() == ""
-    workspace.set_fitness_db_path(str(tmp_path / "Fitness"))
-    workspace.set_igc_db_path(str(tmp_path / "IGC"))
+    assert workspace.activity_db_path() == ""
+    db_file = tmp_path / "Fitness" / "activity.sqlite"
+    workspace.set_activity_db_path(str(db_file))
     again = Workspace()
-    assert again.fitness_db_path() == str(tmp_path / "Fitness")
-    assert again.igc_db_path() == str(tmp_path / "IGC")
-    again.set_fitness_db_path("  ")
-    assert again.fitness_db_path() == ""
+    assert again.activity_db_path() == str(db_file)
+    again.set_activity_db_path("  ")
+    assert again.activity_db_path() == ""
+    folder = tmp_path / "Legacy"
+    folder.mkdir()
+    (folder / "fitness.sqlite").write_bytes(b"")
+    again.set_activity_db_path(str(folder))
+    loaded = Workspace()
+    assert loaded.activity_db_path().endswith("fitness.sqlite")
+    assert workspace.activity_load_kinds() == (True, True)
 
 
 def test_sidebar_collapsed_persists(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001

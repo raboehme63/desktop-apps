@@ -98,7 +98,7 @@ def test_workspace_import_igc_requires_trip_span(tmp_path: Path) -> None:
 def test_workspace_import_igc_requires_store(tmp_path: Path) -> None:
     workspace, _media = _open_workspace(tmp_path)
     workspace.save_trip_span(date(2026, 8, 1), date(2026, 9, 1))
-    with pytest.raises(ProjectError, match="IGC-Datenbank"):
+    with pytest.raises(ProjectError, match="Activity-Datenbank"):
         workspace.import_igc_tracks(tmp_path / "missing-store")
 
 
@@ -111,3 +111,24 @@ def test_workspace_import_igc_reports_progress(tmp_path: Path) -> None:
     assert count == 1
     assert seen
     assert any("Schreibe" in message or "Indexiere" in message for _, _, message in seen)
+
+
+def test_workspace_reload_deletes_orphan_igc_on_disk(tmp_path: Path) -> None:
+    from travelcore.media.indexer import count_by_kind
+
+    workspace, media = _open_workspace(tmp_path)
+    workspace.save_trip_span(date(2026, 8, 1), date(2026, 9, 1))
+    store_dir = _seed_igc_store(tmp_path)
+    assert workspace.import_igc_tracks(store_dir) == 1
+    dest = media / IGC_TRACKS_DIRNAME
+    orphan = dest / "orphan.igc"
+    orphan.write_text("AXXX\n", encoding="ascii")
+    opened = workspace.current
+    assert opened is not None
+    with opened.session_factory() as session:
+        before = count_by_kind(session, opened.project_id)["flights"]
+    assert workspace.import_igc_tracks(store_dir) == 1
+    assert not orphan.exists()
+    assert list(dest.glob("*.igc"))
+    with opened.session_factory() as session:
+        assert count_by_kind(session, opened.project_id)["flights"] == before == 1
